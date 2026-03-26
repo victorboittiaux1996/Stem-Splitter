@@ -48,8 +48,8 @@ const PINNED_ITEMS: { id: SidebarView; icon: LucideIcon; label: string }[] = [
 ];
 
 const VERSIONS = [
-  { href: "/", label: "ElevenLabs" },
-  { href: "/ableton", label: "Ableton" },
+  { href: "/", label: "Ableton" },
+  { href: "/elevenlabs", label: "ElevenLabs" },
 ];
 
 export function Sidebar({ activeView, onViewChange, theme: t, fontStyle, onFontChange }: SidebarProps) {

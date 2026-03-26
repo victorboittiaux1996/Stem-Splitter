@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Job } from "@/lib/types";
 
-const POLL_INTERVAL = 2000; // 2 seconds
+const POLL_INTERVAL = 1000; // 1 second
 
 export function useJobStatus(jobId: string | null) {
   const [job, setJob] = useState<Job | null>(null);

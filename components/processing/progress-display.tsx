@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
 interface ProgressDisplayProps {
@@ -8,45 +8,40 @@ interface ProgressDisplayProps {
   stage: string;
 }
 
-const ESTIMATED_TOTAL_SECONDS = 90; // ~90s on A100
-
 export function ProgressDisplay({ progress, stage }: ProgressDisplayProps) {
-  const [displayProgress, setDisplayProgress] = useState(progress);
-  const [startTime] = useState(Date.now());
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // History of { pct, ts } to compute real-time speed for ETA
+  const history = useRef<{ pct: number; ts: number }[]>([]);
 
-  // Smooth progress interpolation when stuck at a value
   useEffect(() => {
-    if (progress >= 100) {
-      setDisplayProgress(100);
-      return;
+    const now = Date.now();
+    const last = history.current.at(-1);
+    // Only record when progress actually moves
+    if (!last || last.pct !== progress) {
+      history.current.push({ pct: progress, ts: now });
+      // Keep only the last 10 data points (≤10s of history)
+      if (history.current.length > 10) history.current.shift();
     }
+  }, [progress]);
 
-    // If real progress updates, use it
-    if (progress > displayProgress) {
-      setDisplayProgress(progress);
-      return;
-    }
+  const formatEta = (): string | null => {
+    if (progress >= 100 || history.current.length < 2) return null;
 
-    // Otherwise, simulate progress based on elapsed time
-    const interval = setInterval(() => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      setElapsedSeconds(elapsed);
+    const now = Date.now();
+    // Find a reference point ~5s ago (or oldest available)
+    const ref =
+      history.current.find((p) => now - p.ts >= 5000) ?? history.current[0];
+    const latest = history.current.at(-1)!;
 
-      // Simulate progress: starts fast, slows down approaching 90%
-      const simulated = Math.min(90, 15 + (75 * elapsed) / ESTIMATED_TOTAL_SECONDS);
-      setDisplayProgress(Math.max(progress, simulated));
-    }, 500);
+    const deltaPct = latest.pct - ref.pct;
+    const deltaMs = latest.ts - ref.ts;
 
-    return () => clearInterval(interval);
-  }, [progress, startTime, displayProgress]);
+    if (deltaPct <= 0 || deltaMs <= 0) return null;
 
-  const remainingSeconds = Math.max(
-    0,
-    Math.round(ESTIMATED_TOTAL_SECONDS - elapsedSeconds)
-  );
+    const pctPerMs = deltaPct / deltaMs;
+    const remainingMs = (100 - progress) / pctPerMs;
+    const s = Math.round(remainingMs / 1000);
 
-  const formatRemaining = (s: number) => {
+    if (s <= 0) return null;
     if (s > 60) {
       const min = Math.floor(s / 60);
       const sec = s % 60;
@@ -55,11 +50,13 @@ export function ProgressDisplay({ progress, stage }: ProgressDisplayProps) {
     return `~${s}s remaining`;
   };
 
+  const eta = formatEta();
+
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-6">
       {/* Percentage */}
       <div className="font-heading text-6xl font-bold tabular-nums">
-        {Math.floor(displayProgress)}
+        {Math.floor(progress)}
         <span className="text-3xl text-muted-foreground">%</span>
       </div>
 
@@ -67,18 +64,16 @@ export function ProgressDisplay({ progress, stage }: ProgressDisplayProps) {
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted/30">
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-primary to-violet-400"
-          animate={{ width: `${displayProgress}%` }}
+          animate={{ width: `${progress}%` }}
           transition={{ duration: 0.5, ease: "easeOut" }}
         />
       </div>
 
-      {/* Stage + time remaining */}
+      {/* Stage + ETA */}
       <div className="flex flex-col items-center gap-1">
         <p className="text-sm text-muted-foreground">{stage}</p>
-        {displayProgress < 100 && (
-          <p className="text-xs text-muted-foreground/60 tabular-nums">
-            {formatRemaining(remainingSeconds)}
-          </p>
+        {eta && (
+          <p className="text-xs text-muted-foreground/60 tabular-nums">{eta}</p>
         )}
       </div>
     </div>

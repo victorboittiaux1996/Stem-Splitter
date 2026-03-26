@@ -1,3 +1,8 @@
 audio-separator[gpu]==0.42.1
 boto3>=1.34.0
 modal>=0.64.0
+librosa>=0.10.0
+essentia>=2.1b6
+nnAudio==0.3.3
+einops>=0.7.0
+yt-dlp>=2025.3.0

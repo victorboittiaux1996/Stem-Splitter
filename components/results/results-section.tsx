@@ -5,14 +5,15 @@ import { motion } from "framer-motion";
 import { Download, Loader2, CheckCircle2 } from "lucide-react";
 import { MultiTrackPlayer } from "./multi-track-player";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
-import type { StemDownload } from "@/lib/types";
+import type { Job, StemDownload } from "@/lib/types";
 
 interface ResultsSectionProps {
   jobId: string;
   stems: StemDownload[];
+  job?: Job | null;
 }
 
-export function ResultsSection({ jobId, stems }: ResultsSectionProps) {
+export function ResultsSection({ jobId, stems, job }: ResultsSectionProps) {
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   const downloadAll = async () => {
@@ -61,6 +62,25 @@ export function ResultsSection({ jobId, stems }: ResultsSectionProps) {
         <p className="text-sm text-muted-foreground">
           {stems.length} stems ready — solo, mute, and compare
         </p>
+        {job && (job.bpm != null || job.key != null) && (
+          <div className="flex items-center gap-2 mt-1">
+            {job.bpm != null && (
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                {job.bpm} BPM
+              </span>
+            )}
+            {job.key != null && (
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground" title={job.key_raw || undefined}>
+                {job.key}
+              </span>
+            )}
+            {job.key_raw && job.key_raw !== job.key && (
+              <span className="text-xs text-muted-foreground/60">
+                ({job.key_raw})
+              </span>
+            )}
+          </div>
+        )}
       </motion.div>
 
       {/* Multi-track player */}

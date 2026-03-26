@@ -83,7 +83,7 @@ export default function ProcessingPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
-              <ResultsSection jobId={jobId} stems={stems} />
+              <ResultsSection jobId={jobId} stems={stems} job={job} />
             </motion.div>
           )}
 
