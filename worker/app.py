@@ -90,7 +90,7 @@ def _make_tqdm_hook(start_pct, end_pct, callback_url, stage):
     return patched, _orig
 
 
-@app.function(image=image, gpu="H100", timeout=600)
+@app.function(image=image, gpu="H100", timeout=600, secrets=[modal.Secret.from_name("r2-credentials")])
 @modal.web_endpoint(method="POST")
 def separate(request: dict):
     """Process a stem separation job.

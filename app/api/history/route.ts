@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
-import { readdir, readFile } from "fs/promises";
-import { join } from "path";
+import {
+  S3Client,
+  ListObjectsV2Command,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 
-const JOB_DIR = join(process.cwd(), ".jobs");
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+const BUCKET = process.env.R2_BUCKET_NAME || "stem-splitter-storage";
 
 function relativeDate(ts: number): string {
   const diff = Date.now() - ts;
@@ -19,20 +30,24 @@ function relativeDate(ts: number): string {
 
 export async function GET() {
   try {
-    let dirs: string[] = [];
-    try {
-      dirs = await readdir(JOB_DIR);
-    } catch {
-      // .jobs doesn't exist yet
-      return NextResponse.json({ jobs: [] });
-    }
+    const list = await s3.send(
+      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: "jobs/" })
+    );
+
+    const keys = (list.Contents ?? [])
+      .map((o) => o.Key!)
+      .filter((k) => k.endsWith(".json"));
 
     const jobs = (
       await Promise.all(
-        dirs.map(async (id) => {
+        keys.map(async (key) => {
           try {
-            const raw = await readFile(join(JOB_DIR, id, "job.json"), "utf-8");
-            const job = JSON.parse(raw);
+            const res = await s3.send(
+              new GetObjectCommand({ Bucket: BUCKET, Key: key })
+            );
+            const text = await res.Body?.transformToString();
+            if (!text) return null;
+            const job = JSON.parse(text);
             if (job.status !== "completed") return null;
             return job;
           } catch {
