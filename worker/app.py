@@ -57,16 +57,15 @@ def download_from_url(url: str, output_dir: str) -> str:
     raise Exception(f"Failed to download audio from {url}")
 
 
-def _make_tqdm_hook(start_pct, end_pct, callback_url, stage):
-    """Monkey-patch tqdm.update to POST real chunk-level progress to Next.js.
+def _make_tqdm_hook(start_pct, end_pct, job_id, stage):
+    """Monkey-patch tqdm.update to write real progress directly to R2.
 
     Throttled to 1 write/s. Maps the model's 0→100% chunk progress onto [start_pct, end_pct].
-    callback_url: PATCH /api/jobs/{jobId} on the Next.js server.
+    Writes directly to R2 so the frontend GET polling sees real values immediately.
     """
     import time as _t
-    import urllib.request as _urllib
-    import json as _json
     from tqdm import tqdm as _tqdm
+    from storage import update_job_status
 
     _last_write = [0.0]
     _orig = _tqdm.update
@@ -79,13 +78,9 @@ def _make_tqdm_hook(start_pct, end_pct, callback_url, stage):
             if now - _last_write[0] >= 1.0:
                 _last_write[0] = now
                 try:
-                    body = _json.dumps({"progress": real_pct, "stage": stage}).encode()
-                    req = _urllib.Request(callback_url, data=body,
-                                         headers={"Content-Type": "application/json"},
-                                         method="PATCH")
-                    _urllib.urlopen(req, timeout=2)
+                    update_job_status(job_id, "processing", progress=real_pct, stage=stage)
                 except Exception:
-                    pass  # never let a callback failure kill the job
+                    pass  # never let a progress write failure kill the job
 
     return patched, _orig
 
@@ -151,10 +146,10 @@ def separate(request: dict):
         sep_v = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9)
         sep_v.load_model(model_filename=VOCAL_MODEL)
         start = time.time()
-        if callback_url:
+        if input_key:
             from tqdm import tqdm as _tqdm
             _end_pct = 85 if mode == "2stem" else 50
-            _patched, _orig = _make_tqdm_hook(10, _end_pct, callback_url, "Extracting vocals")
+            _patched, _orig = _make_tqdm_hook(10, _end_pct, job_id, "Extracting vocals")
             _tqdm.update = _patched
             try:
                 sep_v.separate(input_path)
@@ -187,9 +182,9 @@ def separate(request: dict):
             sep_i = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9)
             sep_i.load_model(model_filename=INSTRUMENT_MODEL)
             start = time.time()
-            if callback_url:
+            if input_key:
                 from tqdm import tqdm as _tqdm
-                _patched, _orig = _make_tqdm_hook(50, 85, callback_url, "Extracting instruments")
+                _patched, _orig = _make_tqdm_hook(50, 85, job_id, "Extracting instruments")
                 _tqdm.update = _patched
                 try:
                     sep_i.separate(input_path)
