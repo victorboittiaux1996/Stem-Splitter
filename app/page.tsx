@@ -3,8 +3,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Sparkles, ChevronDown, ChevronRight, ChevronLeft,
-  Play, Pause, Sun, Moon, Bell, Palette, Layers, ChevronsUpDown,
-  HelpCircle, Search, X, AudioLines, Monitor,
+  Play, Pause, Palette, Layers, ChevronsUpDown,
+  Search, X, AudioLines,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Waveform } from "@/components/dashboard/waveform";
@@ -12,7 +12,7 @@ import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
 import type { Job, StemDownload } from "@/lib/types";
 import { prefetchStemPeaks } from "@/components/stem-variants";
-import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiComputerFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiBellFill, RiComputerFill, RiTvFill, RiMacbookFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
 // ─── Types ───────────────────────────────────────────────────
@@ -187,7 +187,6 @@ export default function AbletonDashboard() {
   const stemColors = isColorful ? STEM_COLORS_POP : STEM_COLORS_CLASSIC;
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [listStyle, setListStyle] = useState<1 | 2 | 3>(2);
 
   // Load history from API on mount
   useEffect(() => {
@@ -790,10 +789,10 @@ export default function AbletonDashboard() {
             <div className="w-[1px] h-[16px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
             <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
               className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
-              {themeMode === "system" ? <RiComputerFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
+              {themeMode === "system" ? <RiMacbookFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
             </button>
             <button className="p-[8px]" style={{ color: C.textSec }}>
-              <RiNotificationFill size={16}/>
+              <RiBellFill size={16}/>
             </button>
             <div className="flex h-[26px] w-[26px] items-center justify-center" style={{ backgroundColor: isColorful ? "#FF2D55" : C.accent }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
@@ -1010,18 +1009,7 @@ export default function AbletonDashboard() {
 
                     {/* Recent splits */}
                     <div style={{ marginTop: 40 }}>
-                      <div className="flex items-center justify-between" style={{ marginBottom: 20 }}>
-                        <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>Recent splits</h2>
-                        <div className="flex items-center gap-[2px]">
-                          {([1, 2, 3] as const).map(v => (
-                            <button key={v} onClick={() => setListStyle(v)}
-                              className="px-[8px] py-[3px] text-[11px] font-semibold transition-colors"
-                              style={{ color: listStyle === v ? C.text : C.textMuted, backgroundColor: listStyle === v ? C.bgHover : "transparent", letterSpacing: "0.04em" }}>
-                              V{v}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                      <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 20, color: C.text }}>Recent splits</h2>
 
                       <div style={{ backgroundColor: C.bgCard }}>
                         <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
@@ -1038,31 +1026,21 @@ export default function AbletonDashboard() {
                           <div key={item.id}
                             className="flex items-center px-[16px] cursor-pointer transition-colors"
                             style={{
-                              paddingTop: listStyle === 3 ? 10 : 14,
-                              paddingBottom: listStyle === 3 ? 10 : 14,
-                              borderBottom: listStyle === 3 ? "none" : i < history.length - 1 ? `1px solid ${listStyle === 1 ? C.bgHover : `${C.text}08`}` : undefined,
+                              borderBottom: i < history.length - 1 ? `1px solid ${C.text}08` : undefined,
                             }}
-                            onMouseEnter={listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = C.bgHover; } : undefined}
-                            onMouseLeave={listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = ""; } : undefined}
                             onClick={() => setExpandedFile(item.id)}>
-                            <div className="flex items-center flex-1 min-w-0" style={{ gap: listStyle === 3 ? 10 : 12 }}>
-                              <div className="flex items-center justify-center shrink-0"
-                                style={{
-                                  height: listStyle === 3 ? 30 : 36,
-                                  width: listStyle === 3 ? 30 : 36,
-                                  backgroundColor: C.bgHover,
-                                  borderRadius: listStyle === 3 ? "50%" : 0,
-                                }}>
-                                <AudioLines style={{ width: listStyle === 3 ? 13 : 15, height: listStyle === 3 ? 13 : 15, color: C.textMuted }} strokeWidth={1.4} />
+                            <div className="flex items-center gap-[12px] flex-1 min-w-0">
+                              <div className="flex h-[36px] w-[36px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgHover }}>
+                                <AudioLines className="h-[15px] w-[15px]" style={{ color: C.textMuted }} strokeWidth={1.4} />
                               </div>
                               <div className="min-w-0">
-                                <p style={{ fontSize: listStyle === 3 ? 14 : 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
-                                <p style={{ fontSize: 13, color: C.textMuted, marginTop: listStyle === 3 ? 0 : 1 }}>{item.date} · {item.stems} stems</p>
+                                <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
+                                <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
-                              <span style={{ fontSize: listStyle === 3 ? 10 : 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: listStyle === 3 ? "2px 5px" : "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
-                              <span style={{ fontSize: listStyle === 3 ? 10 : 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: listStyle === 3 ? "2px 5px" : "2px 6px" }}>{item.key}</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span>
                             </div>
                             <span className="w-[80px] text-right" style={{ fontSize: 15, color: C.textMuted }}>{item.duration ?? "—"}</span>
                             <span className="w-[80px] text-right" style={{ fontSize: 15, color: C.textMuted }}>{item.format.toUpperCase()}</span>
@@ -1202,13 +1180,13 @@ export default function AbletonDashboard() {
                         <div key={item.id}
                           className="flex items-center px-[16px] cursor-pointer transition-colors"
                           style={{
-                            paddingTop: listStyle === 3 ? 10 : 14,
-                            paddingBottom: listStyle === 3 ? 10 : 14,
-                            ...(listStyle === 3 ? {} : i < sorted.length - 1 ? { borderBottom: `1px solid ${listStyle === 1 ? C.bgHover : `${C.text}08`}` } : {}),
+                            paddingTop: 14,
+                            paddingBottom: 14,
+                            ...(i < sorted.length - 1 ? { borderBottom: `1px solid ${`${C.text}08`}` } : {}),
                             backgroundColor: exportMode ? (isTrackSelected ? (isDark ? C.bgHover : C.bgCard) : (isDark ? "transparent" : C.bgSubtle)) : undefined,
                           }}
-                          onMouseEnter={!exportMode && listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = C.bgHover; } : undefined}
-                          onMouseLeave={!exportMode && listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = ""; } : undefined}
+                          
+                          
                           onClick={() => exportMode ? toggleTrack(item.id) : setExpandedFile(item.id)}>
                           {exportMode && (
                             <button onClick={(e) => { e.stopPropagation(); toggleTrack(item.id); }} className="w-[28px] shrink-0 flex items-center">
@@ -1217,27 +1195,27 @@ export default function AbletonDashboard() {
                                 : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.08"/></svg>}
                             </button>
                           )}
-                          <div className="flex items-center flex-1 min-w-0" style={{ gap: listStyle === 3 ? 10 : 12 }}>
+                          <div className="flex items-center flex-1 min-w-0" style={{ gap: 12 }}>
                             <div className="flex items-center justify-center shrink-0"
                               style={{
-                                height: listStyle === 1 ? 36 : listStyle === 2 ? 32 : 30,
-                                width: listStyle === 1 ? 36 : listStyle === 2 ? 32 : 30,
+                                height: 36,
+                                width: 36,
                                 backgroundColor: C.bgHover,
-                                borderRadius: listStyle === 3 ? "50%" : 0,
+                                borderRadius: 0,
                               }}>
-                              <AudioLines style={{ width: listStyle === 3 ? 13 : 15, height: listStyle === 3 ? 13 : 15, color: C.textMuted }} strokeWidth={1.4} />
+                              <AudioLines style={{ width: 15, height: 15, color: C.textMuted }} strokeWidth={1.4} />
                             </div>
                             <div className="min-w-0">
-                              <p style={{ fontSize: listStyle === 3 ? 14 : 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
-                              <p style={{ fontSize: 13, color: C.textMuted, marginTop: listStyle === 3 ? 0 : 1 }}>{item.date} · {item.stems} stems</p>
+                              <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
+                              <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
-                            <span style={{ fontSize: listStyle === 3 ? 10 : 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: listStyle === 3 ? "2px 5px" : "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
-                            <span style={{ fontSize: listStyle === 3 ? 10 : 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: listStyle === 3 ? "2px 5px" : "2px 6px" }}>{item.key}</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span>
                           </div>
-                          <span className="w-[80px] text-right" style={{ fontSize: listStyle === 3 ? 14 : 15, color: C.textMuted }}>{item.duration ?? "—"}</span>
-                          <span className="w-[80px] text-right" style={{ fontSize: listStyle === 3 ? 14 : 15, color: C.textMuted }}>{item.format.toUpperCase()}</span>
+                          <span className="w-[80px] text-right" style={{ fontSize: 15, color: C.textMuted }}>{item.duration ?? "—"}</span>
+                          <span className="w-[80px] text-right" style={{ fontSize: 15, color: C.textMuted }}>{item.format.toUpperCase()}</span>
                           <div className="flex items-center justify-end gap-[2px] w-[72px]">
                             <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
                               <RiDownloadFill size={14}/>
