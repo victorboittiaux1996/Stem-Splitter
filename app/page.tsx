@@ -202,6 +202,11 @@ export default function AbletonDashboard() {
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
+  // rAF smooth progress — target receives real values, display advances at 1%/s max
+  const progressTargetRef = useRef(0);
+  const progressDisplayRef = useRef(0);
+  const progressRafRef = useRef<number>(0);
+  const progressLastTickRef = useRef<number>(0);
   const [activeGame, setActiveGame] = useState("");
   // URL input variations
   const [urlInput, setUrlInput] = useState("");
@@ -290,6 +295,7 @@ export default function AbletonDashboard() {
     if (!file && !isValidUrl) return;
     setAppState("processing");
     setProgress(0);
+    progressTargetRef.current = 0; progressDisplayRef.current = 0;
     setStage(isValidUrl ? "Downloading audio..." : STAGES[0]);
     setUploadError(null);
     setCurrentJob(null);
@@ -332,7 +338,10 @@ export default function AbletonDashboard() {
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.upload.addEventListener("progress", (e) => {
-            if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 80));
+            if (e.lengthComputable) {
+              const p = Math.round((e.loaded / e.total) * 20);
+              progressTargetRef.current = p;
+            }
           });
           xhr.addEventListener("load", () => { xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload error (${xhr.status})`)); });
           xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
@@ -353,6 +362,7 @@ export default function AbletonDashboard() {
           try { const d = await confirmRes.json(); msg = d.error || msg; } catch { /* non-JSON */ }
           throw new Error(msg);
         }
+        progressTargetRef.current = 22;
         setJobId(id);
       } else {
         return;
@@ -367,6 +377,26 @@ export default function AbletonDashboard() {
     setFile(null); setAppState("idle"); setProgress(0); setStage("");
     setIsPlaying(false); setCurrentTime(0); setSoloTrack(null); setMutedTracks(new Set());
     setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null);
+    progressTargetRef.current = 0; progressDisplayRef.current = 0;
+  }, []);
+
+  // rAF loop — advances progress at 1%/s max, 10%/s on completion
+  useEffect(() => {
+    const tick = (now: number) => {
+      const elapsed = progressLastTickRef.current ? now - progressLastTickRef.current : 16;
+      progressLastTickRef.current = now;
+      const target = progressTargetRef.current;
+      const current = progressDisplayRef.current;
+      if (current < target) {
+        const speed = target >= 100 ? 10 : 1; // %/s
+        const step = Math.min((elapsed / 1000) * speed, target - current);
+        progressDisplayRef.current = current + step;
+        setProgress(Math.floor(progressDisplayRef.current));
+      }
+      progressRafRef.current = requestAnimationFrame(tick);
+    };
+    progressRafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(progressRafRef.current);
   }, []);
 
   // Poll job status when jobId is set
@@ -384,7 +414,9 @@ export default function AbletonDashboard() {
         const job: Job = await res.json();
         if (cancelled) return;
         setCurrentJob(job);
-        setProgress(job.progress);
+        // Remap worker progress (0→100) onto display range (22→100)
+        const mapped = job.status === "completed" ? 100 : Math.round(22 + (job.progress / 100) * 78);
+        if (mapped > progressTargetRef.current) progressTargetRef.current = mapped;
         if (job.stage) setStage(job.stage);
 
         if (job.status === "completed") {
@@ -1456,7 +1488,7 @@ function ProcessingSection({ progress, activeAgentIdx, C, isColorful }: {
             <span style={{ fontSize: 64, fontWeight: 700, letterSpacing: 0, fontKerning: "none", color: C.text }}>{Math.floor(progress)}</span>
             <span style={{ fontSize: 28, fontWeight: 700, color: C.textMuted }}>%</span>
           </div>
-          <p style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.12em", ...shimmerStyle }}>
+          <p key={`shimmer-${C.text}`} style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.12em", ...shimmerStyle }}>
             {shimmerMsg}
           </p>
         </div>
