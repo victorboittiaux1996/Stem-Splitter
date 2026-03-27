@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
+import { toast } from "sonner";
 import { Sidebar, type SidebarView } from "@/components/dashboard/sidebar";
 import {
   SettingsPanel,
@@ -27,6 +29,7 @@ import {
   Waves,
   ChevronDown,
   AudioLines,
+  Square,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -88,6 +91,7 @@ export default function Dashboard() {
   const [stemsOpen, setStemsOpen] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { isRecording, elapsedSeconds, start: startRecording, stop: stopRecording } = useAudioRecorder();
   const extraRef = useRef<HTMLDivElement>(null);
   const stemsRef = useRef<HTMLDivElement>(null);
   const formatRef = useRef<HTMLDivElement>(null);
@@ -150,6 +154,20 @@ export default function Dashboard() {
     setProgress(0);
     setStage("");
   }, []);
+
+  const handleStartRecording = useCallback(async () => {
+    if (file) { setFile(null); setAppState("idle"); }
+    try {
+      await startRecording();
+    } catch {
+      toast.error("Microphone access denied", { description: "Allow microphone access in your browser settings." });
+    }
+  }, [startRecording, file]);
+
+  const handleStopRecording = useCallback(async () => {
+    const recorded = await stopRecording();
+    handleFileSelect(recorded);
+  }, [stopRecording, handleFileSelect]);
 
   const showSettingsPanel =
     layoutMode === "panel" &&
@@ -254,15 +272,15 @@ export default function Dashboard() {
 
                       {/* Drop zone — wide, subtle grey bg like sidebar */}
                       <div
-                        onClick={() => !file && document.getElementById("inline-file-input")?.click()}
+                        onClick={() => !file && !isRecording && document.getElementById("inline-file-input")?.click()}
                         className="flex items-center justify-center transition-all duration-150 rounded-[16px]"
                         style={{
                           minHeight: 160,
                           border: `1px solid ${C.border}`,
                           backgroundColor: "#FAFAFA",
-                          cursor: file ? "default" : "pointer",
+                          cursor: file || isRecording ? "default" : "pointer",
                         }}>
-                        <input id="inline-file-input" type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
+                        <input id="inline-file-input" type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.webm"
                           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); }} />
                         {file ? (
                           <div className="flex flex-col items-center gap-[8px]">
@@ -273,6 +291,15 @@ export default function Dashboard() {
                               style={{ fontSize: 12, color: C.textMuted }}>
                               <Trash2 className="h-[11px] w-[11px]" /> Remove
                             </button>
+                          </div>
+                        ) : isRecording ? (
+                          <div className="flex items-center gap-[10px]">
+                            <span className="relative flex h-[10px] w-[10px]">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex h-[10px] w-[10px] rounded-full bg-red-500" />
+                            </span>
+                            <p style={{ fontSize: 15, fontWeight: 500 }}>Recording...</p>
+                            <p className="tabular-nums" style={{ fontSize: 14, color: C.textMuted }}>{formatSeconds(elapsedSeconds)}</p>
                           </div>
                         ) : (
                           <p style={{ fontSize: 15, color: C.textMuted }}>Drop files here</p>
@@ -286,8 +313,12 @@ export default function Dashboard() {
                             className="flex h-[36px] w-[36px] items-center justify-center rounded-[10px] transition-colors hover:bg-[#EEEDEC]">
                             <Upload className="h-[16px] w-[16px]" style={{ color: C.textMuted }} strokeWidth={1.6} />
                           </button>
-                          <button className="flex h-[36px] w-[36px] items-center justify-center rounded-[10px] transition-colors hover:bg-[#EEEDEC]">
-                            <Mic className="h-[16px] w-[16px]" style={{ color: C.textMuted }} strokeWidth={1.6} />
+                          <button onClick={isRecording ? handleStopRecording : handleStartRecording}
+                            className="flex h-[36px] w-[36px] items-center justify-center rounded-[10px] transition-colors hover:bg-[#EEEDEC]"
+                            style={isRecording ? { backgroundColor: "#FEE2E2" } : undefined}>
+                            {isRecording
+                              ? <Square className="h-[14px] w-[14px] text-red-500" strokeWidth={1.8} fill="currentColor" />
+                              : <Mic className="h-[16px] w-[16px]" style={{ color: C.textMuted }} strokeWidth={1.6} />}
                           </button>
                           <div className="w-[1px] h-[16px] mx-[8px]" style={{ backgroundColor: C.border }} />
                           {/* Stems dropdown */}

@@ -29,3 +29,22 @@ export interface StemDownload {
   name: string;
   url: string;
 }
+
+export interface HistoryItem {
+  id: string;
+  name: string;
+  date: string;
+  stems: number;
+  stemList: string[];
+  format: string;
+  bpm: number | null;
+  key: string | null;
+  key_raw: string | null;
+  mode: string;
+  model: string;
+  createdAt: number;
+  completedAt: number;
+  duration?: string;
+  quality?: number;
+  stability?: number;
+}

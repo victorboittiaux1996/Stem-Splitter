@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Download, Play, Pause, RotateCcw, AudioLines, Upload } from "lucide-react";
+import { RotateCcw } from "lucide-react";
+import { RiPlayFill, RiStopFill, RiDownloadFill } from "@remixicon/react";
 import { Waveform } from "@/components/dashboard/waveform";
-import { WaveformVariant, WAVEFORM_VARIANT_NAMES } from "@/components/dashboard/waveform-variants";
+import { WaveformVariant } from "@/components/dashboard/waveform-variants";
 import { useAudioPeaks } from "@/hooks/use-audio-peaks";
 
 // Module-level peak cache — survives React remounts (theme switch, etc.)
-const _peakCache = new Map<string, number[]>();
+export const _peakCache = new Map<string, number[]>();
 
 // Pre-fetch peaks into cache before component mounts — call as soon as URLs are available
 export function prefetchStemPeaks(urls: Record<string, string>) {
@@ -91,20 +92,19 @@ function fmtDuration(sec: number): string {
 
 // ─── Main Exported Component ────────────────────────────────
 export function StemVariants(props: StemVariantsProps) {
-  const { stemCount, stemMap, labels, stemColors, C, fileName, onNewSplit,
+  const { stemCount, stemMap, labels, stemColors, C, isDark, fileName, onNewSplit,
     bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration, precomputedPeaks } = props;
   const [playingStem, setPlayingStem] = useState<string | null>(null);
-  const [wfVariant, setWfVariant] = useState(1);
+  const wfVariant = 11;
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stemAudioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { peaks, loading: peaksLoading, error: peaksError, duration } = useAudioPeaks(audioFile);
+  const { peaks, duration } = useAudioPeaks(audioFile);
   const stems = realStemList || stemMap[stemCount] || stemMap[6];
-  const fn = audioFile?.name || fileName || "demo_track.wav";
+  const fn = fileName || "demo_track.wav";
   const isRealMode = !!stemUrls && Object.keys(stemUrls).length > 0;
 
   // Per-stem real peaks — use precomputed (server-side) if available, else fetch
@@ -233,7 +233,7 @@ export function StemVariants(props: StemVariantsProps) {
     }
   }, [audioUrl, playingStem, isRealMode, stemUrls]);
 
-  // Seek handler
+  // Seek handler — also switches stem if clicking on a different waveform
   const handleSeek = useCallback((p: number) => {
     const audio = isRealMode && playingStem ? stemAudioRef.current[playingStem] : audioRef.current;
     if (audio && audio.duration) {
@@ -242,44 +242,61 @@ export function StemVariants(props: StemVariantsProps) {
     }
   }, [isRealMode, playingStem]);
 
+  const handleStemSeek = useCallback((name: string, p: number) => {
+    if (isRealMode && stemUrls[name]) {
+      // If different stem, switch playback
+      if (playingStem !== name) {
+        // Pause current
+        if (playingStem && stemAudioRef.current[playingStem]) {
+          stemAudioRef.current[playingStem].pause();
+        }
+        // Create audio element if needed
+        if (!stemAudioRef.current[name]) {
+          const a = new Audio(stemUrls[name]);
+          a.preload = "auto";
+          a.addEventListener("ended", () => { setPlayingStem(null); setProgress(0); });
+          stemAudioRef.current[name] = a;
+        }
+        const a = stemAudioRef.current[name];
+        if (a.duration) {
+          a.currentTime = p * a.duration;
+        } else {
+          // Audio not loaded yet — seek once metadata is ready
+          a.addEventListener("loadedmetadata", () => { a.currentTime = p * a.duration; }, { once: true });
+        }
+        a.play();
+        setPlayingStem(name);
+        setProgress(p);
+      } else {
+        // Same stem — just seek
+        const a = stemAudioRef.current[name];
+        if (a && a.duration) {
+          a.currentTime = p * a.duration;
+          setProgress(p);
+        }
+      }
+    } else {
+      // Demo mode fallback
+      handleSeek(p);
+    }
+  }, [isRealMode, stemUrls, playingStem, handleSeek]);
+
   return (
     <div>
-      {/* Waveform variant switcher */}
-      <div className="flex items-center gap-[4px] mb-[12px] flex-wrap">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(id => (
-          <button key={id}
-            onClick={() => setWfVariant(id)}
-            className="px-[8px] py-[4px] text-[10px] font-bold tracking-wider transition-all"
-            style={{
-              backgroundColor: id === wfVariant ? C.text : C.bgHover,
-              color: id === wfVariant ? C.bg : C.textMuted,
-            }}>
-            W{id}
-          </button>
-        ))}
-        <span style={{ fontSize: 11, color: C.textMuted, marginLeft: 6 }}>{WAVEFORM_VARIANT_NAMES[wfVariant]}</span>
-        <div className="ml-auto flex items-center gap-[6px]">
-          {peaksLoading && <span style={{ fontSize: 11, color: C.textMuted }}>Decoding...</span>}
-          {peaksError && <span style={{ fontSize: 11, color: "#FF3366" }}>Error: {peaksError}</span>}
-          {peaks && <span style={{ fontSize: 11, color: "#00CC66" }}>Real audio</span>}
-          <input ref={fileInputRef} type="file" accept="audio/*" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) setAudioFile(f); }} />
-          <button onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-[4px] px-[8px] py-[4px] text-[10px] font-bold tracking-wider transition-all"
-            style={{ backgroundColor: peaks ? "#00CC66" : C.bgHover, color: peaks ? "#fff" : C.textMuted }}>
-            <Upload className="h-[10px] w-[10px]" strokeWidth={2} />
-            {peaks ? "LOADED" : "TEST AUDIO"}
-          </button>
-        </div>
-      </div>
 
     <div style={{ backgroundColor: C.bgCard }}>
       {/* Header */}
-      <div className="flex items-center px-[24px] py-[18px]" style={{ borderBottom: `1px solid ${C.bgHover}` }}>
-        <div className="flex h-[36px] w-[36px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgSubtle }}>
-          <AudioLines className="h-[15px] w-[15px]" style={{ color: C.textMuted }} strokeWidth={1.4} />
+      <div className="flex items-center gap-[12px] px-[14px] py-[18px]" style={{ borderBottom: `1px solid ${C.bgHover}` }}>
+        <div className="flex h-[36px] w-[36px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgHover }}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/>
+            <rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/>
+            <rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/>
+            <rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/>
+            <rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/>
+          </svg>
         </div>
-        <div className="ml-[14px] min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
           <p style={{ fontSize: 16, fontWeight: 600, color: C.text, lineHeight: 1.2 }} className="truncate">{fn}</p>
           <div className="flex items-center gap-[6px] mt-[5px]">
             <span style={{ fontSize: 13, color: C.textMuted, letterSpacing: "0.03em" }}>{bpm != null ? `${Math.round(bpm)} BPM` : "— BPM"}</span>
@@ -311,23 +328,24 @@ export function StemVariants(props: StemVariantsProps) {
               className="flex h-[28px] w-[28px] items-center justify-center shrink-0 transition-transform active:scale-95"
               style={{ backgroundColor: color }}>
               {isPlayingThis
-                ? <Pause className="h-[10px] w-[10px]" style={{ color: "#fff" }} />
-                : <Play className="h-[10px] w-[10px]" style={{ color: "#fff", marginLeft: 1 }} />}
+                ? <RiStopFill size={14} style={{ color: "#fff" }} />
+                : <RiPlayFill size={14} style={{ color: "#fff" }} />}
             </button>
             <span className="w-[90px] shrink-0" style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.text }}>{labels[name] || name.toUpperCase()}</span>
             <div className="flex-1 min-w-0">
               <WaveformVariant variant={wfVariant} seed={(i + 1) * 7919 + 42} color={color} playedColor={color}
                 progress={isPlayingThis ? progress : 0} height={36}
-                onSeek={handleSeek} data={isRealMode ? (stemPeaks[name] || undefined) : (peaks || undefined)} />
+                onSeek={(p) => handleStemSeek(name, p)} data={isRealMode ? (stemPeaks[name] || undefined) : (peaks || undefined)}
+                cursorColor={isDark ? "#fff" : "#000"} />
             </div>
             <span style={{ fontSize: 14, color: C.textMuted }}>WAV</span>
             {isRealMode && stemUrls[name] ? (
               <a href={stemUrls[name]} download={`${name}.wav`} className="shrink-0 p-[4px]" style={{ color: C.textMuted }}>
-                <Download className="h-[13px] w-[13px]" strokeWidth={1.5} />
+                <RiDownloadFill size={14} />
               </a>
             ) : (
               <button className="shrink-0 p-[4px]" style={{ color: C.textMuted }}>
-                <Download className="h-[13px] w-[13px]" strokeWidth={1.5} />
+                <RiDownloadFill size={14} />
               </button>
             )}
           </div>
@@ -335,7 +353,7 @@ export function StemVariants(props: StemVariantsProps) {
       })}
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-[24px] py-[12px]" style={{ backgroundColor: C.bgSubtle }}>
+      <div className="flex items-center justify-between px-[14px] py-[12px]" style={{ backgroundColor: C.bgSubtle }}>
         <div className="flex items-center gap-[8px]">
           <span style={{ fontSize: 13, color: C.textMuted }}>{stems.length} stems</span>
           <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
@@ -361,13 +379,13 @@ export function StemVariants(props: StemVariantsProps) {
             URL.revokeObjectURL(url);
           }} className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
             style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent }}>
-            <Download className="h-[12px] w-[12px]" strokeWidth={1.8} />
+            <RiDownloadFill size={14} />
             DOWNLOAD .ZIP
           </button>
         ) : (
           <button className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
             style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent }}>
-            <Download className="h-[12px] w-[12px]" strokeWidth={1.8} />
+            <RiDownloadFill size={14} />
             DOWNLOAD .ZIP
           </button>
         )}

@@ -2,17 +2,19 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
-  Sparkles, ChevronDown, ChevronRight, ChevronLeft,
-  Play, Pause, Palette, Layers, ChevronsUpDown,
-  Search, X, AudioLines,
+  Sparkles, ChevronDown, ChevronLeft,
+  Palette, Layers, ChevronsUpDown,
+  Search, X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Waveform } from "@/components/dashboard/waveform";
+import { StemModal } from "@/components/stem-modal";
 import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
-import type { Job, StemDownload } from "@/lib/types";
+import type { Job, StemDownload, HistoryItem } from "@/lib/types";
 import { prefetchStemPeaks } from "@/components/stem-variants";
-import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
+import { toast } from "sonner";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
 // ─── Types ───────────────────────────────────────────────────
@@ -93,26 +95,7 @@ const STEM_MAP: Record<StemCount, string[]> = {
   6: ["vocals", "drums", "bass", "guitar", "piano", "other"],
 };
 
-// HistoryItem shape — matches /api/history response
-interface HistoryItem {
-  id: string;
-  name: string;
-  date: string;
-  stems: number;
-  stemList: string[];
-  format: string;
-  bpm: number | null;
-  key: string | null;
-  key_raw: string | null;
-  mode: string;
-  model: string;
-  createdAt: number;
-  completedAt: number;
-  // kept for sort compatibility
-  duration?: string;
-  quality?: number;
-  stability?: number;
-}
+// HistoryItem imported from @/lib/types
 
 const LABELS: Record<string, string> = {
   vocals: "VOCALS", drums: "DRUMS", bass: "BASS", guitar: "GUITAR",
@@ -188,20 +171,59 @@ export default function AbletonDashboard() {
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
+  // Cache of stem URLs + precomputed peaks per job ID
+  const stemUrlCacheRef = useRef<Record<string, Record<string, string>>>({});
+  const stemPeaksCacheRef = useRef<Record<string, Record<string, number[]>>>({});
+
+  // Prefetch stem URLs + server-side peaks for a job (fire-and-forget)
+  const prefetchJobStems = useCallback((jobId: string) => {
+    if (stemUrlCacheRef.current[jobId]) return; // already cached
+    // Fetch stem URLs
+    fetch(`/api/download/${jobId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.stems) {
+          const urls = Object.fromEntries((d.stems as { name: string; url: string }[]).map(s => [s.name, s.url]));
+          stemUrlCacheRef.current[jobId] = urls;
+        }
+      })
+      .catch(() => {});
+    // Fetch job data for precomputed peaks
+    fetch(`/api/jobs/${jobId}`)
+      .then(r => r.json())
+      .then(job => {
+        if (job.peaks) {
+          stemPeaksCacheRef.current[jobId] = job.peaks;
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Load history from API on mount
   useEffect(() => {
     fetch("/api/history")
       .then(r => r.json())
-      .then(d => { if (d.jobs) setHistory(d.jobs); })
+      .then(d => {
+        if (d.jobs) {
+          setHistory(d.jobs);
+          // Prefetch stems for all jobs in background
+          (d.jobs as HistoryItem[]).forEach(j => prefetchJobStems(j.id));
+        }
+      })
       .catch(() => {});
-  }, []);
+  }, [prefetchJobStems]);
 
   const refreshHistory = useCallback(() => {
     fetch("/api/history")
       .then(r => r.json())
-      .then(d => { if (d.jobs) setHistory(d.jobs); })
+      .then(d => {
+        if (d.jobs) {
+          setHistory(d.jobs);
+          (d.jobs as HistoryItem[]).forEach(j => prefetchJobStems(j.id));
+        }
+      })
       .catch(() => {});
-  }, []);
+  }, [prefetchJobStems]);
 
   const [view, setView] = useState<View>("split");
   const [appState, setAppState] = useState<AppState>("idle");
@@ -213,7 +235,6 @@ export default function AbletonDashboard() {
   const [extraOpen, setExtraOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
-  const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   // rAF smooth progress — target receives real values, display advances at 1%/s max
@@ -264,29 +285,52 @@ export default function AbletonDashboard() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // ─── MOCK: simulate completed split for Results page dev ───
+  // ─── MOCK: load real job from R2 for Results page dev ───
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "1") {
-      const mockStems = ["vocals", "drums", "bass", "other"];
-      setCurrentJob({
-        id: "mock-dev-001",
-        status: "completed",
-        mode: "4stem",
-        progress: 100,
-        stage: "Done",
-        createdAt: Date.now() - 120000,
-        completedAt: Date.now(),
-        stems: mockStems,
-        fileName: "1A - 126 - Chris Lake, Abel Balder - Ease My Mind (Extended Mix).mp3",
-        bpm: 126,
-        key: "1A",
-        key_raw: "Abm",
-        duration: 367,
-      });
-      setJobId("mock-dev-001");
-      setStemCount(4);
-      setView("results");
-    }
+    if (typeof window === "undefined") return;
+    const mockId = new URLSearchParams(window.location.search).get("mock");
+    if (!mockId) return;
+
+    // mockId can be "1" (latest job) or a real job ID
+    const loadJob = async () => {
+      try {
+        let id = mockId;
+        // If "1", fetch the latest completed job from history
+        if (id === "1") {
+          const histRes = await fetch("/api/history");
+          if (!histRes.ok) return;
+          const { jobs } = await histRes.json();
+          if (!jobs?.length) return;
+          id = jobs[0].id;
+        }
+
+        // Load job data
+        const jobRes = await fetch(`/api/jobs/${id}`);
+        if (!jobRes.ok) return;
+        const job: Job = await jobRes.json();
+        if (job.status !== "completed") return;
+
+        setCurrentJob(job);
+        setJobId(id);
+        setStemCount((job.stems?.length === 2 ? 2 : job.stems?.length === 6 ? 6 : 4) as StemCount);
+        setAppState("complete");
+        setView("results");
+
+        // Load stem download URLs
+        const dlRes = await fetch(`/api/download/${id}`);
+        if (dlRes.ok) {
+          const dlData = await dlRes.json();
+          if (dlData.stems) {
+            setStemDownloads(dlData.stems);
+            const urls = Object.fromEntries((dlData.stems as StemDownload[]).map(s => [s.name, s.url]));
+            prefetchStemPeaks(urls);
+          }
+        }
+      } catch (err) {
+        console.error("Mock load failed:", err);
+      }
+    };
+    loadJob();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // ─── END MOCK ───
@@ -336,6 +380,23 @@ export default function AbletonDashboard() {
   }, [isPlaying]);
 
   const handleFile = useCallback((f: File) => { setFile(f); setAppState("file-selected"); }, []);
+
+  const { isRecording, elapsedSeconds, start: startRecording, stop: stopRecording } = useAudioRecorder();
+
+  const handleStartRecording = useCallback(async () => {
+    if (file) { setFile(null); setAppState("idle"); }
+    try {
+      await startRecording();
+    } catch {
+      toast.error("Microphone access denied", { description: "Allow microphone access in your browser settings." });
+    }
+  }, [startRecording, file]);
+
+  const handleStopRecording = useCallback(async () => {
+    const recorded = await stopRecording();
+    handleFile(recorded);
+  }, [stopRecording, handleFile]);
+
   const handleSplit = useCallback(async () => {
     if (!file && !isValidUrl) return;
     setAppState("processing");
@@ -537,128 +598,6 @@ export default function AbletonDashboard() {
   // Game theme object to pass to game components
   const gameTheme = { bg: C.bg, bgCard: C.bgCard, bgSubtle: C.bgSubtle, bgHover: C.bgHover, bgElevated: C.bgElevated, text: C.text, textSec: C.textSec, textMuted: C.textMuted, accent: C.accent, accentText: C.accentText, badgeBg: C.badgeBg, badgeText: C.badgeText };
 
-  // ─── Stem detail modal ──────────────────────────────────────
-  function StemModal({ items, onClose }: { items: HistoryItem[]; onClose: () => void }) {
-    const currentItem = items.find(h => h.id === expandedFile);
-    if (!currentItem) return null;
-    const currentIdx = items.findIndex(h => h.id === expandedFile);
-    const prevItem = currentIdx > 0 ? items[currentIdx - 1] : null;
-    const nextItem = currentIdx < items.length - 1 ? items[currentIdx + 1] : null;
-
-    // Fetch real stem URLs when item changes
-    const [modalStemUrls, setModalStemUrls] = useState<Record<string, string>>({});
-    useEffect(() => {
-      setModalStemUrls({});
-      fetch(`/api/download/${currentItem.id}`)
-        .then(r => r.json())
-        .then(d => {
-          if (d.stems) {
-            const urls = Object.fromEntries((d.stems as { name: string; url: string }[]).map(s => [s.name, s.url]));
-            setModalStemUrls(urls);
-            prefetchStemPeaks(urls);
-          }
-        })
-        .catch(() => {});
-    }, [currentItem.id]);
-
-    return (
-      <motion.div key="stem-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-        <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.6)" }} />
-        {prevItem && (
-          <button onClick={(e) => { e.stopPropagation(); setExpandedFile(prevItem.id); setPlayingStem(null); }}
-            className="absolute left-[24px] z-10 flex h-[40px] w-[40px] items-center justify-center transition-colors"
-            style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
-            <ChevronLeft className="h-[18px] w-[18px] text-white" strokeWidth={1.8} />
-          </button>
-        )}
-        {nextItem && (
-          <button onClick={(e) => { e.stopPropagation(); setExpandedFile(nextItem.id); setPlayingStem(null); }}
-            className="absolute right-[24px] z-10 flex h-[40px] w-[40px] items-center justify-center transition-colors"
-            style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
-            <ChevronRight className="h-[18px] w-[18px] text-white" strokeWidth={1.8} />
-          </button>
-        )}
-        <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ duration: 0.15 }} className="relative w-[720px] max-h-[85vh] overflow-y-auto"
-          style={{ backgroundColor: C.bgCard }} onClick={e => e.stopPropagation()}>
-          {/* Header */}
-          <div className="flex items-center justify-between px-[24px] py-[18px]" style={{ backgroundColor: C.bgHover }}>
-            <div className="flex items-center gap-[14px] min-w-0">
-              <div className="flex h-[40px] w-[40px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgSubtle }}>
-                <AudioLines className="h-[16px] w-[16px]" style={{ color: C.textMuted }} strokeWidth={1.4} />
-              </div>
-              <div className="min-w-0">
-                <p style={{ fontSize: 16, fontWeight: 600, color: C.text }} className="truncate">{currentItem.name}</p>
-                <p style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>
-                  {currentItem.date} · {currentItem.duration ?? "—"} · {currentItem.bpm != null ? Math.round(currentItem.bpm) : "—"} BPM · {currentItem.key} · {currentItem.format.toUpperCase()}
-                </p>
-              </div>
-            </div>
-            <button onClick={onClose} className="p-[6px] transition-colors shrink-0 ml-[12px]" style={{ color: C.textMuted }}>
-              <X className="h-[16px] w-[16px]" strokeWidth={1.6} />
-            </button>
-          </div>
-          {/* Stems */}
-          <div className="px-[16px] py-[12px] space-y-[2px]">
-            {currentItem.stemList.map((stem, si) => {
-              const stemKey = `${currentItem.id}:${stem}`;
-              const isPlayingThis = playingStem === stemKey;
-              const color = stemColors[stem] || "#999";
-              return (
-                <div key={stem}
-                  className="flex items-center gap-[10px] px-[14px] py-[10px] transition-colors"
-                  style={{ backgroundColor: isPlayingThis ? C.bgHover : undefined }}>
-                  <button onClick={() => setPlayingStem(isPlayingThis ? null : stemKey)}
-                    className="flex h-[28px] w-[28px] items-center justify-center shrink-0 transition-transform active:scale-95"
-                    style={{ backgroundColor: color }}>
-                    {isPlayingThis
-                      ? <Pause className="h-[10px] w-[10px]" style={{ color: "#fff" }} />
-                      : <Play className="h-[10px] w-[10px]" style={{ color: "#fff", marginLeft: 1 }} />}
-                  </button>
-                  <span className="w-[90px] shrink-0" style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.text }}>{LABELS[stem]}</span>
-                  <div className="flex-1 min-w-0">
-                    <Waveform seed={(si + 1) * 3571 + parseInt(currentItem.id) * 7919} color={color} playedColor={color} progress={isPlayingThis ? 0.35 : 0} height={28} onSeek={() => {}} barCount={120} />
-                  </div>
-                  <span style={{ fontSize: 14, color: C.textMuted }}>{currentItem.format.toUpperCase()}</span>
-                  {modalStemUrls[stem] ? (
-                    <a href={modalStemUrls[stem]} download={`${stem}.wav`} className="p-[4px]" style={{ color: C.textMuted }}>
-                      <RiDownloadFill size={13}/>
-                    </a>
-                  ) : (
-                    <button className="p-[4px]" style={{ color: C.textMuted, opacity: 0.3 }}>
-                      <RiDownloadFill size={13}/>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {/* Footer */}
-          <div className="flex items-center justify-between px-[24px] py-[12px]" style={{ backgroundColor: C.bgSubtle }}>
-            <span style={{ fontSize: 14, color: C.textMuted }}>{currentIdx + 1} / {items.length}</span>
-            <button onClick={async () => {
-              if (Object.keys(modalStemUrls).length === 0) return;
-              const JSZip = (await import("jszip")).default;
-              const zip = new JSZip();
-              await Promise.all(Object.entries(modalStemUrls).map(async ([name, url]) => {
-                const res = await fetch(url);
-                const blob = await res.blob();
-                zip.file(`${name}.wav`, blob);
-              }));
-              const content = await zip.generateAsync({ type: "blob" });
-              const a = document.createElement("a"); a.href = URL.createObjectURL(content);
-              a.download = `stems-${currentItem.id}.zip`; a.click();
-            }} className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
-              style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent, opacity: Object.keys(modalStemUrls).length > 0 ? 1 : 0.4 }}>
-              <RiDownloadFill size={12}/>
-              DOWNLOAD .ZIP
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    );
-  }
 
   // ─── SortIcon helper ──────────────────────────────────────
   const SortIcon = ({ col }: { col: typeof sortBy }) => (
@@ -888,11 +827,11 @@ export default function AbletonDashboard() {
                       </div>
                     ) : (
                       <div
-                        onClick={() => !file && inputRef.current?.click()}
+                        onClick={() => !file && !isRecording && inputRef.current?.click()}
                         onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
                         onDragOver={(e) => e.preventDefault()}
                         className="flex items-center justify-center transition-all"
-                        style={{ minHeight: 160, backgroundColor: C.dropZoneBg, cursor: file ? "default" : "pointer", position: "relative" }}>
+                        style={{ minHeight: 160, backgroundColor: C.dropZoneBg, cursor: file || isRecording ? "default" : "pointer", position: "relative" }}>
                         {file ? (
                           <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
                             <div className="flex items-center gap-[10px]">
@@ -902,6 +841,15 @@ export default function AbletonDashboard() {
                             </div>
                             <button onClick={(e) => { e.stopPropagation(); setFile(null); setAppState("idle"); }}
                               style={{ fontSize: 14, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>REMOVE</button>
+                          </div>
+                        ) : isRecording ? (
+                          <div className="flex items-center gap-[10px]">
+                            <span className="relative flex h-[10px] w-[10px]">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex h-[10px] w-[10px] rounded-full bg-red-500" />
+                            </span>
+                            <span style={{ fontSize: 15, fontWeight: 500, color: C.text, letterSpacing: "0.02em" }}>RECORDING</span>
+                            <span className="tabular-nums" style={{ fontSize: 14, color: C.textMuted, letterSpacing: "0.02em" }}>{formatSeconds(elapsedSeconds)}</span>
                           </div>
                         ) : (
                           <span style={{ fontSize: 15, color: C.textMuted, letterSpacing: "0.02em" }}>DROP FILES HERE</span>
@@ -915,8 +863,10 @@ export default function AbletonDashboard() {
                         <button onClick={() => { setInputMode("file"); inputRef.current?.click(); }} className="p-[8px] transition-colors" style={{ color: C.textMuted }}>
                           <RiFileUploadFill size={16}/>
                         </button>
-                        <button className="p-[8px]" style={{ color: C.textMuted }}>
-                          <RiMicFill size={16}/>
+                        <button onClick={isRecording ? handleStopRecording : handleStartRecording}
+                          className="p-[8px] transition-colors"
+                          style={{ color: isRecording ? "#EF4444" : C.textMuted }}>
+                          {isRecording ? <RiStopFill size={16}/> : <RiMicFill size={16}/>}
                         </button>
                         <div className="w-[1px] h-[14px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
                         {/* Stems selector */}
@@ -1060,7 +1010,7 @@ export default function AbletonDashboard() {
                             onClick={() => setExpandedFile(item.id)}>
                             <div className="flex items-center gap-[12px] flex-1 min-w-0">
                               <div className="flex h-[36px] w-[36px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgHover }}>
-                                <AudioLines className="h-[15px] w-[15px]" style={{ color: C.textMuted }} strokeWidth={1.4} />
+                                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
                               </div>
                               <div className="min-w-0">
                                 <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
@@ -1082,7 +1032,7 @@ export default function AbletonDashboard() {
 
                     {/* Stem detail modal — Recent splits */}
                     <AnimatePresence>
-                      {expandedFile && <StemModal items={history} onClose={() => setExpandedFile(null)} />}
+                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} />}
                     </AnimatePresence>
                   </>
                 )}
@@ -1140,7 +1090,7 @@ export default function AbletonDashboard() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-[80px]">
                     <div className="flex h-[48px] w-[48px] items-center justify-center" style={{ backgroundColor: C.bgHover }}>
-                      <AudioLines className="h-[22px] w-[22px]" style={{ color: C.textMuted }} strokeWidth={1.5} />
+                      <svg width="22" height="22" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
                     </div>
                     <p style={{ fontSize: 15, color: C.textMuted, marginTop: 12, letterSpacing: "0.03em" }}>NO RESULTS YET — SPLIT A TRACK FIRST</p>
                   </div>
@@ -1229,7 +1179,7 @@ export default function AbletonDashboard() {
                                 backgroundColor: C.bgHover,
                                 borderRadius: 0,
                               }}>
-                              <AudioLines style={{ width: 15, height: 15, color: C.textMuted }} strokeWidth={1.4} />
+                              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
                             </div>
                             <div className="min-w-0">
                               <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
@@ -1314,7 +1264,7 @@ export default function AbletonDashboard() {
 
               {/* Stem detail modal — Files */}
               <AnimatePresence>
-                {expandedFile && !exportMode && <StemModal items={sorted} onClose={() => setExpandedFile(null)} />}
+                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} />}
               </AnimatePresence>
             </>
           )}

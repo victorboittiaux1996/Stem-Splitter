@@ -19,6 +19,8 @@ interface WaveformProps {
   onSeek?: (progress: number) => void;
   /** Real peak data (0–1 normalized). When provided, overrides seed-based generation. */
   data?: number[];
+  /** Cursor color for speaker icon (e.g. "#fff" dark, "#000" light) */
+  cursorColor?: string;
 }
 
 function onClick(e: React.MouseEvent<SVGSVGElement>, onSeek?: (p: number) => void) {
@@ -307,6 +309,77 @@ function W10({ seed, color, playedColor, progress, height = 48, onSeek, data: ra
   );
 }
 
+// Speaker cursor (volume icon as custom CSS cursor)
+function speakerCursor(hex: string) {
+  const encoded = hex.replace("#", "%23");
+  return `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='${encoded}'%3E%3Cpath d='M11 5L6 9H2v6h4l5 4V5zm2.59 3.41a4.98 4.98 0 010 7.18l1.41 1.41a7 7 0 000-10l-1.41 1.41zm2.83-2.83a9 9 0 010 12.83l1.41 1.42a11 11 0 000-15.66l-1.41 1.41z'/%3E%3C/svg%3E") 10 10, pointer`;
+}
+
+// ─── W11: DAW waveform — sharp filled mirror (Logic/FL Studio) ─
+function W11({ seed, color, playedColor, progress, height = 48, onSeek, data: rawData, cursorColor }: WaveformProps) {
+  const count = 400;
+  const raw = useSmoothData(rawData, seed, count, 1); // minimal smoothing for realism
+  const cy = height / 2;
+  // Build mirrored filled shape: top contour → right → bottom contour → left
+  const top = raw.map((v, i) => `${(i / count) * 100},${cy - v * cy * 0.92}`).join(" ");
+  const bot = [...raw].reverse().map((v, i) => `${((count - 1 - i) / count) * 100},${cy + v * cy * 0.92}`).join(" ");
+  const pathD = `M0,${cy} L${top} L100,${cy} L${bot} Z`;
+  const clipX = progress * 100;
+  return (
+    <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="w-full select-none" style={{ height, cursor: speakerCursor(cursorColor || "#fff") }} onClick={e => onClick(e, onSeek)}>
+      <defs>
+        <clipPath id={`p11-${seed}`}><rect x="0" y="0" width={clipX} height={height} /></clipPath>
+        <clipPath id={`u11-${seed}`}><rect x={clipX} y="0" width={100 - clipX} height={height} /></clipPath>
+      </defs>
+      <path d={pathD} fill={color} opacity={0.2} clipPath={`url(#u11-${seed})`} />
+      <path d={pathD} fill={playedColor || color} opacity={0.85} clipPath={`url(#p11-${seed})`} />
+      <line x1="0" y1={cy} x2="100" y2={cy} stroke={color} strokeWidth={0.1} opacity={0.15} />
+    </svg>
+  );
+}
+
+// ─── W12: Dense vertical lines — Audacity/Pro Tools style ────
+function W12({ seed, color, playedColor, progress, height = 48, onSeek, data: rawData }: WaveformProps) {
+  const count = 500;
+  const data = useData(rawData, seed, count);
+  const cy = height / 2;
+  return (
+    <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="w-full select-none cursor-pointer" style={{ height }} onClick={e => onClick(e, onSeek)}>
+      {data.map((amp, i) => {
+        const played = i / count <= progress;
+        const halfH = amp * cy * 0.92;
+        const x = (i / count) * 100;
+        return <line key={i} x1={x} y1={cy - halfH} x2={x} y2={cy + halfH}
+          stroke={played ? (playedColor || color) : color} strokeWidth={0.15} opacity={played ? 0.85 : 0.18} />;
+      })}
+      <line x1="0" y1={cy} x2="100" y2={cy} stroke={color} strokeWidth={0.08} opacity={0.12} />
+    </svg>
+  );
+}
+
+// ─── W13: Hi-res DAW waveform — raw detail, no smoothing ────
+function W13({ seed, color, playedColor, progress, height = 48, onSeek, data: rawData }: WaveformProps) {
+  const count = 600;
+  const data = useData(rawData, seed, count);
+  const cy = height / 2;
+  // Raw filled mirror path — no smoothing for maximum detail
+  const top = data.map((v, i) => `${(i / count) * 100},${cy - v * cy * 0.93}`).join(" ");
+  const bot = [...data].reverse().map((v, i) => `${((count - 1 - i) / count) * 100},${cy + v * cy * 0.93}`).join(" ");
+  const pathD = `M0,${cy} L${top} L100,${cy} L${bot} Z`;
+  const clipX = progress * 100;
+  return (
+    <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="w-full select-none cursor-pointer" style={{ height }} onClick={e => onClick(e, onSeek)}>
+      <defs>
+        <clipPath id={`p13-${seed}`}><rect x="0" y="0" width={clipX} height={height} /></clipPath>
+        <clipPath id={`u13-${seed}`}><rect x={clipX} y="0" width={100 - clipX} height={height} /></clipPath>
+      </defs>
+      <path d={pathD} fill={color} opacity={0.18} clipPath={`url(#u13-${seed})`} />
+      <path d={pathD} fill={playedColor || color} opacity={0.85} clipPath={`url(#p13-${seed})`} />
+      <line x1="0" y1={cy} x2="100" y2={cy} stroke={color} strokeWidth={0.08} opacity={0.1} />
+    </svg>
+  );
+}
+
 // ─── Variant names ──────────────────────────────────────────
 export const WAVEFORM_VARIANT_NAMES: Record<number, string> = {
   1:  "SoundCloud — barres centrées",
@@ -319,11 +392,14 @@ export const WAVEFORM_VARIANT_NAMES: Record<number, string> = {
   8:  "Area mirrored — opacité",
   9:  "Dot matrix — minimaliste",
   10: "Barres larges — compact",
+  11: "DAW waveform — Logic/FL",
+  12: "Dense lines — Audacity/PT",
+  13: "Hi-res DAW — raw detail",
 };
 
 // ─── Main component ─────────────────────────────────────────
 const COMPONENTS: Record<number, React.FC<WaveformProps>> = {
-  1: W1, 2: W2, 3: W3, 4: W4, 5: W5, 6: W6, 7: W7, 8: W8, 9: W9, 10: W10,
+  1: W1, 2: W2, 3: W3, 4: W4, 5: W5, 6: W6, 7: W7, 8: W8, 9: W9, 10: W10, 11: W11, 12: W12, 13: W13,
 };
 
 export function WaveformVariant({ variant, ...props }: WaveformProps & { variant: number }) {

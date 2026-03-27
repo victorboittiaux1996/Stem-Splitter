@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2 } from "@/lib/r2";
 
 const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
-const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac)$/i;
+const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|webm)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
 
 export async function POST(request: NextRequest) {
