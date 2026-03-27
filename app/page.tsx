@@ -12,7 +12,7 @@ import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
 import type { Job, StemDownload } from "@/lib/types";
 import { prefetchStemPeaks } from "@/components/stem-variants";
-import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiBellFill, RiComputerFill, RiTvFill, RiMacbookFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
 // ─── Types ───────────────────────────────────────────────────
@@ -789,10 +789,10 @@ export default function AbletonDashboard() {
             <div className="w-[1px] h-[16px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
             <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
               className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
-              {themeMode === "system" ? <RiMacbookFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
+              {themeMode === "system" ? <RiContrastFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
             </button>
             <button className="p-[8px]" style={{ color: C.textSec }}>
-              <RiBellFill size={16}/>
+              <RiNotificationFill size={16}/>
             </button>
             <div className="flex h-[26px] w-[26px] items-center justify-center" style={{ backgroundColor: isColorful ? "#FF2D55" : C.accent }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
