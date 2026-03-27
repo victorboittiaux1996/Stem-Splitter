@@ -5,8 +5,8 @@ import {
   Scissors, FolderOpen, Settings2, Sparkles,
   Download, Trash2, Upload, Mic, ChevronDown, ChevronRight, ChevronLeft,
   Play, Pause, Sun, Moon, Bell, Palette, Layers, ChevronsUpDown,
-  HelpCircle, Search, ArrowUpDown, X, Square, SquareCheckBig,
-  AudioLines, BarChart3, Gamepad2, SkipBack, RotateCcw, Link2, Check, Monitor,
+  HelpCircle, Search, ArrowUpDown, X,
+  AudioLines, BarChart3, Gamepad2, SkipBack, RotateCcw, Link2, Monitor,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Waveform } from "@/components/dashboard/waveform";
@@ -898,7 +898,7 @@ export default function AbletonDashboard() {
                         <div className="relative" ref={stemsRef}>
                           <button onClick={() => { setStemsOpen(!stemsOpen); setFormatOpen(false); setExtraOpen(false); }}
                             className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
-                            style={{ fontSize: 15, fontWeight: 500, color: C.textSec, letterSpacing: "0.03em", backgroundColor: stemsOpen ? C.bgHover : undefined }}>
+                            style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: stemsOpen ? C.bgHover : undefined }}>
                             {stemLabel}
                             <ChevronDown className="h-[11px] w-[11px]" style={{ color: C.textMuted }} strokeWidth={2} />
                           </button>
@@ -925,7 +925,7 @@ export default function AbletonDashboard() {
                         <div className="relative" ref={formatRef}>
                           <button onClick={() => { setFormatOpen(!formatOpen); setStemsOpen(false); setExtraOpen(false); }}
                             className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
-                            style={{ fontSize: 15, fontWeight: 500, color: C.textSec, letterSpacing: "0.03em", backgroundColor: formatOpen ? C.bgHover : undefined }}>
+                            style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: formatOpen ? C.bgHover : undefined }}>
                             {outputFormat.toUpperCase()}
                             <ChevronDown className="h-[11px] w-[11px]" style={{ color: C.textMuted }} strokeWidth={2} />
                           </button>
@@ -948,7 +948,7 @@ export default function AbletonDashboard() {
                         {/* Gear popover */}
                         <div className="relative" ref={extraRef}>
                           <button onClick={() => { setExtraOpen(!extraOpen); setStemsOpen(false); setFormatOpen(false); }}
-                            className="p-[8px] transition-colors" style={{ color: extraOpen ? C.text : C.textSec, backgroundColor: extraOpen ? C.bgHover : undefined }}>
+                            className="p-[8px] transition-colors" style={{ color: extraOpen ? C.text : C.textMuted, backgroundColor: extraOpen ? C.bgHover : undefined }}>
                             <Settings2 className="h-[15px] w-[15px]" strokeWidth={1.6} />
                           </button>
                           <AnimatePresence>
@@ -1162,8 +1162,8 @@ export default function AbletonDashboard() {
                       {exportMode && (
                         <button onClick={toggleAllTracks} className="w-[28px] shrink-0 flex items-center">
                           {allTracksSelected
-                            ? <SquareCheckBig className="h-[13px] w-[13px]" style={{ color: C.text }} strokeWidth={1.8} />
-                            : <Square className="h-[13px] w-[13px]" strokeWidth={1.6} />}
+                            ? <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="0" y="0" width="13" height="13" fill={C.text} opacity="0.9"/><rect x="3" y="3" width="7" height="7" fill={C.bg} opacity="1"/></svg>
+                            : <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="0" y="0" width="13" height="13" fill={C.text} opacity="0.2"/></svg>}
                         </button>
                       )}
                       <button onClick={() => toggleSort("name")} className="flex-1 text-left flex items-center cursor-pointer outline-none focus:outline-none">NAME <SortIcon col="name" /></button>
@@ -1184,8 +1184,8 @@ export default function AbletonDashboard() {
                           {exportMode && (
                             <button onClick={(e) => { e.stopPropagation(); toggleTrack(item.id); }} className="w-[28px] shrink-0 flex items-center">
                               {isTrackSelected
-                                ? <SquareCheckBig className="h-[14px] w-[14px]" style={{ color: C.text }} strokeWidth={1.8} />
-                                : <Square className="h-[14px] w-[14px]" style={{ color: C.textMuted }} strokeWidth={1.6} />}
+                                ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.9"/><rect x="3.5" y="3.5" width="7" height="7" fill={C.bg} opacity="1"/></svg>
+                                : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.2"/></svg>}
                             </button>
                           )}
                           <div className="flex items-center gap-[12px] flex-1 min-w-0">
@@ -1240,8 +1240,8 @@ export default function AbletonDashboard() {
                         <button onClick={toggleAllStems}
                           className="flex w-full items-center gap-[10px] px-[12px] py-[10px] transition-colors" style={{ marginBottom: 4 }}>
                           {allStemsSelected
-                            ? <SquareCheckBig className="h-[15px] w-[15px]" style={{ color: C.text }} strokeWidth={1.8} />
-                            : <Square className="h-[15px] w-[15px]" style={{ color: C.textMuted }} strokeWidth={1.6} />}
+                            ? <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.9"/><rect x="4" y="4" width="7" height="7" fill={C.bg} opacity="1"/></svg>
+                            : <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.2"/></svg>}
                           <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>ALL STEMS</span>
                         </button>
                         {allStemTypes.map(stem => {
@@ -1251,8 +1251,8 @@ export default function AbletonDashboard() {
                             <button key={stem} onClick={() => toggleExportStem(stem)}
                               className="flex w-full items-center gap-[10px] px-[12px] py-[10px] transition-colors">
                               {isChecked
-                                ? <SquareCheckBig className="h-[15px] w-[15px]" style={{ color: C.text }} strokeWidth={1.8} />
-                                : <Square className="h-[15px] w-[15px]" style={{ color: C.textMuted }} strokeWidth={1.6} />}
+                                ? <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.9"/><rect x="4" y="4" width="7" height="7" fill={C.bg} opacity="1"/></svg>
+                                : <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.2"/></svg>}
                               <div className="h-[8px] w-[8px] shrink-0" style={{ backgroundColor: color }} />
                               <span style={{ fontSize: 15, fontWeight: 500, color: C.text, letterSpacing: "0.03em" }}>{LABELS[stem]}</span>
                             </button>
