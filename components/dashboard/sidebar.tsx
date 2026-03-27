@@ -1,17 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { usePathname } from "next/navigation";
-import Link from "next/link";
 import {
   type LucideIcon,
   Scissors,
   FolderOpen,
   Settings2,
-  ChevronsUpDown,
   Home,
   Sparkles,
-  Layers,
   Type,
   BarChart3,
   Gamepad2,
@@ -53,45 +48,18 @@ const VERSIONS = [
 ];
 
 export function Sidebar({ activeView, onViewChange, theme: t, fontStyle, onFontChange }: SidebarProps) {
-  const pathname = usePathname();
-  const [versionOpen, setVersionOpen] = useState(false);
-  const currentVersion = VERSIONS.find(v => v.href === pathname) || VERSIONS[0];
-
   return (
     <aside className="flex h-full w-[240px] shrink-0 flex-col" style={{ borderRight: `1px solid ${t.sidebarBorder}`, backgroundColor: t.sidebarBg }}>
-      {/* Logo / Version switcher */}
-      <div className="relative">
-        <button onClick={() => setVersionOpen(!versionOpen)} className="flex h-[52px] w-full items-center justify-between px-[16px] transition-colors" style={{ borderBottom: `1px solid ${t.sidebarBorder}` }}>
-          <div className="flex items-center gap-[10px]">
-            <div className="flex h-[28px] w-[28px] items-center justify-center rounded-[8px]" style={{ backgroundColor: t.sidebarLogoBg }}>
-              <svg className="h-[14px] w-[14px]" style={{ color: t.sidebarLogoText }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M2 12v2" /><path d="M6 8v8" /><path d="M10 4v16" /><path d="M14 7v10" /><path d="M18 5v14" /><path d="M22 10v4" />
-              </svg>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-heading text-[15px] font-bold tracking-[-0.02em]" style={{ color: t.sidebarTextActive }}>44Stems</span>
-              <span className="text-[12px]" style={{ color: t.sidebarLabel }}>{currentVersion.label}</span>
-            </div>
+      {/* Logo */}
+      <div className="flex h-[52px] items-center px-[16px]" style={{ borderBottom: `1px solid ${t.sidebarBorder}` }}>
+        <div className="flex items-center gap-[10px]">
+          <div className="flex h-[28px] w-[28px] items-center justify-center rounded-[8px]" style={{ backgroundColor: t.sidebarLogoBg }}>
+            <svg className="h-[14px] w-[14px]" style={{ color: t.sidebarLogoText }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M2 12v2" /><path d="M6 8v8" /><path d="M10 4v16" /><path d="M14 7v10" /><path d="M18 5v14" /><path d="M22 10v4" />
+            </svg>
           </div>
-          <ChevronsUpDown className="h-[14px] w-[14px]" style={{ color: t.sidebarLabel, transform: versionOpen ? "rotate(180deg)" : undefined, transition: "transform 0.15s" }} strokeWidth={2} />
-        </button>
-
-        {/* Version dropdown */}
-        {versionOpen && (
-          <div className="absolute left-[8px] right-[8px] top-[52px] z-50 rounded-[8px] py-[4px] shadow-lg" style={{ backgroundColor: t.sidebarActiveItem, border: `1px solid ${t.sidebarBorder}` }}>
-            <div className="px-[12px] py-[6px]">
-              <span className="text-[12px] font-medium" style={{ color: t.sidebarLabel }}>Versions</span>
-            </div>
-            {VERSIONS.map(v => (
-              <Link key={v.href} href={v.href} onClick={() => setVersionOpen(false)}
-                className="flex items-center gap-[8px] px-[12px] py-[8px] rounded-[6px] mx-[4px] transition-colors"
-                style={{ backgroundColor: pathname === v.href ? t.sidebarBg : undefined, color: pathname === v.href ? t.sidebarTextActive : t.sidebarText }}>
-                <Layers className="h-[14px] w-[14px]" strokeWidth={1.6} />
-                <span className="text-[14px] font-medium">{v.label}</span>
-              </Link>
-            ))}
-          </div>
-        )}
+          <span className="font-heading text-[15px] font-bold tracking-[-0.02em]" style={{ color: t.sidebarTextActive }}>44Stems</span>
+        </div>
       </div>
 
       <nav className="px-[8px] pt-[10px] pb-[4px]">

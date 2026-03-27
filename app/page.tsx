@@ -6,7 +6,7 @@ import {
   Download, Trash2, Upload, Mic, ChevronDown, ChevronRight, ChevronLeft,
   Play, Pause, Sun, Moon, Bell, Palette, Layers, ChevronsUpDown,
   HelpCircle, Search, ArrowUpDown, X, Square, SquareCheckBig,
-  AudioLines, BarChart3, Gamepad2, SkipBack, RotateCcw, Link2, Check,
+  AudioLines, BarChart3, Gamepad2, SkipBack, RotateCcw, Link2, Check, Monitor,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Waveform } from "@/components/dashboard/waveform";
@@ -165,7 +165,22 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 
 // ─── Component ──────────────────────────────────────────────
 export default function AbletonDashboard() {
-  const [isDark, setIsDark] = useState(true);
+  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">(() => {
+    if (typeof window === "undefined") return "dark";
+    return (localStorage.getItem("44stems-theme") as "dark" | "light" | "system") || "dark";
+  });
+  const [systemDark, setSystemDark] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  useEffect(() => { localStorage.setItem("44stems-theme", themeMode); }, [themeMode]);
+  const isDark = themeMode === "system" ? systemDark : themeMode === "dark";
   const [style, setStyle] = useState<Style>("classic");
   const isColorful = style === "colorful";
   const C = isColorful
@@ -774,9 +789,9 @@ export default function AbletonDashboard() {
               ASK
             </button>
             <div className="w-[1px] h-[16px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
-            <button onClick={() => switchTheme(() => setIsDark(!isDark))}
-              className="p-[8px]" style={{ color: C.textSec }}>
-              {isDark ? <Sun className="h-[16px] w-[16px]" strokeWidth={1.6} /> : <Moon className="h-[16px] w-[16px]" strokeWidth={1.6} />}
+            <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
+              className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
+              {themeMode === "system" ? <Monitor className="h-[16px] w-[16px]" strokeWidth={1.6} /> : isDark ? <Sun className="h-[16px] w-[16px]" strokeWidth={1.6} /> : <Moon className="h-[16px] w-[16px]" strokeWidth={1.6} />}
             </button>
             <button className="p-[8px]" style={{ color: C.textSec }}>
               <Bell className="h-[16px] w-[16px]" strokeWidth={1.6} />
@@ -977,7 +992,7 @@ export default function AbletonDashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-[10px]">
-                        <span style={{ fontSize: 15, color: C.textMuted }}>0 / 10,000 credits</span>
+                        <span style={{ fontSize: 15, color: C.textSec }}>0 / 10,000 credits</span>
                         <button onClick={handleSplit} disabled={!canSplit}
                           className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                           style={{ backgroundColor: canSplit ? C.accent : C.textMuted, color: C.accentText, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
