@@ -15,7 +15,8 @@ export function useJobStatus(jobId: string | null) {
   // Current animated value (float, advances toward target at constant speed)
   const displayRef = useRef(0);
   // ms per 1% — derived from observed speed between the last two real updates
-  const msPerPctRef = useRef(1000); // default: 1%/s
+  // Start at 200ms/pct (5%/s) so the initial 0→5% cold-start is consumed quickly
+  const msPerPctRef = useRef(200);
   const lastRealRef = useRef<{ pct: number; ts: number } | null>(null);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
@@ -77,8 +78,9 @@ export function useJobStatus(jobId: string | null) {
   }, [jobId, fetchStatus, job?.status]);
 
   // rAF loop — advances displayRef toward targetRef at the observed real speed
+  // Starts as soon as jobId is known, before first poll returns
   useEffect(() => {
-    if (!job || job.status === "failed") return;
+    if (!jobId || job?.status === "failed") return;
 
     const tick = (now: number) => {
       const elapsed = lastTickRef.current ? now - lastTickRef.current : 0;
@@ -92,7 +94,7 @@ export function useJobStatus(jobId: string | null) {
         const step = elapsed / msPerPctRef.current;
         displayRef.current = Math.min(target, current + step);
         setDisplayProgress(displayRef.current);
-      } else if (job.status === "completed" && current < 100) {
+      } else if (job?.status === "completed" && current < 100) {
         // Final push to 100% at fixed speed (0.5%/frame ≈ 30 frames)
         displayRef.current = Math.min(100, current + 0.5);
         setDisplayProgress(displayRef.current);
@@ -103,7 +105,7 @@ export function useJobStatus(jobId: string | null) {
 
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [job?.status]);
+  }, [jobId, job?.status]);
 
   const displayJob = job
     ? { ...job, progress: Math.floor(displayRef.current) }
