@@ -1067,10 +1067,10 @@ export default function AbletonDashboard() {
                                 <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
                               </div>
                             </div>
-                            <span className="w-[60px] text-right shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span></span>
-                            <span className="w-[50px] text-right shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span></span>
-                            <span className="w-[80px] text-right shrink-0" style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.duration ?? "—"}</span>
-                            <span className="w-[80px] text-right shrink-0" style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.format.toUpperCase()}</span>
+                            <span className="w-[60px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"}</span></span>
+                            <span className="w-[50px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span></span>
+                            <span className="w-[80px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.duration ?? "—"}</span></span>
+                            <span className="w-[80px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.format.toUpperCase()}</span></span>
                             <div className="flex items-center justify-end gap-[2px] w-[72px]">
                               <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><RiDownloadFill size={14}/></button>
                               <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><RiDeleteBinFill size={14}/></button>
@@ -1235,12 +1235,10 @@ export default function AbletonDashboard() {
                               <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
-                            <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span>
-                          </div>
-                          <span className="w-[80px] text-right" style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.duration ?? "—"}</span>
-                          <span className="w-[80px] text-right" style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.format.toUpperCase()}</span>
+                          <span className="w-[60px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"}</span></span>
+                          <span className="w-[50px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span></span>
+                          <span className="w-[80px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.duration ?? "—"}</span></span>
+                          <span className="w-[80px] flex justify-end shrink-0"><span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.format.toUpperCase()}</span></span>
                           <div className="flex items-center justify-end gap-[2px] w-[72px]">
                             <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
                               <RiDownloadFill size={14}/>
