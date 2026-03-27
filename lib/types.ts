@@ -22,6 +22,7 @@ export interface Job {
   key?: string | null;
   key_raw?: string | null;
   duration?: number | null;
+  peaks?: Record<string, number[]>;
 }
 
 export interface StemDownload {

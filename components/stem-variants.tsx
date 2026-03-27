@@ -79,6 +79,7 @@ interface StemVariantsProps {
   jobId?: string;
   realStemList?: string[];
   trackDuration?: number | null;
+  precomputedPeaks?: Record<string, number[]>;
 }
 
 // ─── Format duration ────────────────────────────────────────
@@ -91,7 +92,7 @@ function fmtDuration(sec: number): string {
 // ─── Main Exported Component ────────────────────────────────
 export function StemVariants(props: StemVariantsProps) {
   const { stemCount, stemMap, labels, stemColors, C, fileName, onNewSplit,
-    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration } = props;
+    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration, precomputedPeaks } = props;
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [wfVariant, setWfVariant] = useState(1);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -106,8 +107,9 @@ export function StemVariants(props: StemVariantsProps) {
   const fn = audioFile?.name || fileName || "demo_track.wav";
   const isRealMode = !!stemUrls && Object.keys(stemUrls).length > 0;
 
-  // Per-stem real peaks — init from cache immediately so first render is instant
+  // Per-stem real peaks — use precomputed (server-side) if available, else fetch
   const [stemPeaks, setStemPeaks] = useState<Record<string, number[]>>(() => {
+    if (precomputedPeaks && Object.keys(precomputedPeaks).length > 0) return precomputedPeaks;
     if (!stemUrls) return {};
     const initial: Record<string, number[]> = {};
     for (const [name, url] of Object.entries(stemUrls)) {
@@ -117,6 +119,11 @@ export function StemVariants(props: StemVariantsProps) {
     return initial;
   });
   useEffect(() => {
+    // If we have precomputed peaks from the server, use them directly
+    if (precomputedPeaks && Object.keys(precomputedPeaks).length > 0) {
+      setStemPeaks(precomputedPeaks);
+      return;
+    }
     if (!isRealMode || !stemUrls) return;
     let cancelled = false;
     // Apply already-cached peaks immediately (no flash)
@@ -126,7 +133,7 @@ export function StemVariants(props: StemVariantsProps) {
       if (hit) cached[name] = hit;
     }
     if (Object.keys(cached).length > 0) setStemPeaks(cached);
-    // Fetch all uncached peaks in parallel
+    // Fetch all uncached peaks in parallel (fallback for old jobs without precomputed peaks)
     const uncached = Object.entries(stemUrls).filter(([, url]) => !_peakCache.has(url));
     if (uncached.length > 0) {
       Promise.allSettled(
@@ -139,7 +146,7 @@ export function StemVariants(props: StemVariantsProps) {
       );
     }
     return () => { cancelled = true; };
-  }, [isRealMode, stemUrls]);
+  }, [isRealMode, stemUrls, precomputedPeaks]);
 
   // Cleanup stem audio elements on unmount
   useEffect(() => {

@@ -38,6 +38,24 @@ image = (
 )
 
 
+def compute_peaks(wav_path: str, num_peaks: int = 1000) -> list[float]:
+    """Extract waveform peaks from a WAV file for instant frontend rendering."""
+    import soundfile as sf
+    import numpy as np
+    data, sr = sf.read(wav_path)
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    data = np.abs(data)
+    bucket_size = max(1, len(data) // num_peaks)
+    peaks = []
+    for i in range(num_peaks):
+        start = i * bucket_size
+        end = min(start + bucket_size, len(data))
+        peaks.append(float(np.max(data[start:end])))
+    mx = max(peaks) if peaks else 1.0
+    return [round(p / mx, 4) for p in peaks] if mx > 0 else peaks
+
+
 def download_from_url(url: str, output_dir: str) -> str:
     """Download audio from URL (YouTube/SoundCloud/Deezer) at best available quality."""
     import yt_dlp
@@ -267,6 +285,13 @@ def separate(request: dict):
                     last_pct[0] = pct
                     update_job_status(job_id, "processing", progress=pct, stage="Uploading stems")
 
+            # Compute waveform peaks before upload (~1s)
+            print("Computing waveform peaks...")
+            stem_peaks = {}
+            for stem_name, filepath in results.items():
+                stem_peaks[stem_name] = compute_peaks(filepath)
+            print(f"Peaks computed for {len(stem_peaks)} stems")
+
             update_job_status(job_id, "processing", progress=85, stage="Uploading stems")
             for stem_name, filepath in results.items():
                 r2_key = f"stems/{job_id}/{stem_name}.wav"
@@ -275,8 +300,13 @@ def separate(request: dict):
             update_job_status(job_id, "completed", progress=100, stage="Done",
                               stems=stem_names, bpm=analysis["bpm"],
                               key=analysis["key"], key_raw=analysis["key_raw"],
-                              duration=analysis["duration"])
+                              duration=analysis["duration"], peaks=stem_peaks)
             return {"status": "completed", "stems": stem_names}
+
+        # Compute peaks for direct mode too
+        stem_peaks = {}
+        for stem_name, filepath in results.items():
+            stem_peaks[stem_name] = compute_peaks(filepath)
 
         # Direct mode: return base64 encoded stems
         import base64 as b64
@@ -288,5 +318,5 @@ def separate(request: dict):
         return {
             "status": "completed", "stems": stem_names, "data": encoded,
             "bpm": analysis["bpm"], "key": analysis["key"], "key_raw": analysis["key_raw"],
-            "duration": analysis["duration"],
+            "duration": analysis["duration"], "peaks": stem_peaks,
         }

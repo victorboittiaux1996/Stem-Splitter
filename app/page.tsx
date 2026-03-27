@@ -1108,6 +1108,7 @@ export default function AbletonDashboard() {
                     jobId={jobId || undefined}
                     stemUrls={stemUrls}
                     trackDuration={currentJob?.duration}
+                    precomputedPeaks={currentJob?.peaks}
                   />
                 )}
               </div>
