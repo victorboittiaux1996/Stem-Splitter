@@ -240,6 +240,10 @@ export default function AbletonDashboard() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
   const [stemDownloads, setStemDownloads] = useState<StemDownload[]>([]);
+  const stemUrls = useMemo(
+    () => stemDownloads.length > 0 ? Object.fromEntries(stemDownloads.map(s => [s.name, s.url])) : undefined,
+    [stemDownloads]
+  );
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -421,7 +425,7 @@ export default function AbletonDashboard() {
 
         if (job.status === "completed") {
           jobDoneRef.current = true;
-          // Fetch stem download URLs
+          // Fetch stem download URLs first, then transition to complete
           const dlRes = await fetch(`/api/download/${jobId}`);
           if (dlRes.ok && !cancelled) {
             const dlData = await dlRes.json();
@@ -429,7 +433,7 @@ export default function AbletonDashboard() {
           }
           // Refresh history so new job appears immediately
           refreshHistory();
-          setTimeout(() => { if (!cancelled) setAppState("complete"); }, 400);
+          if (!cancelled) setAppState("complete");
         } else if (job.status === "failed") {
           jobDoneRef.current = true;
           setUploadError(job.error || "Processing failed");
@@ -1025,7 +1029,7 @@ export default function AbletonDashboard() {
                     keyRaw={currentJob?.key_raw}
                     realStemList={currentJob?.stems}
                     jobId={jobId || undefined}
-                    stemUrls={stemDownloads.length > 0 ? Object.fromEntries(stemDownloads.map(s => [s.name, s.url])) : undefined}
+                    stemUrls={stemUrls}
                   />
                 )}
               </div>
@@ -1051,7 +1055,7 @@ export default function AbletonDashboard() {
                     keyRaw={currentJob?.key_raw}
                     realStemList={currentJob?.stems}
                     jobId={jobId || undefined}
-                    stemUrls={stemDownloads.length > 0 ? Object.fromEntries(stemDownloads.map(s => [s.name, s.url])) : undefined}
+                    stemUrls={stemUrls}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-[80px]">

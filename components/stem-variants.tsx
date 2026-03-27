@@ -93,19 +93,28 @@ export function StemVariants(props: StemVariantsProps) {
   const fn = audioFile?.name || fileName || "demo_track.wav";
   const isRealMode = !!stemUrls && Object.keys(stemUrls).length > 0;
 
-  // Per-stem real peaks (loaded from stem URLs in background)
+  // Per-stem real peaks — keyed by URL so cache survives stemCount changes
+  const peakCacheRef = useRef<Record<string, number[]>>({});
   const [stemPeaks, setStemPeaks] = useState<Record<string, number[]>>({});
   useEffect(() => {
     if (!isRealMode || !stemUrls) return;
     let cancelled = false;
-    setStemPeaks({});
-    // Load stems sequentially to avoid bandwidth spikes
+    // Apply already-cached peaks immediately (no flash)
+    const cached: Record<string, number[]> = {};
+    for (const [name, url] of Object.entries(stemUrls)) {
+      if (peakCacheRef.current[url]) cached[name] = peakCacheRef.current[url];
+    }
+    if (Object.keys(cached).length > 0) setStemPeaks(cached);
+    // Fetch only the ones not yet cached
     (async () => {
       for (const [name, url] of Object.entries(stemUrls)) {
         if (cancelled) return;
+        if (peakCacheRef.current[url]) continue;
         try {
           const p = await fetchAudioPeaks(url);
-          if (!cancelled) setStemPeaks(prev => ({ ...prev, [name]: p }));
+          if (cancelled) return;
+          peakCacheRef.current[url] = p;
+          setStemPeaks(prev => ({ ...prev, [name]: p }));
         } catch {
           // Silently fall back to procedural waveform for this stem
         }
