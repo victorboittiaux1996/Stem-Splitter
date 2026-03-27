@@ -264,6 +264,33 @@ export default function AbletonDashboard() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // ─── MOCK: simulate completed split for Results page dev ───
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "1") {
+      const mockStems = ["vocals", "drums", "bass", "other"];
+      setCurrentJob({
+        id: "mock-dev-001",
+        status: "completed",
+        mode: "4stem",
+        progress: 100,
+        stage: "Done",
+        createdAt: Date.now() - 120000,
+        completedAt: Date.now(),
+        stems: mockStems,
+        fileName: "1A - 126 - Chris Lake, Abel Balder - Ease My Mind (Extended Mix).mp3",
+        bpm: 126,
+        key: "1A",
+        key_raw: "Abm",
+        duration: 367,
+      });
+      setJobId("mock-dev-001");
+      setStemCount(4);
+      setView("results");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // ─── END MOCK ───
+
   const switchTheme = useCallback((fn: () => void) => {
     const el = rootRef.current;
     if (el) el.classList.add("theme-switching");
@@ -1024,7 +1051,7 @@ export default function AbletonDashboard() {
                         </div>
                         {history.map((item, i) => (
                           <div key={item.id}
-                            className="flex items-center px-[16px] cursor-pointer transition-colors"
+                            className="flex items-center px-[16px] py-[14px] cursor-pointer transition-colors"
                             style={{
                               borderBottom: i < history.length - 1 ? `1px solid ${C.text}08` : undefined,
                             }}
@@ -1178,10 +1205,8 @@ export default function AbletonDashboard() {
                       const isTrackSelected = selectedTracks.has(item.id);
                       return (
                         <div key={item.id}
-                          className="flex items-center px-[16px] cursor-pointer transition-colors"
+                          className="flex items-center px-[16px] py-[14px] cursor-pointer transition-colors"
                           style={{
-                            paddingTop: 14,
-                            paddingBottom: 14,
                             ...(i < sorted.length - 1 ? { borderBottom: `1px solid ${`${C.text}08`}` } : {}),
                             backgroundColor: exportMode ? (isTrackSelected ? (isDark ? C.bgHover : C.bgCard) : (isDark ? "transparent" : C.bgSubtle)) : undefined,
                           }}
