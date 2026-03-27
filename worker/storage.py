@@ -25,7 +25,7 @@ def download_from_r2(key: str, local_path: str):
     s3.download_file(BUCKET, key, local_path)
 
 
-def upload_to_r2(local_path: str, key: str, content_type: str = "audio/wav"):
+def upload_to_r2(local_path: str, key: str, content_type: str = "audio/wav", callback=None):
     """Upload a local file to R2."""
     s3 = get_s3_client()
     s3.upload_file(
@@ -33,6 +33,7 @@ def upload_to_r2(local_path: str, key: str, content_type: str = "audio/wav"):
         BUCKET,
         key,
         ExtraArgs={"ContentType": content_type},
+        Callback=callback,
     )
 
 

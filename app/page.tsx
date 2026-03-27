@@ -13,6 +13,7 @@ import { Waveform } from "@/components/dashboard/waveform";
 import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
 import type { Job, StemDownload } from "@/lib/types";
+import { prefetchStemPeaks } from "@/components/stem-variants";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react
 // Final choice: Custom SVGs for Ableton geometric style
 
@@ -384,7 +385,7 @@ export default function AbletonDashboard() {
     progressTargetRef.current = 0; progressDisplayRef.current = 0;
   }, []);
 
-  // rAF loop — advances progress at 1%/s max, 10%/s on completion
+  // rAF loop — spring toward real target, slow trickle when caught up so bar never freezes
   useEffect(() => {
     const tick = (now: number) => {
       const elapsed = progressLastTickRef.current ? now - progressLastTickRef.current : 16;
@@ -392,11 +393,18 @@ export default function AbletonDashboard() {
       const target = progressTargetRef.current;
       const current = progressDisplayRef.current;
       if (current < target) {
-        const speed = target >= 100 ? 10 : 1; // %/s
+        // Spring: speed proportional to gap, min 15%/s
+        const speed = Math.max(15, (target - current) * 3);
         const step = Math.min((elapsed / 1000) * speed, target - current);
         progressDisplayRef.current = current + step;
-        setProgress(Math.floor(progressDisplayRef.current));
+      } else if (target > 0 && target < 100) {
+        // Trickle: 0.5%/s, never goes more than 4% ahead of real target (capped at 98)
+        const trickleMax = Math.min(target + 4, 98);
+        if (current < trickleMax) {
+          progressDisplayRef.current = Math.min(current + (elapsed / 1000) * 0.5, trickleMax);
+        }
       }
+      setProgress(progressDisplayRef.current);
       progressRafRef.current = requestAnimationFrame(tick);
     };
     progressRafRef.current = requestAnimationFrame(tick);
@@ -425,11 +433,16 @@ export default function AbletonDashboard() {
 
         if (job.status === "completed") {
           jobDoneRef.current = true;
-          // Fetch stem download URLs first, then transition to complete
+          // Fetch stem download URLs
           const dlRes = await fetch(`/api/download/${jobId}`);
           if (dlRes.ok && !cancelled) {
             const dlData = await dlRes.json();
-            if (dlData.stems) setStemDownloads(dlData.stems);
+            if (dlData.stems) {
+              setStemDownloads(dlData.stems);
+              // Kick off peak pre-fetch NOW — before the component mounts
+              const urls = Object.fromEntries((dlData.stems as StemDownload[]).map(s => [s.name, s.url]));
+              prefetchStemPeaks(urls);
+            }
           }
           // Refresh history so new job appears immediately
           refreshHistory();
@@ -443,7 +456,7 @@ export default function AbletonDashboard() {
     };
 
     poll();
-    const interval = setInterval(poll, 2000);
+    const interval = setInterval(poll, 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [jobId]);
 
@@ -1499,11 +1512,12 @@ function ProcessingSection({ progress, activeAgentIdx, C, isColorful }: {
 
         {/* Progress bar */}
         <div className="h-[4px] w-full overflow-hidden" style={{ backgroundColor: C.bgHover }}>
-          <motion.div className="h-full" style={{
+          <div className="h-full" style={{
             background: isColorful
               ? "linear-gradient(90deg, #FF2D55, #FF9500, #FFCC00, #34C759, #007AFF, #5856D6)"
               : C.accent,
-          }} animate={{ width: `${progress}%` }} transition={{ duration: 0.4, ease: "easeOut" }} />
+            width: `${progress}%`,
+          }} />
         </div>
 
         {/* Agent steps — current + previous */}

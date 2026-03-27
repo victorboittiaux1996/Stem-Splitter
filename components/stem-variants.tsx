@@ -6,6 +6,18 @@ import { Waveform } from "@/components/dashboard/waveform";
 import { WaveformVariant, WAVEFORM_VARIANT_NAMES } from "@/components/dashboard/waveform-variants";
 import { useAudioPeaks } from "@/hooks/use-audio-peaks";
 
+// Module-level peak cache — survives React remounts (theme switch, etc.)
+const _peakCache = new Map<string, number[]>();
+
+// Pre-fetch peaks into cache before component mounts — call as soon as URLs are available
+export function prefetchStemPeaks(urls: Record<string, string>) {
+  for (const url of Object.values(urls)) {
+    if (!_peakCache.has(url)) {
+      fetchAudioPeaks(url).then(p => _peakCache.set(url, p)).catch(() => {});
+    }
+  }
+}
+
 // Extract peak amplitudes from an audio URL (1000 buckets, normalized 0–1)
 async function fetchAudioPeaks(url: string, peakCount = 1000): Promise<number[]> {
   const res = await fetch(url);
@@ -93,27 +105,35 @@ export function StemVariants(props: StemVariantsProps) {
   const fn = audioFile?.name || fileName || "demo_track.wav";
   const isRealMode = !!stemUrls && Object.keys(stemUrls).length > 0;
 
-  // Per-stem real peaks — keyed by URL so cache survives stemCount changes
-  const peakCacheRef = useRef<Record<string, number[]>>({});
-  const [stemPeaks, setStemPeaks] = useState<Record<string, number[]>>({});
+  // Per-stem real peaks — init from cache immediately so first render is instant
+  const [stemPeaks, setStemPeaks] = useState<Record<string, number[]>>(() => {
+    if (!stemUrls) return {};
+    const initial: Record<string, number[]> = {};
+    for (const [name, url] of Object.entries(stemUrls)) {
+      const hit = _peakCache.get(url);
+      if (hit) initial[name] = hit;
+    }
+    return initial;
+  });
   useEffect(() => {
     if (!isRealMode || !stemUrls) return;
     let cancelled = false;
     // Apply already-cached peaks immediately (no flash)
     const cached: Record<string, number[]> = {};
     for (const [name, url] of Object.entries(stemUrls)) {
-      if (peakCacheRef.current[url]) cached[name] = peakCacheRef.current[url];
+      const hit = _peakCache.get(url);
+      if (hit) cached[name] = hit;
     }
     if (Object.keys(cached).length > 0) setStemPeaks(cached);
     // Fetch only the ones not yet cached
     (async () => {
       for (const [name, url] of Object.entries(stemUrls)) {
         if (cancelled) return;
-        if (peakCacheRef.current[url]) continue;
+        if (_peakCache.has(url)) continue;
         try {
           const p = await fetchAudioPeaks(url);
           if (cancelled) return;
-          peakCacheRef.current[url] = p;
+          _peakCache.set(url, p);
           setStemPeaks(prev => ({ ...prev, [name]: p }));
         } catch {
           // Silently fall back to procedural waveform for this stem

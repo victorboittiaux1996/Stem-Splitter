@@ -252,10 +252,25 @@ def separate(request: dict):
         # Upload to R2 if job has inputKey
         if input_key:
             from storage import upload_to_r2, update_job_status
+            import os as _os
+
+            # Compute total bytes across all stems for smooth 85→99% progress
+            total_bytes = sum(_os.path.getsize(fp) for fp in results.values())
+            uploaded_bytes = [0]
+            last_pct = [85]
+
+            def _upload_callback(bytes_transferred):
+                uploaded_bytes[0] += bytes_transferred
+                pct = 85 + int((uploaded_bytes[0] / total_bytes) * 14)  # 85→99
+                pct = min(pct, 99)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job_status(job_id, "processing", progress=pct, stage="Uploading stems")
+
             update_job_status(job_id, "processing", progress=85, stage="Uploading stems")
             for stem_name, filepath in results.items():
                 r2_key = f"stems/{job_id}/{stem_name}.wav"
-                upload_to_r2(filepath, r2_key)
+                upload_to_r2(filepath, r2_key, callback=_upload_callback)
 
             update_job_status(job_id, "completed", progress=100, stage="Done",
                               stems=stem_names, bpm=analysis["bpm"],
