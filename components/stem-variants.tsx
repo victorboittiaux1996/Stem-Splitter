@@ -126,21 +126,18 @@ export function StemVariants(props: StemVariantsProps) {
       if (hit) cached[name] = hit;
     }
     if (Object.keys(cached).length > 0) setStemPeaks(cached);
-    // Fetch only the ones not yet cached
-    (async () => {
-      for (const [name, url] of Object.entries(stemUrls)) {
-        if (cancelled) return;
-        if (_peakCache.has(url)) continue;
-        try {
+    // Fetch all uncached peaks in parallel
+    const uncached = Object.entries(stemUrls).filter(([, url]) => !_peakCache.has(url));
+    if (uncached.length > 0) {
+      Promise.allSettled(
+        uncached.map(async ([name, url]) => {
           const p = await fetchAudioPeaks(url);
           if (cancelled) return;
           _peakCache.set(url, p);
           setStemPeaks(prev => ({ ...prev, [name]: p }));
-        } catch {
-          // Silently fall back to procedural waveform for this stem
-        }
-      }
-    })();
+        })
+      );
+    }
     return () => { cancelled = true; };
   }, [isRealMode, stemUrls]);
 
