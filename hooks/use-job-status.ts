@@ -4,20 +4,18 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { Job } from "@/lib/types";
 
 const POLL_INTERVAL = 1000;
+const MAX_PCT_PER_SEC = 1;     // 1%/s — toujours 1 par 1, jamais de saut
+const FINISH_PCT_PER_SEC = 10; // accélération finale quand completed (~2-3s pour finir)
 
 export function useJobStatus(jobId: string | null) {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [displayProgress, setDisplayProgress] = useState(0);
 
-  // The real value last received from the server
-  const targetRef = useRef(0);
-  // The displayed value — animates toward target
-  const displayRef = useRef(0);
+  const targetRef = useRef(0);   // vraie valeur reçue du serveur
+  const displayRef = useRef(0);  // valeur affichée, monte à MAX_PCT_PER_SEC
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
-  // Speed in %/ms — computed from the last two real server updates
-  const speedRef = useRef(0.005); // default: 5%/s until first real update
 
   const fetchStatus = useCallback(async () => {
     if (!jobId) return;
@@ -32,20 +30,12 @@ export function useJobStatus(jobId: string | null) {
       setError(null);
 
       const real = data.progress ?? 0;
-
+      // target ne recule jamais
+      if (real > targetRef.current) {
+        targetRef.current = real;
+      }
       if (data.status === "completed") {
         targetRef.current = 100;
-        return;
-      }
-
-      if (real > targetRef.current) {
-        // Compute speed from how fast the real value just moved
-        const delta = real - targetRef.current;
-        // delta% arrived in ~POLL_INTERVAL ms — use that as speed
-        if (delta > 0) {
-          speedRef.current = delta / POLL_INTERVAL;
-        }
-        targetRef.current = real;
       }
     } catch (err) {
       console.error("Failed to fetch job status:", err);
@@ -53,6 +43,7 @@ export function useJobStatus(jobId: string | null) {
     }
   }, [jobId]);
 
+  // Polling
   useEffect(() => {
     if (!jobId) return;
     fetchStatus();
@@ -66,7 +57,7 @@ export function useJobStatus(jobId: string | null) {
     return () => clearInterval(interval);
   }, [jobId, fetchStatus, job?.status]);
 
-  // rAF — interpolates displayRef toward targetRef at the observed speed
+  // rAF — monte displayRef vers targetRef à vitesse max 1%/s
   useEffect(() => {
     if (!jobId || job?.status === "failed") return;
 
@@ -74,13 +65,15 @@ export function useJobStatus(jobId: string | null) {
       const elapsed = lastTickRef.current ? now - lastTickRef.current : 16;
       lastTickRef.current = now;
 
-      const target = job?.status === "completed" ? 100 : targetRef.current;
+      const isCompleted = job?.status === "completed";
+      const target = isCompleted ? 100 : targetRef.current;
       const current = displayRef.current;
 
       if (current < target) {
-        // At observed speed — never overshoot the target
-        const step = elapsed * speedRef.current;
-        displayRef.current = Math.min(target, current + step);
+        const speed = isCompleted ? FINISH_PCT_PER_SEC : MAX_PCT_PER_SEC;
+        const maxStep = (elapsed / 1000) * speed;
+        const step = Math.min(maxStep, target - current);
+        displayRef.current = current + step;
         setDisplayProgress(displayRef.current);
       }
 
