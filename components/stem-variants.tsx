@@ -78,6 +78,7 @@ interface StemVariantsProps {
   stemUrls?: Record<string, string>;
   jobId?: string;
   realStemList?: string[];
+  trackDuration?: number | null;
 }
 
 // ─── Format duration ────────────────────────────────────────
@@ -90,7 +91,7 @@ function fmtDuration(sec: number): string {
 // ─── Main Exported Component ────────────────────────────────
 export function StemVariants(props: StemVariantsProps) {
   const { stemCount, stemMap, labels, stemColors, C, fileName, onNewSplit,
-    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList } = props;
+    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration } = props;
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [wfVariant, setWfVariant] = useState(1);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -277,7 +278,7 @@ export function StemVariants(props: StemVariantsProps) {
         <div className="ml-[14px] min-w-0 flex-1">
           <p style={{ fontSize: 16, fontWeight: 600, color: C.text, lineHeight: 1.2 }} className="truncate">{fn}</p>
           <div className="flex items-center gap-[6px] mt-[5px]">
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, backgroundColor: C.bgHover, padding: "2px 7px", letterSpacing: "0.03em" }}>{bpm != null ? `${bpm} BPM` : "— BPM"}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, backgroundColor: C.bgHover, padding: "2px 7px", letterSpacing: "0.03em" }}>{bpm != null ? `${Math.round(bpm)} BPM` : "— BPM"}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, backgroundColor: C.bgHover, padding: "2px 7px" }} title={keyRaw || undefined}>{stemKey || "—"}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, backgroundColor: C.bgHover, padding: "2px 7px" }}>WAV</span>
           </div>
@@ -332,7 +333,7 @@ export function StemVariants(props: StemVariantsProps) {
         <div className="flex items-center gap-[8px]">
           <span style={{ fontSize: 13, color: C.textMuted }}>{stems.length} stems</span>
           <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
-          <span style={{ fontSize: 13, color: C.textMuted }}>{duration ? fmtDuration(duration) : "—"}</span>
+          <span style={{ fontSize: 13, color: C.textMuted }}>{(trackDuration ?? duration) ? fmtDuration((trackDuration ?? duration)!) : "—"}</span>
         </div>
         {isRealMode && jobId ? (
           <button onClick={async () => {

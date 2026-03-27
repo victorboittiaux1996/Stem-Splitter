@@ -94,20 +94,21 @@ def detect_bpm(audio_path: str) -> float:
         bpm *= 2
     while bpm > 180:
         bpm /= 2
-    return round(float(bpm), 1)
+    return round(float(bpm))
 
 
 def analyze_track(audio_path: str) -> dict:
-    """Full analysis: key + BPM.
+    """Full analysis: key + BPM + duration.
 
-    Returns: {"key": "10A", "key_raw": "B minor", "bpm": 126.0}
-    On failure: {"key": None, "key_raw": None, "bpm": None}
+    Returns: {"key": "10A", "key_raw": "B minor", "bpm": 126.0, "duration": 214.3}
+    On failure: {"key": None, "key_raw": None, "bpm": None, "duration": None}
     """
     try:
+        duration_sec = librosa.get_duration(filename=audio_path)
         camelot, key_raw = detect_key(audio_path)
         bpm = detect_bpm(audio_path)
-        print(f"Analysis: {bpm} BPM, {camelot} ({key_raw})")
-        return {"key": camelot, "key_raw": key_raw, "bpm": bpm}
+        print(f"Analysis: {bpm} BPM, {camelot} ({key_raw}), {duration_sec:.1f}s")
+        return {"key": camelot, "key_raw": key_raw, "bpm": bpm, "duration": round(duration_sec, 1)}
     except Exception as e:
         print(f"Analysis failed: {e}")
-        return {"key": None, "key_raw": None, "bpm": None}
+        return {"key": None, "key_raw": None, "bpm": None, "duration": None}

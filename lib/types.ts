@@ -21,6 +21,7 @@ export interface Job {
   bpm?: number | null;
   key?: string | null;
   key_raw?: string | null;
+  duration?: number | null;
 }
 
 export interface StemDownload {

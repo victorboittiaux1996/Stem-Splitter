@@ -274,7 +274,8 @@ def separate(request: dict):
 
             update_job_status(job_id, "completed", progress=100, stage="Done",
                               stems=stem_names, bpm=analysis["bpm"],
-                              key=analysis["key"], key_raw=analysis["key_raw"])
+                              key=analysis["key"], key_raw=analysis["key_raw"],
+                              duration=analysis["duration"])
             return {"status": "completed", "stems": stem_names}
 
         # Direct mode: return base64 encoded stems

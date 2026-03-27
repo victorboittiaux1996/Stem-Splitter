@@ -505,6 +505,22 @@ export default function AbletonDashboard() {
     const prevItem = currentIdx > 0 ? items[currentIdx - 1] : null;
     const nextItem = currentIdx < items.length - 1 ? items[currentIdx + 1] : null;
 
+    // Fetch real stem URLs when item changes
+    const [modalStemUrls, setModalStemUrls] = useState<Record<string, string>>({});
+    useEffect(() => {
+      setModalStemUrls({});
+      fetch(`/api/download/${currentItem.id}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.stems) {
+            const urls = Object.fromEntries((d.stems as { name: string; url: string }[]).map(s => [s.name, s.url]));
+            setModalStemUrls(urls);
+            prefetchStemPeaks(urls);
+          }
+        })
+        .catch(() => {});
+    }, [currentItem.id]);
+
     return (
       <motion.div key="stem-modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
@@ -535,25 +551,13 @@ export default function AbletonDashboard() {
               <div className="min-w-0">
                 <p style={{ fontSize: 16, fontWeight: 600, color: C.text }} className="truncate">{currentItem.name}</p>
                 <p style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>
-                  {currentItem.date} · {currentItem.duration} · {currentItem.bpm} BPM · {currentItem.key} · {currentItem.format.toUpperCase()}
+                  {currentItem.date} · {currentItem.duration} · {currentItem.bpm != null ? Math.round(currentItem.bpm) : "—"} BPM · {currentItem.key} · {currentItem.format.toUpperCase()}
                 </p>
               </div>
             </div>
             <button onClick={onClose} className="p-[6px] transition-colors shrink-0 ml-[12px]" style={{ color: C.textMuted }}>
               <X className="h-[16px] w-[16px]" strokeWidth={1.6} />
             </button>
-          </div>
-          {/* Settings row */}
-          <div className="flex items-center gap-[10px] px-[24px] py-[8px]" style={{ backgroundColor: C.bgSubtle }}>
-            <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.05em" }}>SETTINGS:</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: C.accent }}>AI</span>
-            <span style={{ fontSize: 13, color: C.textSec }}>{currentItem.model}</span>
-            <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
-            <span style={{ fontSize: 13, color: C.textSec }}>Quality {currentItem.quality}%</span>
-            <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
-            <span style={{ fontSize: 13, color: C.textSec }}>Stability {currentItem.stability}%</span>
-            <div className="flex-1" />
-            <button style={{ fontSize: 13, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em" }}>USE AS DEFAULT</button>
           </div>
           {/* Stems */}
           <div className="px-[16px] py-[12px] space-y-[2px]">
@@ -577,9 +581,15 @@ export default function AbletonDashboard() {
                     <Waveform seed={(si + 1) * 3571 + parseInt(currentItem.id) * 7919} color={color} playedColor={color} progress={isPlayingThis ? 0.35 : 0} height={28} onSeek={() => {}} barCount={120} />
                   </div>
                   <span style={{ fontSize: 14, color: C.textMuted }}>{currentItem.format.toUpperCase()}</span>
-                  <button className="p-[4px]" style={{ color: C.textMuted }}>
-                    <Download className="h-[13px] w-[13px]" strokeWidth={1.5} />
-                  </button>
+                  {modalStemUrls[stem] ? (
+                    <a href={modalStemUrls[stem]} download={`${stem}.wav`} className="p-[4px]" style={{ color: C.textMuted }}>
+                      <Download className="h-[13px] w-[13px]" strokeWidth={1.5} />
+                    </a>
+                  ) : (
+                    <button className="p-[4px]" style={{ color: C.textMuted, opacity: 0.3 }}>
+                      <Download className="h-[13px] w-[13px]" strokeWidth={1.5} />
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -587,8 +597,20 @@ export default function AbletonDashboard() {
           {/* Footer */}
           <div className="flex items-center justify-between px-[24px] py-[12px]" style={{ backgroundColor: C.bgSubtle }}>
             <span style={{ fontSize: 14, color: C.textMuted }}>{currentIdx + 1} / {items.length}</span>
-            <button className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
-              style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent }}>
+            <button onClick={async () => {
+              if (Object.keys(modalStemUrls).length === 0) return;
+              const JSZip = (await import("jszip")).default;
+              const zip = new JSZip();
+              await Promise.all(Object.entries(modalStemUrls).map(async ([name, url]) => {
+                const res = await fetch(url);
+                const blob = await res.blob();
+                zip.file(`${name}.wav`, blob);
+              }));
+              const content = await zip.generateAsync({ type: "blob" });
+              const a = document.createElement("a"); a.href = URL.createObjectURL(content);
+              a.download = `stems-${currentItem.id}.zip`; a.click();
+            }} className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
+              style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent, opacity: Object.keys(modalStemUrls).length > 0 ? 1 : 0.4 }}>
               <Download className="h-[12px] w-[12px]" strokeWidth={1.8} />
               DOWNLOAD .ZIP
             </button>
@@ -1002,7 +1024,7 @@ export default function AbletonDashboard() {
                               </div>
                             </div>
                             <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
-                              <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm} BPM</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
                               <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span>
                             </div>
                             <span className="w-[80px] text-right" style={{ fontSize: 15, color: C.textMuted }}>{item.duration}</span>
@@ -1043,6 +1065,7 @@ export default function AbletonDashboard() {
                     realStemList={currentJob?.stems}
                     jobId={jobId || undefined}
                     stemUrls={stemUrls}
+                    trackDuration={currentJob?.duration}
                   />
                 )}
               </div>
@@ -1069,6 +1092,7 @@ export default function AbletonDashboard() {
                     realStemList={currentJob?.stems}
                     jobId={jobId || undefined}
                     stemUrls={stemUrls}
+                    trackDuration={currentJob?.duration}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-[80px]">
@@ -1159,7 +1183,7 @@ export default function AbletonDashboard() {
                             </div>
                           </div>
                           <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
-                            <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm} BPM</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px", letterSpacing: "0.03em" }}>{item.bpm != null ? Math.round(item.bpm) : "—"} BPM</span>
                             <span style={{ fontSize: 11, fontWeight: 600, color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 6px" }}>{item.key}</span>
                           </div>
                           <span className="w-[80px] text-right" style={{ fontSize: 15, color: C.textMuted }}>{item.duration}</span>

@@ -15,6 +15,12 @@ const s3 = new S3Client({
 });
 const BUCKET = process.env.R2_BUCKET_NAME || "stem-splitter-storage";
 
+function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}m ${s.toString().padStart(2, "0")}s`;
+}
+
 function relativeDate(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60000);
@@ -72,6 +78,7 @@ export async function GET() {
         model: "MelBand RoFormer",
         createdAt: job.createdAt,
         completedAt: job.completedAt ?? job.createdAt,
+        duration: job.duration != null ? formatDuration(job.duration) : undefined,
       }));
 
     return NextResponse.json({ jobs });

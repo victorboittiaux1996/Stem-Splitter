@@ -47,6 +47,7 @@ def update_job_status(
     bpm: float | None = None,
     key: str | None = None,
     key_raw: str | None = None,
+    duration: float | None = None,
 ):
     """Update the job status JSON in R2."""
     s3 = get_s3_client()
@@ -73,6 +74,8 @@ def update_job_status(
         job["key"] = key
     if key_raw is not None:
         job["key_raw"] = key_raw
+    if duration is not None:
+        job["duration"] = duration
     if status == "completed":
         import time
         job["completedAt"] = int(time.time() * 1000)
