@@ -300,29 +300,63 @@ export default function AbletonDashboard() {
       const mode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
 
       if (isValidUrl && inputMode === "url") {
-        // URL mode: send JSON
+        // URL mode: send JSON — tiny payload, no file through Vercel
         res = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: urlInput, mode }),
         });
+        if (!res.ok) {
+          let msg = "Upload failed";
+          try { const d = await res.json(); msg = d.error || msg; } catch { /* non-JSON */ }
+          throw new Error(msg);
+        }
+        const { jobId: id } = await res.json();
+        setJobId(id);
       } else if (file) {
-        // File mode: send FormData
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("mode", mode);
-        res = await fetch("/api/upload", { method: "POST", body: formData });
+        // File mode: presigned upload — browser PUT directly to R2, bypasses Vercel
+        // Step 1: get presigned URL
+        const initRes = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "audio/mpeg", mode }),
+        });
+        if (!initRes.ok) {
+          let msg = "Upload failed";
+          try { const d = await initRes.json(); msg = d.error || msg; } catch { /* non-JSON */ }
+          throw new Error(msg);
+        }
+        const { jobId: id, uploadUrl } = await initRes.json();
+
+        // Step 2: upload directly to R2 with real progress
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 80));
+          });
+          xhr.addEventListener("load", () => { xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload error (${xhr.status})`)); });
+          xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+          xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+          xhr.open("PUT", uploadUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "audio/mpeg");
+          xhr.send(file);
+        });
+
+        // Step 3: confirm and trigger Modal
+        const confirmRes = await fetch("/api/upload", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: id }),
+        });
+        if (!confirmRes.ok) {
+          let msg = "Failed to start processing";
+          try { const d = await confirmRes.json(); msg = d.error || msg; } catch { /* non-JSON */ }
+          throw new Error(msg);
+        }
+        setJobId(id);
       } else {
         return;
       }
-
-      if (!res.ok) {
-        let msg = "Upload failed";
-        try { const d = await res.json(); msg = d.error || msg; } catch { /* non-JSON error */ }
-        throw new Error(msg);
-      }
-      const { jobId: id } = await res.json();
-      setJobId(id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
       setUploadError(msg);
