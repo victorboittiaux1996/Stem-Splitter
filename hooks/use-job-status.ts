@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { Job } from "@/lib/types";
 
 const POLL_INTERVAL = 1000;
+const MAX_PCT_PER_SEC = 1.5;      // normal speed: never jump, always 1%/1%
+const FINISH_PCT_PER_SEC = 15;    // fast finish once completed: reaches 100% in ~2s
 
 export function useJobStatus(jobId: string | null) {
   const [job, setJob] = useState<Job | null>(null);
@@ -12,12 +14,8 @@ export function useJobStatus(jobId: string | null) {
 
   // Target = last real value received from server (float, 0–100)
   const targetRef = useRef(0);
-  // Current animated value (float, advances toward target at constant speed)
+  // Current animated value (float, advances at MAX_PCT_PER_SEC toward target)
   const displayRef = useRef(0);
-  // ms per 1% — derived from observed speed between the last two real updates
-  // Start at 200ms/pct (5%/s) so the initial 0→5% cold-start is consumed quickly
-  const msPerPctRef = useRef(200);
-  const lastRealRef = useRef<{ pct: number; ts: number } | null>(null);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
 
@@ -34,28 +32,15 @@ export function useJobStatus(jobId: string | null) {
       setError(null);
 
       const real = data.progress ?? 0;
-      const now = Date.now();
 
       if (data.status === "completed") {
         targetRef.current = 100;
         return;
       }
 
-      // Update speed estimate from two consecutive real values
-      if (lastRealRef.current && real > lastRealRef.current.pct) {
-        const deltaPct = real - lastRealRef.current.pct;
-        const deltaMs = now - lastRealRef.current.ts;
-        if (deltaMs > 0 && deltaPct > 0) {
-          // Smooth the speed: blend new observation with current estimate
-          const observed = deltaMs / deltaPct;
-          msPerPctRef.current = msPerPctRef.current * 0.4 + observed * 0.6;
-        }
-      }
-
-      // Only move target forward
+      // Only move target forward — never backward
       if (real > targetRef.current) {
         targetRef.current = real;
-        lastRealRef.current = { pct: real, ts: now };
       }
     } catch (err) {
       console.error("Failed to fetch job status:", err);
@@ -89,15 +74,16 @@ export function useJobStatus(jobId: string | null) {
       const target = targetRef.current;
       const current = displayRef.current;
 
-      if (current < target) {
-        // Advance at observed speed, never overshoot target
-        const step = elapsed / msPerPctRef.current;
-        displayRef.current = Math.min(target, current + step);
-        setDisplayProgress(displayRef.current);
-      } else if (job?.status === "completed" && current < 100) {
-        // Final push to 100% at fixed speed (0.5%/frame ≈ 30 frames)
-        displayRef.current = Math.min(100, current + 0.5);
-        setDisplayProgress(displayRef.current);
+      if (current < target || (job?.status === "completed" && current < 100)) {
+        const isCompleted = job?.status === "completed";
+        const effectiveTarget = isCompleted ? 100 : target;
+        const speed = isCompleted ? FINISH_PCT_PER_SEC : MAX_PCT_PER_SEC;
+        const maxStep = (elapsed / 1000) * speed;
+        const step = Math.min(maxStep, effectiveTarget - current);
+        if (step > 0) {
+          displayRef.current = current + step;
+          setDisplayProgress(displayRef.current);
+        }
       }
 
       rafRef.current = requestAnimationFrame(tick);
