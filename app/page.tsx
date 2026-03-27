@@ -887,10 +887,10 @@ export default function AbletonDashboard() {
                     {/* Action bar */}
                     <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
                       <div className="flex items-center gap-[4px]">
-                        <button onClick={() => { setInputMode("file"); inputRef.current?.click(); }} className="p-[8px] transition-colors" style={{ color: C.textSec }}>
+                        <button onClick={() => { setInputMode("file"); inputRef.current?.click(); }} className="p-[8px] transition-colors" style={{ color: C.textMuted }}>
                           <Upload className="h-[16px] w-[16px]" strokeWidth={1.6} />
                         </button>
-                        <button className="p-[8px]" style={{ color: C.textSec }}>
+                        <button className="p-[8px]" style={{ color: C.textMuted }}>
                           <Mic className="h-[16px] w-[16px]" strokeWidth={1.6} />
                         </button>
                         <div className="w-[1px] h-[14px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
@@ -992,7 +992,7 @@ export default function AbletonDashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-[10px]">
-                        <span style={{ fontSize: 15, color: C.textSec }}>0 / 10,000 credits</span>
+                        <span style={{ fontSize: 15, color: C.textMuted }}>0 / 10,000 credits</span>
                         <button onClick={handleSplit} disabled={!canSplit}
                           className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                           style={{ backgroundColor: canSplit ? C.accent : C.textMuted, color: C.accentText, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
@@ -1138,7 +1138,7 @@ export default function AbletonDashboard() {
                         className="flex items-center gap-[6px] px-[14px] py-[8px] transition-colors"
                         style={{
                           fontSize: 15, fontWeight: 500, letterSpacing: "0.03em",
-                          color: exportMode && selectedTracks.size > 0 ? C.accentText : C.textSec,
+                          color: exportMode && selectedTracks.size > 0 ? C.bg : C.textSec,
                           backgroundColor: exportMode && selectedTracks.size > 0 ? C.text : C.bgHover,
                           cursor: exportMode && selectedTracks.size === 0 ? "not-allowed" : "pointer",
                         }}>

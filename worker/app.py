@@ -288,4 +288,5 @@ def separate(request: dict):
         return {
             "status": "completed", "stems": stem_names, "data": encoded,
             "bpm": analysis["bpm"], "key": analysis["key"], "key_raw": analysis["key_raw"],
+            "duration": analysis["duration"],
         }
