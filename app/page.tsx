@@ -12,7 +12,7 @@ import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
 import type { Job, StemDownload } from "@/lib/types";
 import { prefetchStemPeaks } from "@/components/stem-variants";
-import { RiDownloadFill, RiDeleteBinFill, RiUploadFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiUploadCloudFill, RiFileAddFill } from "@remixicon/react";
+import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiComputerFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
 // ─── Types ───────────────────────────────────────────────────
@@ -187,7 +187,7 @@ export default function AbletonDashboard() {
   const stemColors = isColorful ? STEM_COLORS_POP : STEM_COLORS_CLASSIC;
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [listStyle, setListStyle] = useState<1 | 2 | 3>(1);
+  const [listStyle, setListStyle] = useState<1 | 2 | 3>(2);
 
   // Load history from API on mount
   useEffect(() => {
@@ -784,16 +784,16 @@ export default function AbletonDashboard() {
             <button className="px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>FEEDBACK</button>
             <button className="px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>DOCS</button>
             <button className="flex items-center gap-[4px] px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>
-              <HelpCircle className="h-[13px] w-[13px]" strokeWidth={1.8} />
+              <RiQuestionFill size={13}/>
               ASK
             </button>
             <div className="w-[1px] h-[16px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
             <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
               className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
-              {themeMode === "system" ? <Monitor className="h-[16px] w-[16px]" strokeWidth={1.6} /> : isDark ? <Sun className="h-[16px] w-[16px]" strokeWidth={1.6} /> : <Moon className="h-[16px] w-[16px]" strokeWidth={1.6} />}
+              {themeMode === "system" ? <RiComputerFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
             </button>
             <button className="p-[8px]" style={{ color: C.textSec }}>
-              <Bell className="h-[16px] w-[16px]" strokeWidth={1.6} />
+              <RiNotificationFill size={16}/>
             </button>
             <div className="flex h-[26px] w-[26px] items-center justify-center" style={{ backgroundColor: isColorful ? "#FF2D55" : C.accent }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
@@ -887,11 +887,8 @@ export default function AbletonDashboard() {
                     <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
                       <div className="flex items-center gap-[4px]">
                         <button onClick={() => { setInputMode("file"); inputRef.current?.click(); }} className="p-[8px] transition-colors" style={{ color: C.textMuted }}>
-                          <RiUploadFill size={16}/>
+                          <RiFileUploadFill size={16}/>
                         </button>
-                        <button className="p-[8px]" style={{ color: C.textMuted }}><RiFileUploadFill size={16}/></button>
-                        <button className="p-[8px]" style={{ color: C.textMuted }}><RiUploadCloudFill size={16}/></button>
-                        <button className="p-[8px]" style={{ color: C.textMuted }}><RiFileAddFill size={16}/></button>
                         <button className="p-[8px]" style={{ color: C.textMuted }}>
                           <RiMicFill size={16}/>
                         </button>
@@ -1027,11 +1024,11 @@ export default function AbletonDashboard() {
                       </div>
 
                       <div style={{ backgroundColor: C.bgCard }}>
-                        <div className="flex items-center gap-[10px] px-[16px] py-[12px]" style={{ borderBottom: `1px solid ${C.bgHover}` }}>
-                          <Search className="h-[15px] w-[15px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
-                          <input type="text" placeholder="SEARCH HISTORY" className="flex-1 bg-transparent text-[14px] outline-none placeholder:text-[14px]" style={{ color: C.text, letterSpacing: "0.03em" }} />
+                        <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                          <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
+                          <input type="text" placeholder="SEARCH HISTORY" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[13px]" style={{ color: C.text, letterSpacing: "0.03em" }} />
                         </div>
-                        <div className="flex items-center px-[16px] py-[10px]" style={{ color: C.textMuted, fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", borderBottom: `1px solid ${C.bgHover}` }}>
+                        <div className="flex items-center px-[16px] py-[8px]" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
                           <span className="flex-1">NAME</span>
                           <span className="w-[80px] text-right">DURATION</span>
                           <span className="w-[80px] text-right">FORMAT</span>
@@ -1041,9 +1038,9 @@ export default function AbletonDashboard() {
                           <div key={item.id}
                             className="flex items-center px-[16px] cursor-pointer transition-colors"
                             style={{
-                              paddingTop: listStyle === 1 ? 14 : listStyle === 2 ? 11 : 10,
-                              paddingBottom: listStyle === 1 ? 14 : listStyle === 2 ? 11 : 10,
-                              borderBottom: listStyle === 3 ? "none" : i < history.length - 1 ? `1px solid ${listStyle === 2 ? `${C.text}08` : C.bgHover}` : undefined,
+                              paddingTop: listStyle === 3 ? 10 : 14,
+                              paddingBottom: listStyle === 3 ? 10 : 14,
+                              borderBottom: listStyle === 3 ? "none" : i < history.length - 1 ? `1px solid ${listStyle === 1 ? C.bgHover : `${C.text}08`}` : undefined,
                             }}
                             onMouseEnter={listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = C.bgHover; } : undefined}
                             onMouseLeave={listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = ""; } : undefined}
@@ -1051,8 +1048,8 @@ export default function AbletonDashboard() {
                             <div className="flex items-center flex-1 min-w-0" style={{ gap: listStyle === 3 ? 10 : 12 }}>
                               <div className="flex items-center justify-center shrink-0"
                                 style={{
-                                  height: listStyle === 1 ? 36 : listStyle === 2 ? 32 : 30,
-                                  width: listStyle === 1 ? 36 : listStyle === 2 ? 32 : 30,
+                                  height: listStyle === 3 ? 30 : 36,
+                                  width: listStyle === 3 ? 30 : 36,
                                   backgroundColor: C.bgHover,
                                   borderRadius: listStyle === 3 ? "50%" : 0,
                                 }}>
@@ -1060,7 +1057,7 @@ export default function AbletonDashboard() {
                               </div>
                               <div className="min-w-0">
                                 <p style={{ fontSize: listStyle === 3 ? 14 : 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
-                                <p style={{ fontSize: listStyle === 1 ? 14 : 13, color: C.textMuted, marginTop: listStyle === 3 ? 0 : 1 }}>{item.date} · {item.stems} stems</p>
+                                <p style={{ fontSize: 13, color: C.textMuted, marginTop: listStyle === 3 ? 0 : 1 }}>{item.date} · {item.stems} stems</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
@@ -1176,14 +1173,14 @@ export default function AbletonDashboard() {
                   {/* Contained card — same style as Recent splits V2 */}
                   <div style={{ backgroundColor: C.bgCard, overflow: "hidden" }}>
                     {/* Search */}
-                    <div className="flex items-center gap-[10px] px-[16px] py-[12px]" style={{ borderBottom: `1px solid ${C.bgHover}` }}>
-                      <Search className="h-[15px] w-[15px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
+                    <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                      <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
                       <input type="text" value={fileSearch} onChange={e => setFileSearch(e.target.value)}
-                        placeholder="SEARCH FILES" className="flex-1 bg-transparent text-[14px] outline-none"
+                        placeholder="SEARCH FILES" className="flex-1 bg-transparent text-[13px] outline-none"
                         style={{ color: C.text, letterSpacing: "0.03em" }} />
                     </div>
                     {/* Column headers */}
-                    <div className="flex items-center px-[16px] py-[10px] select-none" style={{ color: C.textMuted, fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", borderBottom: `1px solid ${C.bgHover}` }}>
+                    <div className="flex items-center px-[16px] py-[8px] select-none" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
                       {exportMode && (
                         <button onClick={toggleAllTracks} className="w-[28px] shrink-0 flex items-center">
                           {allTracksSelected
@@ -1205,9 +1202,9 @@ export default function AbletonDashboard() {
                         <div key={item.id}
                           className="flex items-center px-[16px] cursor-pointer transition-colors"
                           style={{
-                            paddingTop: listStyle === 1 ? 14 : listStyle === 2 ? 11 : 10,
-                            paddingBottom: listStyle === 1 ? 14 : listStyle === 2 ? 11 : 10,
-                            ...(listStyle === 3 ? {} : i < sorted.length - 1 ? { borderBottom: `1px solid ${listStyle === 2 ? `${C.text}08` : C.bgHover}` } : {}),
+                            paddingTop: listStyle === 3 ? 10 : 14,
+                            paddingBottom: listStyle === 3 ? 10 : 14,
+                            ...(listStyle === 3 ? {} : i < sorted.length - 1 ? { borderBottom: `1px solid ${listStyle === 1 ? C.bgHover : `${C.text}08`}` } : {}),
                             backgroundColor: exportMode ? (isTrackSelected ? (isDark ? C.bgHover : C.bgCard) : (isDark ? "transparent" : C.bgSubtle)) : undefined,
                           }}
                           onMouseEnter={!exportMode && listStyle === 3 ? (e) => { e.currentTarget.style.backgroundColor = C.bgHover; } : undefined}
@@ -1232,7 +1229,7 @@ export default function AbletonDashboard() {
                             </div>
                             <div className="min-w-0">
                               <p style={{ fontSize: listStyle === 3 ? 14 : 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
-                              <p style={{ fontSize: listStyle === 1 ? 14 : 13, color: C.textMuted, marginTop: listStyle === 3 ? 0 : 1 }}>{item.date} · {item.stems} stems</p>
+                              <p style={{ fontSize: 13, color: C.textMuted, marginTop: listStyle === 3 ? 0 : 1 }}>{item.date} · {item.stems} stems</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-[6px] shrink-0 mr-[8px]">
