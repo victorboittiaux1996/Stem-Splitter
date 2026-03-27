@@ -81,6 +81,23 @@ export async function getPresignedUrl(
   );
 }
 
+// Get a presigned upload URL (PUT) — browser uploads directly to R2, bypassing Vercel
+export async function getPresignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresIn = 3600
+): Promise<string> {
+  return getSignedUrl(
+    s3,
+    new PutObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: key,
+      ContentType: contentType,
+    }),
+    { expiresIn }
+  );
+}
+
 // Job helpers
 export async function getJob(jobId: string): Promise<Job | null> {
   return readJsonFromR2<Job>(`jobs/${jobId}.json`);

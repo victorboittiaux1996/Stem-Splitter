@@ -16,35 +16,70 @@ export function useUpload() {
       setUploadProgress(0);
 
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("mode", mode);
-
-        // Simulate upload progress (real progress would need XMLHttpRequest)
-        const progressInterval = setInterval(() => {
-          setUploadProgress((prev) => Math.min(prev + 10, 90));
-        }, 200);
-
-        const res = await fetch("/api/upload", {
+        // Step 1 — get presigned URL from Vercel (tiny JSON request, no file)
+        const initRes = await fetch("/api/upload", {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            size: file.size,
+            contentType: file.type || "audio/mpeg",
+            mode,
+          }),
         });
 
-        clearInterval(progressInterval);
+        if (!initRes.ok) {
+          const data = await initRes.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to initialize upload");
+        }
 
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || "Upload failed");
+        const { jobId, uploadUrl } = await initRes.json();
+
+        // Step 2 — upload file directly to R2 (bypasses Vercel entirely)
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              // Reserve 0–90% for the actual file upload
+              setUploadProgress(Math.round((e.loaded / e.total) * 90));
+            }
+          });
+
+          xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              reject(new Error(`R2 upload failed (${xhr.status})`));
+            }
+          });
+
+          xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+          xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+          xhr.open("PUT", uploadUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "audio/mpeg");
+          xhr.send(file);
+        });
+
+        setUploadProgress(95);
+
+        // Step 3 — confirm upload and trigger Modal worker
+        const confirmRes = await fetch("/api/upload", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId }),
+        });
+
+        if (!confirmRes.ok) {
+          const data = await confirmRes.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to start processing");
         }
 
         setUploadProgress(100);
-        const { jobId } = await res.json();
-
-        // Navigate to processing page
         router.push(`/processing/${jobId}`);
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Something went wrong";
+        const message = err instanceof Error ? err.message : "Something went wrong";
         toast.error("Upload failed", { description: message });
         setIsUploading(false);
         setUploadProgress(0);

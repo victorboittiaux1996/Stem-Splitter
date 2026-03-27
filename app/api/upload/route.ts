@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { uploadToR2, writeJsonToR2 } from "@/lib/r2";
+import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2 } from "@/lib/r2";
 
-const MAX_SIZE = 50 * 1024 * 1024;
+const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
 
@@ -12,15 +12,13 @@ export async function POST(request: NextRequest) {
       process.env.APP_URL ??
       `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
 
-    const contentType = request.headers.get("content-type") || "";
+    const body = await request.json();
+    const { url, mode = "4stem", filename, size, contentType } = body;
 
-    // URL mode: JSON body with { url, mode }
-    if (contentType.includes("application/json")) {
-      const body = await request.json();
-      const { url, mode = "4stem" } = body;
-
-      if (!url || typeof url !== "string") {
-        return NextResponse.json({ error: "No URL provided" }, { status: 400 });
+    // ── URL mode: { url, mode } ──────────────────────────────────────────────
+    if (url) {
+      if (typeof url !== "string") {
+        return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
       }
 
       const jobId = nanoid(12);
@@ -36,7 +34,6 @@ export async function POST(request: NextRequest) {
         fileName: url,
       });
 
-      // Fire-and-forget: Modal handles download from URL
       fetch(MODAL_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -49,101 +46,104 @@ export async function POST(request: NextRequest) {
             stage: "Error", error: result.error, createdAt: Date.now(),
           });
         }
-        // If result.data: stems already uploaded to R2 by worker via inputKey flow
-        // If using direct base64 return (legacy): save stems
-        if (result.data) {
-          const stemNames: string[] = [];
-          for (const [name, b64] of Object.entries(result.data)) {
-            if (typeof b64 === "string" && b64.length > 0) {
-              const buf = Buffer.from(b64, "base64");
-              await uploadToR2(`stems/${jobId}/${name}.wav`, buf, "audio/wav");
-              stemNames.push(name);
-            }
-          }
-          await writeJsonToR2(`jobs/${jobId}.json`, {
-            id: jobId, status: "completed", mode, progress: 100, stage: "Done",
-            createdAt: Date.now(), completedAt: Date.now(), stems: stemNames,
-            fileName: url, bpm: result.bpm ?? null,
-            key: result.key ?? null, key_raw: result.key_raw ?? null,
-          });
-        }
       }).catch(() => {});
 
       return NextResponse.json({ jobId });
     }
 
-    // File mode: FormData with file
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const mode = (formData.get("mode") as string) || "4stem";
-
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    // ── File mode: presigned upload flow ─────────────────────────────────────
+    // Step 1 — POST /api/upload { filename, size, contentType, mode }
+    //        → { jobId, uploadUrl }  (no file goes through Vercel)
+    // Step 2 — browser PUTs file directly to R2 via uploadUrl
+    // Step 3 — PUT /api/upload { jobId } → triggers Modal worker
+    if (!filename || typeof filename !== "string") {
+      return NextResponse.json({ error: "filename required" }, { status: 400 });
     }
-    if (!ALLOWED_EXTENSIONS.test(file.name)) {
+    if (!ALLOWED_EXTENSIONS.test(filename)) {
       return NextResponse.json({ error: "Unsupported format" }, { status: 400 });
     }
-    if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "File too large (50MB max)" }, { status: 400 });
+    if (typeof size === "number" && size > MAX_SIZE) {
+      return NextResponse.json({ error: "File too large (2 GB max)" }, { status: 400 });
     }
 
     const jobId = nanoid(12);
-    const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
-
-    // Upload audio to R2
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.match(/\.[^.]+$/)?.[0] ?? ".mp3";
+    const ext = filename.match(/\.[^.]+$/)?.[0] ?? ".mp3";
     const inputKey = `inputs/${jobId}${ext}`;
-    await uploadToR2(inputKey, buffer, file.type || "audio/mpeg");
+    const mimeType = (typeof contentType === "string" && contentType) ? contentType : "audio/mpeg";
 
-    // Create job in R2
     await writeJsonToR2(`jobs/${jobId}.json`, {
       id: jobId,
-      status: "processing",
+      status: "uploading",
       mode,
-      progress: 10,
-      stage: "Uploading to GPU...",
+      progress: 0,
+      stage: "Uploading...",
       createdAt: Date.now(),
-      fileName: file.name,
+      fileName: filename,
+      inputKey,
     });
 
-    // Fire-and-forget: worker fetches from R2 via inputKey
+    // Presigned PUT URL — valid 2 hours (large files on slow connections)
+    const uploadUrl = await getPresignedUploadUrl(inputKey, mimeType, 7200);
+
+    return NextResponse.json({ jobId, uploadUrl, inputKey });
+  } catch (err) {
+    console.error("Upload error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// Step 3: called after browser finishes uploading to R2 — triggers Modal worker
+export async function PUT(request: NextRequest) {
+  try {
+    const appUrl =
+      process.env.APP_URL ??
+      `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
+
+    const { jobId } = await request.json();
+    if (!jobId || typeof jobId !== "string") {
+      return NextResponse.json({ error: "jobId required" }, { status: 400 });
+    }
+
+    const job = await readJsonFromR2<{
+      id: string; mode: string; fileName: string; inputKey: string; createdAt: number;
+    }>(`jobs/${jobId}.json`);
+    if (!job) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+    if (!job.inputKey) {
+      return NextResponse.json({ error: "Job has no inputKey — cannot trigger processing" }, { status: 400 });
+    }
+
+    const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
+
+    await writeJsonToR2(`jobs/${jobId}.json`, {
+      id: job.id,
+      status: "processing",
+      mode: job.mode,
+      progress: 5,
+      stage: "Sending to GPU...",
+      createdAt: job.createdAt,
+      fileName: job.fileName,
+      inputKey: job.inputKey,
+    });
+
     fetch(MODAL_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId, mode, inputKey, callbackUrl }),
+      body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl }),
     }).then(async (res) => {
       const result = await res.json().catch(() => ({}));
       if (result.error) {
         await writeJsonToR2(`jobs/${jobId}.json`, {
-          id: jobId, status: "failed", mode, progress: 0,
-          stage: "Error", error: result.error,
-          createdAt: Date.now(), fileName: file.name,
-        });
-      }
-      // Worker using inputKey flow updates R2 directly via update_job_status
-      // If worker returns base64 data (fallback), save stems here
-      if (result.data) {
-        const stemNames: string[] = [];
-        for (const [name, b64] of Object.entries(result.data)) {
-          if (typeof b64 === "string" && b64.length > 0) {
-            const buf = Buffer.from(b64, "base64");
-            await uploadToR2(`stems/${jobId}/${name}.wav`, buf, "audio/wav");
-            stemNames.push(name);
-          }
-        }
-        await writeJsonToR2(`jobs/${jobId}.json`, {
-          id: jobId, status: "completed", mode, progress: 100, stage: "Done",
-          createdAt: Date.now(), completedAt: Date.now(), stems: stemNames,
-          fileName: file.name, bpm: result.bpm ?? null,
-          key: result.key ?? null, key_raw: result.key_raw ?? null,
+          id: job.id, status: "failed", mode: job.mode, progress: 0,
+          stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName,
         });
       }
     }).catch(() => {});
 
-    return NextResponse.json({ jobId });
+    return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("Upload error:", err);
+    console.error("Confirm error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
