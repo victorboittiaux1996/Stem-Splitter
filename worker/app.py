@@ -23,7 +23,7 @@ image = (
     .pip_install(
         "audio-separator[gpu]==0.42.1", "boto3", "fastapi[standard]",
         "soundfile", "numpy", "librosa", "essentia",
-        "nnAudio==0.3.3", "einops", "tqdm", "yt-dlp",
+        "nnAudio==0.3.3", "einops", "tqdm", "yt-dlp", "torchaudio",
     )
     .run_commands(
         "git clone https://github.com/deezer/skey.git /opt/skey",
