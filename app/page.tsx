@@ -10,7 +10,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { StemModal } from "@/components/stem-modal";
 import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
-import type { Job, StemDownload, HistoryItem } from "@/lib/types";
+import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
+import { useQueue } from "@/contexts/queue-context";
 import { prefetchStemPeaks } from "@/components/stem-variants";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
@@ -97,6 +98,41 @@ const STEM_MAP: Record<StemCount, string[]> = {
 
 // HistoryItem imported from @/lib/types
 
+const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"]);
+
+// Custom line icons
+const DownloadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M8 2V9.5M5 8L8 11L11 8" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+    <line x1="3" y1="14" x2="13" y2="14" stroke={color} strokeWidth="0.7"/>
+  </svg>
+);
+const TrashIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <line x1="2" y1="4" x2="14" y2="4" stroke={color} strokeWidth="0.7"/>
+    <line x1="6" y1="2" x2="10" y2="2" stroke={color} strokeWidth="0.7"/>
+    <path d="M4 4V14H12V4" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+  </svg>
+);
+
+async function extractAudioFiles(dataTransfer: DataTransfer): Promise<File[]> {
+  const items = Array.from(dataTransfer.items);
+  const entries = items.map(i => i.webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntry[];
+  if (entries.length === 0) {
+    return Array.from(dataTransfer.files).filter(f => AUDIO_EXTENSIONS.has("." + f.name.split(".").pop()?.toLowerCase()));
+  }
+  const files: File[] = [];
+  const readEntry = (entry: FileSystemEntry): Promise<void> => new Promise(resolve => {
+    if (entry.isFile) {
+      (entry as FileSystemFileEntry).file(f => { if (AUDIO_EXTENSIONS.has("." + f.name.split(".").pop()?.toLowerCase())) files.push(f); resolve(); }, () => resolve());
+    } else if (entry.isDirectory) {
+      (entry as FileSystemDirectoryEntry).createReader().readEntries(async entries => { await Promise.all(entries.map(readEntry)); resolve(); }, () => resolve());
+    } else { resolve(); }
+  });
+  await Promise.all(entries.map(readEntry));
+  return files;
+}
+
 const LABELS: Record<string, string> = {
   vocals: "VOCALS", drums: "DRUMS", bass: "BASS", guitar: "GUITAR",
   piano: "PIANO", other: "OTHER", instrumental: "INSTRUMENTAL",
@@ -146,15 +182,12 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 
 // ─── Component ──────────────────────────────────────────────
 export default function AbletonDashboard() {
-  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">(() => {
-    if (typeof window === "undefined") return "dark";
-    return (localStorage.getItem("44stems-theme") as "dark" | "light" | "system") || "dark";
-  });
-  const [systemDark, setSystemDark] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
+  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
+  const [systemDark, setSystemDark] = useState(true);
   useEffect(() => {
+    const saved = localStorage.getItem("44stems-theme") as "dark" | "light" | "system" | null;
+    if (saved && saved !== "dark") setThemeMode(saved);
+    setSystemDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
     mq.addEventListener("change", handler);
@@ -228,11 +261,13 @@ export default function AbletonDashboard() {
   const [view, setView] = useState<View>("split");
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [stemCount, setStemCount] = useState<StemCount>(4);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("wav");
   const [stemsOpen, setStemsOpen] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
   const [versionOpen, setVersionOpen] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
@@ -241,8 +276,6 @@ export default function AbletonDashboard() {
   // rAF smooth progress — target receives real values, display advances at 1%/s max
   const progressTargetRef = useRef(0);
   const progressDisplayRef = useRef(0);
-  const progressRafRef = useRef<number>(0);
-  const progressLastTickRef = useRef<number>(0);
   const [activeGame, setActiveGame] = useState("");
   // URL input variations
   const [urlInput, setUrlInput] = useState("");
@@ -257,7 +290,6 @@ export default function AbletonDashboard() {
   ] as const;
   const detectedPlatform = PLATFORMS.find(p => p.pattern.test(urlInput.trim()))?.name || null;
   const isValidUrl = detectedPlatform !== null;
-  const canSplit = file !== null || isValidUrl;
   const [validStyle, setValidStyle] = useState<1 | 2 | 3 | 4>(1);
   // Files view state
   const [sortBy, setSortBy] = useState<"name" | "date" | "duration" | "format" | "bpm" | "key">("date");
@@ -283,6 +315,7 @@ export default function AbletonDashboard() {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -348,6 +381,7 @@ export default function AbletonDashboard() {
   const stemsRef = useRef<HTMLDivElement>(null);
   const formatRef = useRef<HTMLDivElement>(null);
   const extraRef = useRef<HTMLDivElement>(null);
+  const activityRef = useRef<HTMLDivElement>(null);
 
   const duration = 214; // mock duration
 
@@ -355,15 +389,16 @@ export default function AbletonDashboard() {
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!stemsOpen && !formatOpen && !extraOpen) return;
+    if (!stemsOpen && !formatOpen && !extraOpen && !activityOpen) return;
     const handler = (e: MouseEvent) => {
       if (stemsOpen && stemsRef.current && !stemsRef.current.contains(e.target as Node)) setStemsOpen(false);
       if (formatOpen && formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false);
       if (extraOpen && extraRef.current && !extraRef.current.contains(e.target as Node)) setExtraOpen(false);
+      if (activityOpen && activityRef.current && !activityRef.current.contains(e.target as Node)) setActivityOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [stemsOpen, formatOpen, extraOpen]);
+  }, [stemsOpen, formatOpen, extraOpen, activityOpen]);
 
   // Results playback simulation
   useEffect(() => {
@@ -380,7 +415,14 @@ export default function AbletonDashboard() {
     return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
   }, [isPlaying]);
 
-  const handleFile = useCallback((f: File) => { setFile(f); setAppState("file-selected"); }, []);
+  const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem } = useQueue();
+  const handleFiles = useCallback((files: File[]) => {
+    if (files.length === 1) {
+      setFile(files[0]); setPendingFiles([]); setAppState("file-selected");
+    } else {
+      setFile(null); setPendingFiles(files); setAppState("file-selected");
+    }
+  }, []);
 
   const { isRecording, elapsedSeconds, start: startRecording, stop: stopRecording } = useAudioRecorder();
 
@@ -395,173 +437,89 @@ export default function AbletonDashboard() {
 
   const handleStopRecording = useCallback(async () => {
     const recorded = await stopRecording();
-    handleFile(recorded);
-  }, [stopRecording, handleFile]);
+    handleFiles([recorded]);
+  }, [stopRecording, handleFiles]);
 
-  const handleSplit = useCallback(async () => {
-    if (!file && !isValidUrl) return;
-    setAppState("processing");
-    setProgress(0);
-    progressTargetRef.current = 0; progressDisplayRef.current = 0;
-    setStage(isValidUrl ? "Downloading audio..." : STAGES[0]);
-    setUploadError(null);
-    setCurrentJob(null);
-    setStemDownloads([]);
+  const canSplit = file !== null || pendingFiles.length > 0 || isValidUrl;
 
-    try {
-      let res: Response;
-      const mode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
-      const overlap = qualityPreset === "high" ? 2 : qualityPreset === "balanced" ? 4 : 8;
+  const handleSplit = useCallback(() => {
+    if (!file && pendingFiles.length === 0 && !isValidUrl) return;
+    const mode: SplitMode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
 
-      if (isValidUrl && inputMode === "url") {
-        // URL mode: send JSON — tiny payload, no file through Vercel
-        res = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: urlInput, mode, overlap }),
-        });
-        if (!res.ok) {
-          let msg = "Upload failed";
-          try { const d = await res.json(); msg = d.error || msg; } catch { /* non-JSON */ }
-          throw new Error(msg);
-        }
-        const { jobId: id } = await res.json();
-        setJobId(id);
-      } else if (file) {
-        // File mode: presigned upload — browser PUT directly to R2, bypasses Vercel
-        // Step 1: get presigned URL
-        const initRes = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "audio/mpeg", mode, overlap }),
-        });
-        if (!initRes.ok) {
-          let msg = "Upload failed";
-          try { const d = await initRes.json(); msg = d.error || msg; } catch { /* non-JSON */ }
-          throw new Error(msg);
-        }
-        const { jobId: id, uploadUrl } = await initRes.json();
-
-        // Step 2: upload directly to R2 with real progress
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.upload.addEventListener("progress", (e) => {
-            if (e.lengthComputable) {
-              const p = Math.round((e.loaded / e.total) * 20);
-              progressTargetRef.current = p;
-            }
-          });
-          xhr.addEventListener("load", () => { xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload error (${xhr.status})`)); });
-          xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
-          xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
-          xhr.open("PUT", uploadUrl);
-          xhr.setRequestHeader("Content-Type", file.type || "audio/mpeg");
-          xhr.send(file);
-        });
-
-        // Step 3: confirm and trigger Modal
-        const confirmRes = await fetch("/api/upload", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: id }),
-        });
-        if (!confirmRes.ok) {
-          let msg = "Failed to start processing";
-          try { const d = await confirmRes.json(); msg = d.error || msg; } catch { /* non-JSON */ }
-          throw new Error(msg);
-        }
-        progressTargetRef.current = 22;
-        setJobId(id);
-      } else {
-        return;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Upload failed";
-      setUploadError(msg);
-      setAppState("idle");
+    if (isValidUrl && inputMode === "url") {
+      enqueueUrl(urlInput, { mode, outputFormat });
+      setUrlInput("");
+    } else if (pendingFiles.length > 0) {
+      enqueue(pendingFiles, { mode, outputFormat });
+      setPendingFiles([]);
+    } else if (file) {
+      enqueue([file], { mode, outputFormat });
     }
-  }, [file, stemCount, isValidUrl, inputMode, urlInput]);
+
+    setFile(null);
+    setPendingFiles([]);
+    setAppState("processing");
+    setUploadError(null);
+  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, enqueue, enqueueUrl]);
+
   const handleNewSplit = useCallback(() => {
-    setFile(null); setAppState("idle"); setProgress(0); setStage("");
+    setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
     setIsPlaying(false); setCurrentTime(0); setSoloTrack(null); setMutedTracks(new Set());
     setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null);
     progressTargetRef.current = 0; progressDisplayRef.current = 0;
   }, []);
 
-  // rAF loop — spring toward real target, slow trickle when caught up so bar never freezes
+  // Sync progress from queue context
+  useEffect(() => { setProgress(queueDisplayProgress); }, [queueDisplayProgress]);
+
+  // Bridge: queue context → page state
+  const prevQueueLenRef = useRef(0);
   useEffect(() => {
-    const tick = (now: number) => {
-      const elapsed = progressLastTickRef.current ? now - progressLastTickRef.current : 16;
-      progressLastTickRef.current = now;
-      const target = progressTargetRef.current;
-      const current = progressDisplayRef.current;
-      if (current < target) {
-        // Spring: speed proportional to gap, min 15%/s
-        const speed = Math.max(15, (target - current) * 3);
-        const step = Math.min((elapsed / 1000) * speed, target - current);
-        progressDisplayRef.current = current + step;
-      } else if (target > 0 && target < 100) {
-        // Trickle: 0.5%/s, never goes more than 4% ahead of real target (capped at 98)
-        const trickleMax = Math.min(target + 4, 98);
-        if (current < trickleMax) {
-          progressDisplayRef.current = Math.min(current + (elapsed / 1000) * 0.5, trickleMax);
+    const active = queueItems.find(i => i.id === activeItemId);
+    const incomplete = queueItems.filter(i => i.status !== "completed" && i.status !== "failed");
+    const allDone = queueItems.length > 0 && incomplete.length === 0;
+
+    // Sync stage/job for ProcessingSection display
+    if (active) {
+      setStage(active.stage);
+      setCurrentJob(active.job);
+      if (active.jobId) setJobId(active.jobId);
+    }
+
+    // Queue fully completed
+    if (allDone && prevQueueLenRef.current > 0) {
+      if (queueItems.length === 1 && queueItems[0].status === "completed" && queueItems[0].job) {
+        // Single file → auto results
+        setCurrentJob(queueItems[0].job);
+        setStemDownloads(queueItems[0].stemDownloads);
+        if (queueItems[0].jobId) setJobId(queueItems[0].jobId);
+        if (queueItems[0].stemDownloads.length > 0) {
+          const urls = Object.fromEntries(queueItems[0].stemDownloads.map(s => [s.name, s.url]));
+          prefetchStemPeaks(urls);
         }
+        setAppState("complete");
+        setView("results");
+      } else {
+        // Batch done → idle
+        setAppState("idle");
       }
-      setProgress(progressDisplayRef.current);
-      progressRafRef.current = requestAnimationFrame(tick);
-    };
-    progressRafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(progressRafRef.current);
-  }, []);
+      refreshHistory();
+    }
 
-  // Poll job status when jobId is set
-  const jobDoneRef = useRef(false);
-  useEffect(() => {
-    if (!jobId) return;
-    jobDoneRef.current = false;
-    let cancelled = false;
+    // Single failed item with no others pending
+    if (queueItems.length === 1 && queueItems[0].status === "failed" && incomplete.length === 0) {
+      setUploadError(queueItems[0].error || "Processing failed");
+      setAppState("idle");
+    }
 
-    const poll = async () => {
-      if (jobDoneRef.current || cancelled) return;
-      try {
-        const res = await fetch(`/api/jobs/${jobId}`);
-        if (!res.ok || cancelled) return;
-        const job: Job = await res.json();
-        if (cancelled) return;
-        setCurrentJob(job);
-        // Remap worker progress (0→100) onto display range (22→100)
-        const mapped = job.status === "completed" ? 100 : Math.round(22 + (job.progress / 100) * 78);
-        if (mapped > progressTargetRef.current) progressTargetRef.current = mapped;
-        if (job.stage) setStage(job.stage);
+    // Refresh history when any item completes
+    if (active?.status === "completed") {
+      refreshHistory();
+    }
 
-        if (job.status === "completed") {
-          jobDoneRef.current = true;
-          // Fetch stem download URLs
-          const dlRes = await fetch(`/api/download/${jobId}`);
-          if (dlRes.ok && !cancelled) {
-            const dlData = await dlRes.json();
-            if (dlData.stems) {
-              setStemDownloads(dlData.stems);
-              // Kick off peak pre-fetch NOW — before the component mounts
-              const urls = Object.fromEntries((dlData.stems as StemDownload[]).map(s => [s.name, s.url]));
-              prefetchStemPeaks(urls);
-            }
-          }
-          // Refresh history so new job appears immediately
-          refreshHistory();
-          if (!cancelled) setAppState("complete");
-        } else if (job.status === "failed") {
-          jobDoneRef.current = true;
-          setUploadError(job.error || "Processing failed");
-          setAppState("idle");
-        }
-      } catch { /* polling error — will retry */ }
-    };
-
-    poll();
-    const interval = setInterval(poll, 1000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [jobId]);
+    prevQueueLenRef.current = queueItems.length;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueItems, activeItemId]);
 
   const stemLabel = stemCount === 2 ? "2 STEMS" : stemCount === 4 ? "4 STEMS" : "6 STEMS";
   const logoColor = isColorful ? "#FF2D55" : C.accent;
@@ -621,17 +579,13 @@ export default function AbletonDashboard() {
         {/* Logo + Version switcher */}
         <div className="relative">
           <button onClick={() => setVersionOpen(!versionOpen)} className="flex w-full items-center justify-between px-[16px]" style={{ height: 52 }}>
-            <div className="flex items-center gap-[8px]">
-              <div className="flex h-[24px] w-[24px] items-center justify-center" style={{ backgroundColor: logoColor }}>
-                <svg className="h-[12px] w-[12px]" style={{ color: "#fff" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="square">
-                  <path d="M2 12v3"/><path d="M6 7v10"/><path d="M10 3v18"/><path d="M14 6v12"/><path d="M18 4v16"/><path d="M22 9v6"/>
-                </svg>
-              </div>
-              <div className="flex flex-col">
-                <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "0.05em", color: C.text }}>44STEMS</span>
-                <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.03em" }}>ABLETON</span>
-              </div>
-            </div>
+            <svg height="14" viewBox="0 0 150 21" fill="none" overflow="visible">
+              <rect x="0" y="0"  width="24" height="3" fill={C.text}/>
+              <rect x="0" y="6"  width="24" height="3" fill={C.text}/>
+              <rect x="0" y="12" width="24" height="3" fill={C.text}/>
+              <rect x="0" y="18" width="24" height="3" fill={C.text}/>
+              <text x="32" y="21" fontFamily={F} fontWeight="700" fontSize="29" letterSpacing="-0.5" fill={C.text}>44Stems</text>
+            </svg>
             <ChevronsUpDown className="h-[12px] w-[12px]" style={{ color: C.textMuted }} strokeWidth={2} />
           </button>
           {versionOpen && (
@@ -657,53 +611,51 @@ export default function AbletonDashboard() {
         {/* Nav — 5 views (custom geometric icons) */}
         <nav className="flex-1 px-[8px] pt-[12px] space-y-[2px]">
           {([
-            { id: "split" as View, label: "SPLIT AUDIO", svg: (c: string) => (
+            { id: "split" as View, label: "Split Audio", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="5" width="1.8" height="6" fill={c} opacity="0.5"/>
-                <rect x="4.8" y="3" width="1.8" height="10" fill={c} opacity="0.7"/>
-                <rect x="7.6" y="1" width="1.8" height="14" fill={c}/>
-                <rect x="10.4" y="4" width="1.8" height="8" fill={c} opacity="0.7"/>
-                <rect x="13.2" y="6" width="1.8" height="4" fill={c} opacity="0.5"/>
+                <rect x="1" y="2" width="6" height="12" stroke={c} strokeWidth="0.7"/>
+                <line x1="7" y1="4" x2="7" y2="12" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="3.5" x2="14" y2="3.5" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="6.5" x2="14" y2="6.5" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="9.5" x2="14" y2="9.5" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="12.5" x2="14" y2="12.5" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
-            { id: "results" as View, label: "RESULTS", svg: (c: string) => (
+            { id: "results" as View, label: "Results", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="3" width="12" height="2" fill={c} opacity="0.9"/>
-                <rect x="2" y="7" width="9" height="2" fill={c} opacity="0.6"/>
-                <rect x="2" y="11" width="11" height="2" fill={c} opacity="0.3"/>
+                <line x1="2" y1="3" x2="14" y2="3" stroke={c} strokeWidth="0.7"/>
+                <line x1="2" y1="6" x2="14" y2="6" stroke={c} strokeWidth="0.7"/>
+                <line x1="2" y1="9" x2="10" y2="9" stroke={c} strokeWidth="0.7"/>
+                <line x1="2" y1="12" x2="12" y2="12" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
-            { id: "files" as View, label: "MY FILES", svg: (c: string) => (
+            { id: "files" as View, label: "My Files", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="4" y="2" width="8" height="2" fill={c} opacity="0.3"/>
-                <rect x="3" y="5" width="10" height="2" fill={c} opacity="0.55"/>
-                <rect x="2" y="8" width="12" height="6" fill={c} opacity="0.9"/>
+                <path d="M2 4V13H14V6H8L6 4H2Z" stroke={c} strokeWidth="0.7" strokeLinejoin="miter" fill="none"/>
               </svg>
             )},
-            { id: "stats" as View, label: "STATISTICS", svg: (c: string) => (
+            { id: "stats" as View, label: "Statistics", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="10" width="2.5" height="4" fill={c} opacity="0.45"/>
-                <rect x="5.5" y="6" width="2.5" height="8" fill={c} opacity="0.65"/>
-                <rect x="9" y="3" width="2.5" height="11" fill={c}/>
-                <rect x="12.5" y="7" width="2.5" height="7" fill={c} opacity="0.55"/>
+                <polyline points="2,12 5,9 8,10 11,5 14,3" stroke={c} strokeWidth="0.7" fill="none"/>
+                <line x1="1" y1="14" x2="15" y2="14" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
-            { id: "games" as View, label: "GAMES", svg: (c: string) => (
+            { id: "games" as View, label: "Games", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="2" width="5.5" height="5.5" fill={c} opacity="0.9"/>
-                <rect x="8.5" y="2" width="5.5" height="5.5" fill={c} opacity="0.5"/>
-                <rect x="2" y="8.5" width="5.5" height="5.5" fill={c} opacity="0.5"/>
-                <rect x="8.5" y="8.5" width="5.5" height="5.5" fill={c} opacity="0.3"/>
+                <rect x="2" y="2" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <rect x="9" y="2" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <rect x="2" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <rect x="9" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
-            { id: "settings" as View, label: "SETTINGS", svg: (c: string) => (
+            { id: "settings" as View, label: "Settings", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="3" width="12" height="1.5" fill={c} opacity="0.25"/>
-                <rect x="2" y="7.25" width="12" height="1.5" fill={c} opacity="0.25"/>
-                <rect x="2" y="11.5" width="12" height="1.5" fill={c} opacity="0.25"/>
-                <rect x="3.5" y="1.75" width="3" height="3" fill={c}/>
-                <rect x="9" y="6" width="3" height="3" fill={c} opacity="0.7"/>
-                <rect x="5.5" y="10.25" width="3" height="3" fill={c} opacity="0.45"/>
+                <line x1="4" y1="2" x2="4" y2="14" stroke={c} strokeWidth="0.7"/>
+                <line x1="8" y1="2" x2="8" y2="14" stroke={c} strokeWidth="0.7"/>
+                <line x1="12" y1="2" x2="12" y2="14" stroke={c} strokeWidth="0.7"/>
+                <line x1="2.5" y1="5" x2="5.5" y2="5" stroke={c} strokeWidth="1.4"/>
+                <line x1="6.5" y1="9" x2="9.5" y2="9" stroke={c} strokeWidth="1.4"/>
+                <line x1="10.5" y1="7" x2="13.5" y2="7" stroke={c} strokeWidth="1.4"/>
               </svg>
             )},
           ]).map(item => {
@@ -714,7 +666,7 @@ export default function AbletonDashboard() {
                 className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
                 style={{
                   backgroundColor: isActive ? C.navActive : "transparent",
-                  fontSize: 14, fontWeight: 500, letterSpacing: "0.04em",
+                  fontSize: 14, fontWeight: 500, letterSpacing: "0.01em",
                   color: isActive ? C.text : C.textSec,
                 }}>
                 <div className="w-[16px] h-[16px] shrink-0">{item.svg(iconColor)}</div>
@@ -759,9 +711,75 @@ export default function AbletonDashboard() {
               className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
               {themeMode === "system" ? <RiContrastFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
             </button>
-            <button className="p-[8px]" style={{ color: C.textSec }}>
-              <RiNotificationFill size={16}/>
-            </button>
+            <div className="relative" ref={activityRef}>
+              <button onClick={() => { setActivityOpen(!activityOpen); if (!activityOpen) markAllRead(); }} className="p-[8px] relative" style={{ color: C.textSec }}>
+                <RiNotificationFill size={16}/>
+                {queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length > 0 && (
+                  <div className="absolute top-[4px] right-[4px] flex items-center justify-center" style={{ minWidth: 14, height: 14, backgroundColor: C.accent, padding: "0 3px" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "#fff" }}>{queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length}</span>
+                  </div>
+                )}
+              </button>
+              <AnimatePresence>
+                {activityOpen && (
+                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.1 }} className="absolute right-0 top-full mt-[4px] z-30 w-[320px] overflow-hidden"
+                    style={{ backgroundColor: C.bgCard, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+                    <div className="flex items-center justify-between px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.text }}>ACTIVITY</span>
+                      {queueItems.length > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{queueItems.filter(i => i.status === "completed").length} / {queueItems.length}</span>}
+                    </div>
+                    <div className="max-h-[340px] overflow-y-auto">
+                      {queueItems.length === 0 ? (
+                        <div className="px-[14px] py-[24px] text-center"><span style={{ fontSize: 14, color: C.textMuted }}>NO ACTIVITY YET</span></div>
+                      ) : [...queueItems].reverse().map(qi => (
+                        <div key={qi.id} className="px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08`, cursor: (qi.status === "uploading" || qi.status === "processing") ? "pointer" : undefined }}
+                          onClick={() => { if (qi.status === "uploading" || qi.status === "processing") { setAppState("processing"); setView("split"); setActivityOpen(false); } }}>
+                          {(qi.status === "uploading" || qi.status === "processing") && (<>
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted }}>{Math.floor(qi.id === activeItemId ? progress : qi.progress)}%</span>
+                            </div>
+                            <div className="w-full mt-[6px] mb-[4px]" style={{ height: 3, backgroundColor: C.bgHover }}>
+                              <div style={{ height: "100%", width: `${qi.id === activeItemId ? progress : qi.progress}%`, backgroundColor: isColorful ? undefined : C.accent, background: isColorful ? "linear-gradient(90deg, #FF2D55, #FF9500, #FFCC00, #34C759, #007AFF, #5856D6)" : undefined, transition: "width 0.3s" }} />
+                            </div>
+                            <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>{(qi.stage || "PREPARING").toUpperCase()}</span>
+                          </>)}
+                          {qi.status === "pending" && (
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, color: C.textMuted, maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>PENDING</span>
+                            </div>
+                          )}
+                          {qi.status === "completed" && (
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-[6px]">
+                                <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke={C.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 180 }}>{qi.fileName}</p>
+                              </div>
+                              <span style={{ fontSize: 12, color: C.textMuted }}>{qi.job?.stems?.length || 0} stems</span>
+                            </div>
+                          )}
+                          {qi.status === "failed" && (<>
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, color: "#FF3B30", maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, color: "#FF3B30", letterSpacing: "0.03em" }}>ERROR</span>
+                            </div>
+                            {qi.error && <p className="truncate mt-[2px]" style={{ fontSize: 12, color: C.textMuted }}>{qi.error}</p>}
+                            <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em", marginTop: 4 }}>RETRY</button>
+                          </>)}
+                        </div>
+                      ))}
+                    </div>
+                    {queueItems.some(i => i.status === "completed") && (
+                      <div className="px-[14px] py-[8px]" style={{ borderTop: `1px solid ${C.text}08` }}>
+                        <button onClick={clearCompleted} style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>CLEAR COMPLETED</button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <div className="flex h-[26px] w-[26px] items-center justify-center" style={{ backgroundColor: isColorful ? "#FF2D55" : C.accent }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
             </div>
@@ -782,8 +800,11 @@ export default function AbletonDashboard() {
                       Split Audio
                     </h2>
 
-                    <input ref={inputRef} type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+                    <input ref={inputRef} type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac" multiple
+                      onChange={(e) => { const files = Array.from(e.target.files || []); if (files.length) handleFiles(files); e.target.value = ""; }} />
+                    {/* @ts-expect-error webkitdirectory is non-standard but widely supported */}
+                    <input ref={folderInputRef} type="file" className="hidden" webkitdirectory=""
+                      onChange={(e) => { const files = Array.from(e.target.files || []).filter(f => AUDIO_EXTENSIONS.has("." + f.name.split(".").pop()?.toLowerCase())); if (files.length) handleFiles(files); e.target.value = ""; }} />
 
                     {/* Tabs: UPLOAD | LINK */}
                     <div className="flex items-center gap-[20px] mb-[8px]">
@@ -792,7 +813,7 @@ export default function AbletonDashboard() {
                           className="pb-[6px] text-[14px] font-semibold transition-colors"
                           style={{
                             color: inputMode === mode ? C.text : C.textMuted,
-                            borderBottom: inputMode === mode ? `2px solid ${C.text}` : "2px solid transparent",
+                            borderBottom: inputMode === mode ? `2px solid ${C.accent}` : "2px solid transparent",
                             letterSpacing: "0.04em",
                           }}>
                           {label}
@@ -829,11 +850,11 @@ export default function AbletonDashboard() {
                       </div>
                     ) : (
                       <div
-                        onClick={() => !file && !isRecording && inputRef.current?.click()}
-                        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+                        onClick={() => !file && !pendingFiles.length && !isRecording && inputRef.current?.click()}
+                        onDrop={async (e) => { e.preventDefault(); const files = await extractAudioFiles(e.dataTransfer); if (files.length) handleFiles(files); }}
                         onDragOver={(e) => e.preventDefault()}
                         className="flex items-center justify-center transition-all"
-                        style={{ minHeight: 160, backgroundColor: C.dropZoneBg, cursor: file || isRecording ? "default" : "pointer", position: "relative" }}>
+                        style={{ minHeight: 160, backgroundColor: C.dropZoneBg, cursor: file || pendingFiles.length || isRecording ? "default" : "pointer", position: "relative" }}>
                         {file ? (
                           <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
                             <div className="flex items-center gap-[10px]">
@@ -843,6 +864,18 @@ export default function AbletonDashboard() {
                             </div>
                             <button onClick={(e) => { e.stopPropagation(); setFile(null); setAppState("idle"); }}
                               style={{ fontSize: 14, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>REMOVE</button>
+                          </div>
+                        ) : pendingFiles.length > 0 ? (
+                          <div className="flex flex-col items-center justify-center w-full gap-[4px]" style={{ position: "relative" }}>
+                            <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>{pendingFiles.length} FILES SELECTED</span>
+                            {pendingFiles.slice(0, 3).map((f, i) => (
+                              <span key={i} className="truncate" style={{ fontSize: 13, color: C.textMuted, maxWidth: 400 }}>{f.name}</span>
+                            ))}
+                            {pendingFiles.length > 3 && (
+                              <span style={{ fontSize: 13, color: C.textMuted }}>+{pendingFiles.length - 3} more</span>
+                            )}
+                            <button onClick={(e) => { e.stopPropagation(); setPendingFiles([]); setAppState("idle"); }}
+                              style={{ fontSize: 13, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", marginTop: 4 }}>REMOVE</button>
                           </div>
                         ) : isRecording ? (
                           <div className="flex items-center gap-[10px]">
@@ -854,7 +887,15 @@ export default function AbletonDashboard() {
                             <span className="tabular-nums" style={{ fontSize: 14, color: C.textMuted, letterSpacing: "0.02em" }}>{formatSeconds(elapsedSeconds)}</span>
                           </div>
                         ) : (
-                          <span style={{ fontSize: 15, color: C.textMuted, letterSpacing: "0.02em" }}>DROP FILES HERE</span>
+                          <div className="flex flex-col items-center gap-[12px]">
+                            <span style={{ fontSize: 15, color: C.textMuted, letterSpacing: "0.02em" }}>DROP FILES HERE OR</span>
+                            <div className="flex items-center gap-[8px]">
+                              <button onClick={() => inputRef.current?.click()}
+                                style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: C.bgHover, width: 120, textAlign: "center" }}>SELECT FILES</button>
+                              <button onClick={() => folderInputRef.current?.click()}
+                                style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: C.bgHover, width: 120, textAlign: "center" }}>SELECT FOLDER</button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}
@@ -998,8 +1039,8 @@ export default function AbletonDashboard() {
                             <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.duration ?? "—"}</span>
                             <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.format.toUpperCase()}</span>
                             <div className="flex items-center justify-end gap-[2px] w-[72px]">
-                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><RiDownloadFill size={14}/></button>
-                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><RiDeleteBinFill size={14}/></button>
+                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><DownloadIcon size={14} color={C.textMuted}/></button>
+                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><TrashIcon size={14} color={C.textMuted}/></button>
                             </div>
                           </div>
                         ))}
@@ -1014,7 +1055,7 @@ export default function AbletonDashboard() {
                 )}
 
                 {/* Processing */}
-                {appState === "processing" && <ProcessingSection progress={progress} activeAgentIdx={activeAgentIdx} C={C} isColorful={isColorful} />}
+                {appState === "processing" && <ProcessingSection progress={progress} activeAgentIdx={activeAgentIdx} C={C} isColorful={isColorful} queueItems={queueItems} activeItemId={activeItemId} onMinimize={() => setAppState("idle")} />}
 
                 {/* Complete — Results view */}
                 {appState === "complete" && (
@@ -1098,7 +1139,7 @@ export default function AbletonDashboard() {
                           backgroundColor: exportMode && selectedTracks.size > 0 ? C.text : C.bgHover,
                           cursor: exportMode && selectedTracks.size === 0 ? "not-allowed" : "pointer",
                         }}>
-                        <RiDownloadFill size={13}/>
+                        <DownloadIcon size={13} color={C.textMuted}/>
                         {exportMode ? `EXPORT${selectedTracks.size > 0 ? ` (${selectedTracks.size})` : ""}` : "EXPORT"}
                       </button>
                     </div>
@@ -1170,10 +1211,10 @@ export default function AbletonDashboard() {
                           <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.format.toUpperCase()}</span>
                           <div className="flex items-center justify-end gap-[2px] w-[72px]">
                             <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
-                              <RiDownloadFill size={14}/>
+                              <DownloadIcon size={14} color={C.textMuted}/>
                             </button>
                             <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
-                              <RiDeleteBinFill size={14}/>
+                              <TrashIcon size={14} color={C.textMuted}/>
                             </button>
                           </div>
                         </div>
@@ -1426,9 +1467,10 @@ const BPM_SONGS = [
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ProcessingSection({ progress, activeAgentIdx, C, isColorful }: {
+function ProcessingSection({ progress, activeAgentIdx, C, isColorful, queueItems, activeItemId, onMinimize }: {
   progress: number; activeAgentIdx: number;
   C: any; isColorful: boolean;
+  queueItems?: QueueItem[]; activeItemId?: string | null; onMinimize?: () => void;
 }) {
   const [gameActive, setGameActive] = useState(false);
   const [songIdx, setSongIdx] = useState(() => Math.floor(Math.random() * BPM_SONGS.length));
@@ -1560,6 +1602,64 @@ function ProcessingSection({ progress, activeAgentIdx, C, isColorful }: {
             })}
           </AnimatePresence>
         </div>
+
+        {/* Batch track list */}
+        {queueItems && queueItems.length > 1 && (
+          <div style={{ marginTop: 4 }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+              <span style={{ fontSize: 13, color: C.textMuted, letterSpacing: "0.04em" }}>
+                {queueItems.filter(i => i.status === "completed").length} / {queueItems.length} TRACKS
+              </span>
+            </div>
+            <div className="space-y-[6px]">
+              {queueItems.map(qi => (
+                <div key={qi.id} className="flex items-center gap-[8px]" style={{ minHeight: 28 }}>
+                  <div className="w-[14px] flex items-center justify-center shrink-0">
+                    {(qi.status === "uploading" || qi.status === "processing") && (
+                      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}>
+                        <svg width="10" height="10" viewBox="0 0 12 12">
+                          <circle cx="6" cy="6" r="4.5" fill="none" stroke={C.bgHover} strokeWidth="1.5" />
+                          <circle cx="6" cy="6" r="4.5" fill="none" stroke={C.accent} strokeWidth="1.5"
+                            strokeDasharray={`${2 * Math.PI * 4.5}`} strokeDashoffset={`${2 * Math.PI * 4.5 * 0.75}`} strokeLinecap="square" />
+                        </svg>
+                      </motion.div>
+                    )}
+                    {qi.status === "completed" && (
+                      <svg width="10" height="10" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke={C.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    )}
+                    {qi.status === "pending" && (
+                      <div style={{ width: 6, height: 6, backgroundColor: C.textMuted, opacity: 0.3 }} />
+                    )}
+                    {qi.status === "failed" && (
+                      <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="#FF3B30" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    )}
+                  </div>
+                  <span className="truncate flex-1" style={{
+                    fontSize: 13,
+                    color: qi.id === activeItemId ? C.text : qi.status === "completed" ? C.textMuted : qi.status === "failed" ? "#FF3B30" : C.textMuted,
+                    fontWeight: qi.id === activeItemId ? 500 : 400,
+                  }}>{qi.fileName}</span>
+                  {(qi.status === "uploading" || qi.status === "processing") && (
+                    <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{Math.floor(qi.id === activeItemId ? progress : qi.progress)}%</span>
+                  )}
+                  {qi.status === "completed" && (
+                    <span style={{ fontSize: 12, color: C.textMuted }}>{qi.job?.stems?.length || 0} stems</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Minimize button */}
+        {onMinimize && (
+          <div className="flex justify-center" style={{ marginTop: 16 }}>
+            <button onClick={onMinimize}
+              style={{ fontSize: 13, color: C.textMuted, letterSpacing: "0.04em", padding: "6px 16px", backgroundColor: C.bgHover }}>
+              MINIMIZE
+            </button>
+          </div>
+        )}
 
         {/* Mini BPM game */}
         <div className="pt-[8px] flex justify-center">

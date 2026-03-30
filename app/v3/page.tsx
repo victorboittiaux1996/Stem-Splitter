@@ -1,29 +1,94 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
-  Upload,
-  FileAudio,
-  X,
-  Play,
-  Pause,
-  Download,
-  SkipBack,
-  RotateCcw,
-  Loader2,
-  Scissors,
-  FolderOpen,
-  Settings2,
-  Zap,
-  ChevronDown,
+  Sparkles, ChevronDown, ChevronLeft,
+  Palette, Layers, ChevronsUpDown,
+  Search, X,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { StemModal } from "@/components/stem-modal";
+import { StemVariants } from "@/components/stem-variants";
+import Link from "next/link";
+import type { Job, StemDownload, HistoryItem, SplitMode } from "@/lib/types";
+import { useQueue } from "@/contexts/queue-context";
+import { prefetchStemPeaks } from "@/components/stem-variants";
+import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { toast } from "sonner";
-import { Waveform } from "@/components/dashboard/waveform";
+// Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
+// ─── Types ───────────────────────────────────────────────────
 type AppState = "idle" | "file-selected" | "processing" | "complete";
 type StemCount = 2 | 4 | 6;
-type SidebarView = "split" | "files" | "settings";
+type OutputFormat = "wav" | "mp3";
+type View = "split" | "results" | "files" | "stats" | "games" | "settings";
+type Style = "classic" | "colorful";
+
+const F = "'Futura PT', 'futura-pt', sans-serif";
+
+// Force-load the font on mount
+if (typeof window !== "undefined") {
+  const font = new FontFace("Futura PT", "url(/fonts/futura-pt-medium.ttf)");
+  font.load().then(f => document.fonts.add(f)).catch(() => {});
+}
+
+// ─── Classic theme (sober Ableton — no borders, bg contrast only) ─
+const classicThemes = {
+  dark: {
+    bg: "#111111", bgCard: "#1C1C1C", bgSubtle: "#161616", bgHover: "#242424", bgElevated: "#202020",
+    text: "#FFFFFF", textSec: "#999999", textMuted: "#666666",
+    accent: "#1B10FD", accentText: "#FFFFFF",
+    sidebarBg: "#161616", navActive: "#222222",
+    badgeBg: "#2A2A2A", badgeText: "#999999", dropZoneBg: "#1C1C1C",
+  },
+  light: {
+    bg: "#F3F3F3", bgCard: "#FFFFFF", bgSubtle: "#EAEAEA", bgHover: "#E0E0E0", bgElevated: "#F0F0F0",
+    text: "#000000", textSec: "#555555", textMuted: "#888888",
+    accent: "#1B10FD", accentText: "#FFFFFF",
+    sidebarBg: "#EAEAEA", navActive: "#DCDCDC",
+    badgeBg: "#E0E0E0", badgeText: "#555555", dropZoneBg: "#FFFFFF",
+  },
+} as const;
+
+// ─── Colorful theme (Apple rainbow pop — no borders) ─────────
+const colorfulThemes = {
+  dark: {
+    bg: "#0E0E0E", bgCard: "#1C1C1C", bgSubtle: "#141414", bgHover: "#242424", bgElevated: "#1E1E1E",
+    text: "#FFFFFF", textSec: "#AAAAAA", textMuted: "#666666",
+    accent: "#007AFF", accentText: "#FFFFFF",
+    sidebarBg: "#141414", navActive: "#1E1E1E",
+    badgeBg: "#2A2A2A", badgeText: "#AAAAAA", dropZoneBg: "#1C1C1C",
+  },
+  light: {
+    bg: "#F5F5F7", bgCard: "#FFFFFF", bgSubtle: "#ECECEE", bgHover: "#E4E4E6", bgElevated: "#F0F0F2",
+    text: "#1D1D1F", textSec: "#6E6E73", textMuted: "#98989D",
+    accent: "#007AFF", accentText: "#FFFFFF",
+    sidebarBg: "#ECECEE", navActive: "#E0E0E2",
+    badgeBg: "#E4E4E8", badgeText: "#6E6E73", dropZoneBg: "#FFFFFF",
+  },
+} as const;
+
+// ─── Stem colors per style ───────────────────────────────────
+const STEM_COLORS_CLASSIC: Record<string, string> = {
+  vocals: "#1B10FD", drums: "#FF6B00", bass: "#00CC66", guitar: "#FF3366",
+  piano: "#00BBFF", other: "#777777", instrumental: "#6633FF",
+};
+const STEM_COLORS_POP: Record<string, string> = {
+  vocals: "#FF2D55", drums: "#FF9500", bass: "#34C759", guitar: "#AF52DE",
+  piano: "#007AFF", other: "#FFCC00", instrumental: "#5856D6",
+};
+
+// ─── Nav colors for colorful mode ────────────────────────────
+const NAV_COLORS: Record<string, string> = {
+  split: "#FF2D55", results: "#FF9500", files: "#FFCC00", stats: "#34C759", games: "#AF52DE", settings: "#007AFF",
+};
+
+const STEM_OPTIONS: { value: StemCount; label: string; desc: string }[] = [
+  { value: 2, label: "2 Stems", desc: "Vocals + Instrumental" },
+  { value: 4, label: "4 Stems", desc: "Vocals, Drums, Bass, Other" },
+  { value: 6, label: "6 Stems", desc: "All instruments separated" },
+];
 
 const STEM_MAP: Record<StemCount, string[]> = {
   2: ["vocals", "instrumental"],
@@ -31,397 +96,1561 @@ const STEM_MAP: Record<StemCount, string[]> = {
   6: ["vocals", "drums", "bass", "guitar", "piano", "other"],
 };
 
-const STEM_COLORS: Record<string, { label: string; color: string; played: string; bg: string }> = {
-  vocals: { label: "Vocals", color: "#A78BFA", played: "#8B5CF6", bg: "rgba(167,139,250,0.08)" },
-  drums: { label: "Drums", color: "#FBBF24", played: "#F59E0B", bg: "rgba(251,191,36,0.08)" },
-  bass: { label: "Bass", color: "#34D399", played: "#10B981", bg: "rgba(52,211,153,0.08)" },
-  guitar: { label: "Guitar", color: "#FB923C", played: "#F97316", bg: "rgba(251,146,60,0.08)" },
-  piano: { label: "Piano", color: "#38BDF8", played: "#0EA5E9", bg: "rgba(56,189,248,0.08)" },
-  other: { label: "Other", color: "#FB7185", played: "#F43F5E", bg: "rgba(251,113,133,0.08)" },
-  instrumental: { label: "Instrumental", color: "#818CF8", played: "#6366F1", bg: "rgba(129,140,248,0.08)" },
+// HistoryItem imported from @/lib/types
+
+const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"]);
+
+// Custom line icons
+const DownloadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M8 2V9.5M5 8L8 11L11 8" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+    <line x1="3" y1="14" x2="13" y2="14" stroke={color} strokeWidth="0.7"/>
+  </svg>
+);
+const TrashIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <line x1="2" y1="4" x2="14" y2="4" stroke={color} strokeWidth="0.7"/>
+    <line x1="6" y1="2" x2="10" y2="2" stroke={color} strokeWidth="0.7"/>
+    <path d="M4 4V14H12V4" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+  </svg>
+);
+
+async function extractAudioFiles(dataTransfer: DataTransfer): Promise<File[]> {
+  const items = Array.from(dataTransfer.items);
+  const entries = items.map(i => i.webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntry[];
+  if (entries.length === 0) {
+    return Array.from(dataTransfer.files).filter(f => AUDIO_EXTENSIONS.has("." + f.name.split(".").pop()?.toLowerCase()));
+  }
+  const files: File[] = [];
+  const readEntry = (entry: FileSystemEntry): Promise<void> => new Promise(resolve => {
+    if (entry.isFile) {
+      (entry as FileSystemFileEntry).file(f => { if (AUDIO_EXTENSIONS.has("." + f.name.split(".").pop()?.toLowerCase())) files.push(f); resolve(); }, () => resolve());
+    } else if (entry.isDirectory) {
+      (entry as FileSystemDirectoryEntry).createReader().readEntries(async entries => { await Promise.all(entries.map(readEntry)); resolve(); }, () => resolve());
+    } else { resolve(); }
+  });
+  await Promise.all(entries.map(readEntry));
+  return files;
+}
+
+const LABELS: Record<string, string> = {
+  vocals: "VOCALS", drums: "DRUMS", bass: "BASS", guitar: "GUITAR",
+  piano: "PIANO", other: "OTHER", instrumental: "INSTRUMENTAL",
 };
 
 const STAGES = [
-  "Uploading audio...",
-  "Analyzing waveform...",
-  "Separating vocals with MelBand RoFormer...",
-  "Separating instruments with BS-RoFormer...",
-  "Finalizing stems...",
+  "Uploading to GPU cluster...",
+  "Running spectral analysis...",
+  "AI agents separating layers...",
+  "Cross-validating between models...",
+  "Removing artifacts & bleed...",
+  "Studio-grade mastering...",
+  "Quality check by AI reviewer...",
+  "Rendering final stems...",
 ];
 
-const ACCEPTED = /\.(mp3|wav|flac|ogg|m4a|aac)$/i;
-const MAX_SIZE = 50 * 1024 * 1024;
-
-const NAV_ITEMS: { id: SidebarView; icon: typeof Scissors; label: string }[] = [
-  { id: "split", icon: Scissors, label: "Split Audio" },
-  { id: "files", icon: FolderOpen, label: "My Files" },
-  { id: "settings", icon: Settings2, label: "Settings" },
+const PROCESSING_AGENTS = [
+  { name: "Uploading to GPU cluster", threshold: 0 },
+  { name: "Analyzing spectral data", threshold: 10 },
+  { name: "Isolating vocals", threshold: 25 },
+  { name: "Isolating drums", threshold: 38 },
+  { name: "Isolating bass", threshold: 50 },
+  { name: "Isolating harmonics", threshold: 62 },
+  { name: "Cross-validating models", threshold: 74 },
+  { name: "Removing artifacts", threshold: 84 },
+  { name: "Rendering stems", threshold: 93 },
 ];
 
-// ─── V3: Dark sidebar, accent colors, studio feel ───────────────
-export default function DashboardV3() {
-  const [sidebarView, setSidebarView] = useState<SidebarView>("split");
+const STEM_CONFIGS: Record<string, { label: string; color: string; playedColor: string }> = {
+  vocals: { label: "Vocals", color: "#8B5CF6", playedColor: "#7C3AED" },
+  drums: { label: "Drums", color: "#F59E0B", playedColor: "#D97706" },
+  bass: { label: "Bass", color: "#10B981", playedColor: "#059669" },
+  guitar: { label: "Guitar", color: "#F97316", playedColor: "#EA580C" },
+  piano: { label: "Piano", color: "#0EA5E9", playedColor: "#0284C7" },
+  other: { label: "Other", color: "#F43F5E", playedColor: "#E11D48" },
+  instrumental: { label: "Instrumental", color: "#6366F1", playedColor: "#4F46E5" },
+};
+
+// ─── Lazy-load games ──────────────────────────────────────────
+import dynamic from "next/dynamic";
+const BpmTap = dynamic(() => import("@/components/games/bpm-tap").then(m => ({ default: m.BpmTap })), { ssr: false });
+const MpcPad = dynamic(() => import("@/components/games/mpc-pad").then(m => ({ default: m.MpcPad })), { ssr: false });
+const MelodyMemory = dynamic(() => import("@/components/games/melody-memory"), { ssr: false });
+const FrequencyQuiz = dynamic(() => import("@/components/games/frequency-quiz"), { ssr: false });
+const GuessTheStem = dynamic(() => import("@/components/games/guess-the-stem").then(m => ({ default: m.GuessTheStem })), { ssr: false });
+const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m => ({ default: m.TomatoToss })), { ssr: false });
+
+// ─── Component ──────────────────────────────────────────────
+export default function AbletonDashboard() {
+  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
+  const [systemDark, setSystemDark] = useState(true);
+  useEffect(() => {
+    const saved = localStorage.getItem("44stems-theme") as "dark" | "light" | "system" | null;
+    if (saved && saved !== "dark") setThemeMode(saved);
+    setSystemDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  useEffect(() => { localStorage.setItem("44stems-theme", themeMode); }, [themeMode]);
+  const isDark = themeMode === "system" ? systemDark : themeMode === "dark";
+  const [style, setStyle] = useState<Style>("classic");
+  const isColorful = style === "colorful";
+  const C = isColorful
+    ? (isDark ? colorfulThemes.dark : colorfulThemes.light)
+    : (isDark ? classicThemes.dark : classicThemes.light);
+  const stemColors = isColorful ? STEM_COLORS_POP : STEM_COLORS_CLASSIC;
+
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  // Cache of stem URLs + precomputed peaks per job ID
+  const stemUrlCacheRef = useRef<Record<string, Record<string, string>>>({});
+  const stemPeaksCacheRef = useRef<Record<string, Record<string, number[]>>>({});
+
+  // Prefetch stem URLs + server-side peaks for a job (fire-and-forget)
+  const prefetchJobStems = useCallback((jobId: string) => {
+    if (stemUrlCacheRef.current[jobId]) return; // already cached
+    // Fetch stem URLs
+    fetch(`/api/download/${jobId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.stems) {
+          const urls = Object.fromEntries((d.stems as { name: string; url: string }[]).map(s => [s.name, s.url]));
+          stemUrlCacheRef.current[jobId] = urls;
+        }
+      })
+      .catch(() => {});
+    // Fetch job data for precomputed peaks
+    fetch(`/api/jobs/${jobId}`)
+      .then(r => r.json())
+      .then(job => {
+        if (job.peaks) {
+          stemPeaksCacheRef.current[jobId] = job.peaks;
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load history from API on mount
+  useEffect(() => {
+    fetch("/api/history")
+      .then(r => r.json())
+      .then(d => {
+        if (d.jobs) {
+          setHistory(d.jobs);
+          // Prefetch stems for all jobs in background
+          (d.jobs as HistoryItem[]).forEach(j => prefetchJobStems(j.id));
+        }
+      })
+      .catch(() => {});
+  }, [prefetchJobStems]);
+
+  const refreshHistory = useCallback(() => {
+    fetch("/api/history")
+      .then(r => r.json())
+      .then(d => {
+        if (d.jobs) {
+          setHistory(d.jobs);
+          (d.jobs as HistoryItem[]).forEach(j => prefetchJobStems(j.id));
+        }
+      })
+      .catch(() => {});
+  }, [prefetchJobStems]);
+
+  const [view, setView] = useState<View>("split");
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [stemCount, setStemCount] = useState<StemCount>(4);
-  const [outputFormat, setOutputFormat] = useState<"wav" | "mp3">("wav");
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>("wav");
+  const [stemsOpen, setStemsOpen] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
+  const [extraOpen, setExtraOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
+  const [versionOpen, setVersionOpen] = useState(false);
+  const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Playback
+  // rAF smooth progress — target receives real values, display advances at 1%/s max
+  const progressTargetRef = useRef(0);
+  const progressDisplayRef = useRef(0);
+  const [activeGame, setActiveGame] = useState("");
+  // URL input variations
+  const [urlInput, setUrlInput] = useState("");
+  const [inputMode, setInputMode] = useState<"file" | "url">("file");
+  // Platform detection
+  const PLATFORMS = [
+    { name: "YOUTUBE", pattern: /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|music\.youtube\.com\/watch\?v=)/ },
+    { name: "SPOTIFY", pattern: /^(https?:\/\/)?(www\.)?open\.spotify\.com\/(intl-[a-z]{2}\/)?(track|album)\// },
+    { name: "DEEZER", pattern: /^(https?:\/\/)?(www\.)?deezer\.com\/(track|album)\// },
+    { name: "SOUNDCLOUD", pattern: /^(https?:\/\/)?(www\.)?soundcloud\.com\// },
+    { name: "APPLE MUSIC", pattern: /^(https?:\/\/)?(www\.)?music\.apple\.com\// },
+  ] as const;
+  const detectedPlatform = PLATFORMS.find(p => p.pattern.test(urlInput.trim()))?.name || null;
+  const isValidUrl = detectedPlatform !== null;
+  const [validStyle, setValidStyle] = useState<1 | 2 | 3 | 4>(1);
+  // Files view state
+  const [sortBy, setSortBy] = useState<"name" | "date" | "duration" | "format" | "bpm" | "key">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [fileSearch, setFileSearch] = useState("");
+  const [selectedTracks, setSelectedTracks] = useState<Set<string>>(new Set());
+  const [selectedStems, setSelectedStems] = useState<Set<string>>(new Set());
+  const [exportMode, setExportMode] = useState(false);
+  const [exportStemPicker, setExportStemPicker] = useState(false);
+  // Results view state
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [soloTrack, setSoloTrack] = useState<string | null>(null);
   const [mutedTracks, setMutedTracks] = useState<Set<string>>(new Set());
-  const playRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const duration = 214;
-  const playProgress = duration > 0 ? currentTime / duration : 0;
+  // Real API states
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [currentJob, setCurrentJob] = useState<Job | null>(null);
+  const [stemDownloads, setStemDownloads] = useState<StemDownload[]>([]);
+  const stemUrls = useMemo(
+    () => stemDownloads.length > 0 ? Object.fromEntries(stemDownloads.map(s => [s.name, s.url])) : undefined,
+    [stemDownloads]
+  );
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const credits = 10000;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
+  // ─── MOCK: load real job from R2 for Results page dev ───
   useEffect(() => {
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (playRef.current) clearInterval(playRef.current);
+    if (typeof window === "undefined") return;
+    const mockId = new URLSearchParams(window.location.search).get("mock");
+    if (!mockId) return;
+
+    // mockId can be "1" (latest job) or a real job ID
+    const loadJob = async () => {
+      try {
+        let id = mockId;
+        // If "1", fetch the latest completed job from history
+        if (id === "1") {
+          const histRes = await fetch("/api/history");
+          if (!histRes.ok) return;
+          const { jobs } = await histRes.json();
+          if (!jobs?.length) return;
+          id = jobs[0].id;
+        }
+
+        // Load job data
+        const jobRes = await fetch(`/api/jobs/${id}`);
+        if (!jobRes.ok) return;
+        const job: Job = await jobRes.json();
+        if (job.status !== "completed") return;
+
+        setCurrentJob(job);
+        setJobId(id);
+        setStemCount((job.stems?.length === 2 ? 2 : job.stems?.length === 6 ? 6 : 4) as StemCount);
+        setAppState("complete");
+        setView("results");
+
+        // Load stem download URLs
+        const dlRes = await fetch(`/api/download/${id}`);
+        if (dlRes.ok) {
+          const dlData = await dlRes.json();
+          if (dlData.stems) {
+            setStemDownloads(dlData.stems);
+            const urls = Object.fromEntries((dlData.stems as StemDownload[]).map(s => [s.name, s.url]));
+            prefetchStemPeaks(urls);
+          }
+        }
+      } catch (err) {
+        console.error("Mock load failed:", err);
+      }
     };
+    loadJob();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // ─── END MOCK ───
+
+  const switchTheme = useCallback((fn: () => void) => {
+    const el = rootRef.current;
+    if (el) el.classList.add("theme-switching");
+    fn();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { if (el) el.classList.remove("theme-switching"); });
+    });
+  }, []);
+  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stemsRef = useRef<HTMLDivElement>(null);
+  const formatRef = useRef<HTMLDivElement>(null);
+  const extraRef = useRef<HTMLDivElement>(null);
+  const activityRef = useRef<HTMLDivElement>(null);
+
+  const duration = 214; // mock duration
+
+  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    if (!stemsOpen && !formatOpen && !extraOpen && !activityOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (stemsOpen && stemsRef.current && !stemsRef.current.contains(e.target as Node)) setStemsOpen(false);
+      if (formatOpen && formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false);
+      if (extraOpen && extraRef.current && !extraRef.current.contains(e.target as Node)) setExtraOpen(false);
+      if (activityOpen && activityRef.current && !activityRef.current.contains(e.target as Node)) setActivityOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [stemsOpen, formatOpen, extraOpen, activityOpen]);
+
+  // Results playback simulation
+  useEffect(() => {
+    if (isPlaying) {
+      playIntervalRef.current = setInterval(() => {
+        setCurrentTime(prev => {
+          if (prev >= duration) { setIsPlaying(false); return 0; }
+          return prev + 0.05;
+        });
+      }, 50);
+    } else if (playIntervalRef.current) {
+      clearInterval(playIntervalRef.current);
+    }
+    return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
+  }, [isPlaying]);
+
+  const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem } = useQueue();
+  const handleFiles = useCallback((files: File[]) => {
+    if (files.length === 1) {
+      setFile(files[0]); setPendingFiles([]); setAppState("file-selected");
+    } else {
+      setFile(null); setPendingFiles(files); setAppState("file-selected");
+    }
   }, []);
 
-  const handleFile = useCallback((f: File) => {
-    if (!ACCEPTED.test(f.name)) { toast.error("Unsupported format"); return; }
-    if (f.size > MAX_SIZE) { toast.error("File too large"); return; }
-    setFile(f);
-    setAppState("file-selected");
-  }, []);
+  const { isRecording, elapsedSeconds, start: startRecording, stop: stopRecording } = useAudioRecorder();
+
+  const handleStartRecording = useCallback(async () => {
+    if (file) { setFile(null); setAppState("idle"); }
+    try {
+      await startRecording();
+    } catch {
+      toast.error("Microphone access denied", { description: "Allow microphone access in your browser settings." });
+    }
+  }, [startRecording, file]);
+
+  const handleStopRecording = useCallback(async () => {
+    const recorded = await stopRecording();
+    handleFiles([recorded]);
+  }, [stopRecording, handleFiles]);
+
+  const canSplit = file !== null || pendingFiles.length > 0 || isValidUrl;
 
   const handleSplit = useCallback(() => {
-    if (!file) return;
-    setAppState("processing");
-    setProgress(0);
-    setStage(STAGES[0]);
-    let p = 0, si = 0;
-    intervalRef.current = setInterval(() => {
-      p += Math.random() * 3 + 1.5;
-      if (p >= 100) {
-        setProgress(100); setStage("Complete!");
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        setTimeout(() => setAppState("complete"), 500);
-        return;
-      }
-      setProgress(p);
-      const ns = Math.min(STAGES.length - 1, Math.floor(p / (100 / STAGES.length)));
-      if (ns !== si) { si = ns; setStage(STAGES[si]); }
-    }, 180);
-  }, [file]);
+    if (!file && pendingFiles.length === 0 && !isValidUrl) return;
+    const mode: SplitMode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
+
+    if (isValidUrl && inputMode === "url") {
+      enqueueUrl(urlInput, { mode, outputFormat });
+      setUrlInput("");
+    } else if (pendingFiles.length > 0) {
+      enqueue(pendingFiles, { mode, outputFormat });
+      setPendingFiles([]);
+    } else if (file) {
+      enqueue([file], { mode, outputFormat });
+    }
+
+    setFile(null);
+    setAppState("idle");
+    setUploadError(null);
+  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, enqueue, enqueueUrl]);
 
   const handleNewSplit = useCallback(() => {
-    setFile(null); setAppState("idle"); setProgress(0); setCurrentTime(0); setIsPlaying(false);
+    setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
+    setIsPlaying(false); setCurrentTime(0); setSoloTrack(null); setMutedTracks(new Set());
+    setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null);
+    progressTargetRef.current = 0; progressDisplayRef.current = 0;
   }, []);
 
-  const togglePlay = () => {
-    if (!isPlaying) {
-      playRef.current = setInterval(() => {
-        setCurrentTime((t) => { if (t >= duration) { setIsPlaying(false); return 0; } return t + 0.05; });
-      }, 50);
-    } else if (playRef.current) clearInterval(playRef.current);
-    setIsPlaying(!isPlaying);
-  };
+  // Sync progress from queue context
+  useEffect(() => { setProgress(queueDisplayProgress); }, [queueDisplayProgress]);
 
-  const seek = (p: number) => setCurrentTime(p * duration);
-  const formatTime = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
-  const formatSize = (b: number) => b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(1)} MB`;
+  // Bridge: queue context → page state (single-file backward compat)
+  const prevActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    const active = queueItems.find(i => i.id === activeItemId);
+    const inFlight = queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing");
+    const isSingleFileFlow = inFlight.length <= 1 && queueItems.filter(i => i.status !== "completed" && i.status !== "failed").length <= 1;
 
-  const showSettings = sidebarView === "split" && (appState === "idle" || appState === "file-selected");
+    if (active && isSingleFileFlow) {
+      if (active.status === "uploading" || active.status === "processing") {
+        if (appState !== "processing") setAppState("processing");
+        setStage(active.stage);
+        setCurrentJob(active.job);
+        if (active.jobId) setJobId(active.jobId);
+      }
+      if (active.status === "completed" && active.job && prevActiveRef.current === active.id) {
+        setCurrentJob(active.job);
+        setStemDownloads(active.stemDownloads);
+        if (active.jobId) setJobId(active.jobId);
+        if (active.stemDownloads.length > 0) {
+          const urls = Object.fromEntries(active.stemDownloads.map(s => [s.name, s.url]));
+          prefetchStemPeaks(urls);
+        }
+        refreshHistory();
+        setAppState("complete");
+        setView("results");
+      }
+      if (active.status === "failed") {
+        setUploadError(active.error || "Processing failed");
+        setAppState("idle");
+      }
+    }
+
+    if (!isSingleFileFlow && active?.status === "completed" && prevActiveRef.current === active.id) {
+      refreshHistory();
+    }
+
+    // Reset appState when queue finishes and no active processing
+    if (!active && appState === "processing") {
+      setAppState("idle");
+    }
+
+    prevActiveRef.current = activeItemId;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueItems, activeItemId]);
+
+  const stemLabel = stemCount === 2 ? "2 STEMS" : stemCount === 4 ? "4 STEMS" : "6 STEMS";
+  const logoColor = isColorful ? "#FF2D55" : C.accent;
+  const activeAgentIdx = PROCESSING_AGENTS.reduce((acc, agent, i) => progress >= agent.threshold ? i : acc, 0);
+  const playProgress = duration > 0 ? currentTime / duration : 0;
+  const formatTime = (s: number) => { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2, "0")}`; };
+
+  // Sort helpers for Files view
+  const durToSec = (d?: string) => { if (!d) return 0; const m = d.match(/(\d+)m\s*(\d+)s/); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0; };
+  const toggleSort = (col: typeof sortBy) => { if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortBy(col); setSortDir("asc"); } };
+
+  const searched = history.filter(item => !fileSearch || item.name.toLowerCase().includes(fileSearch.toLowerCase()));
+  const sorted = [...searched].sort((a, b) => {
+    let cmp = 0;
+    switch (sortBy) {
+      case "name": cmp = a.name.localeCompare(b.name); break;
+      case "duration": cmp = durToSec(a.duration) - durToSec(b.duration); break;
+      case "format": cmp = a.format.localeCompare(b.format); break;
+      case "bpm": cmp = (a.bpm ?? 0) - (b.bpm ?? 0); break;
+      case "key": cmp = (a.key ?? "").localeCompare(b.key ?? ""); break;
+      default: cmp = 0;
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const allTrackIds = sorted.map(h => h.id);
+  const allTracksSelected = allTrackIds.length > 0 && allTrackIds.every(id => selectedTracks.has(id));
+  const toggleTrack = (id: string) => setSelectedTracks(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllTracks = () => { if (allTracksSelected) setSelectedTracks(new Set()); else setSelectedTracks(new Set(allTrackIds)); };
+  const allStemTypes = Array.from(new Set(sorted.filter(h => selectedTracks.has(h.id)).flatMap(h => h.stemList)));
+  const toggleExportStem = (stem: string) => setSelectedStems(prev => { const next = new Set(prev); next.has(stem) ? next.delete(stem) : next.add(stem); return next; });
+  const allStemsSelected = allStemTypes.length > 0 && allStemTypes.every(s => selectedStems.has(s));
+  const toggleAllStems = () => { if (allStemsSelected) setSelectedStems(new Set()); else setSelectedStems(new Set(allStemTypes)); };
+  const exitExport = () => { setExportMode(false); setSelectedTracks(new Set()); setSelectedStems(new Set()); setExportStemPicker(false); };
+
+  // Game theme object to pass to game components
+  const gameTheme = { bg: C.bg, bgCard: C.bgCard, bgSubtle: C.bgSubtle, bgHover: C.bgHover, bgElevated: C.bgElevated, text: C.text, textSec: C.textSec, textMuted: C.textMuted, accent: C.accent, accentText: C.accentText, badgeBg: C.badgeBg, badgeText: C.badgeText };
+
+
+  // ─── SortIcon helper ──────────────────────────────────────
+  const SortIcon = ({ col }: { col: typeof sortBy }) => (
+    <ChevronDown className="inline h-[10px] w-[10px] ml-[3px]" strokeWidth={2}
+      style={{ opacity: sortBy === col ? 1 : 0.4, transform: sortBy === col && sortDir === "asc" ? "scaleY(-1)" : undefined }} />
+  );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F5F5F7]">
-      {/* ─── Dark sidebar ─── */}
-      <aside className="flex h-full w-[220px] shrink-0 flex-col bg-[#1A1A1E]">
-        {/* Logo */}
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600">
-            <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M2 12v2" /><path d="M6 8v8" /><path d="M10 4v16" /><path d="M14 7v10" /><path d="M18 5v14" /><path d="M22 10v4" />
+    <div ref={rootRef} className="ableton-root flex h-screen overflow-hidden" style={{ backgroundColor: C.bg, color: C.text, fontFamily: F }}>
+      <style>{`
+        input::placeholder { color: ${C.textMuted} !important; opacity: 1 !important; }
+        button:focus { outline: none !important; }
+        .ableton-root, .ableton-root * { border-color: transparent; }
+        .ableton-root.theme-switching, .ableton-root.theme-switching * { transition: none !important; animation-duration: 0s !important; }
+      `}</style>
+
+      {/* ─── Sidebar ─── */}
+      <aside className="flex h-full w-[220px] shrink-0 flex-col" style={{ backgroundColor: C.sidebarBg }}>
+        {/* Logo + Version switcher */}
+        <div className="relative">
+          <button onClick={() => setVersionOpen(!versionOpen)} className="flex w-full items-center justify-between px-[16px]" style={{ height: 52 }}>
+            <svg height="14" viewBox="0 0 150 21" fill="none" overflow="visible">
+              <rect x="0" y="0"  width="24" height="3" fill={C.text}/>
+              <rect x="0" y="6"  width="24" height="3" fill={C.text}/>
+              <rect x="0" y="12" width="24" height="3" fill={C.text}/>
+              <rect x="0" y="18" width="24" height="3" fill={C.text}/>
+              <text x="32" y="21" fontFamily={F} fontWeight="700" fontSize="29" letterSpacing="-0.5" fill={C.text}>44Stems</text>
             </svg>
-          </div>
-          <span className="text-[16px] font-bold tracking-tight text-white" style={{ fontFamily: "Satoshi, sans-serif" }}>44Stems</span>
+            <ChevronsUpDown className="h-[12px] w-[12px]" style={{ color: C.textMuted }} strokeWidth={2} />
+          </button>
+          {versionOpen && (
+            <div className="absolute left-[8px] right-[8px] top-[52px] z-50 py-[4px]" style={{ backgroundColor: C.bgCard }}>
+              <div className="px-[12px] py-[6px]">
+                <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.05em" }}>VERSIONS</span>
+              </div>
+              <div className="flex items-center gap-[8px] px-[12px] py-[8px]"
+                style={{ color: C.text, fontSize: 14, fontWeight: 500, backgroundColor: C.navActive }}>
+                <Layers className="h-[14px] w-[14px]" strokeWidth={1.6} />
+                ABLETON
+              </div>
+              <Link href="/elevenlabs" onClick={() => setVersionOpen(false)}
+                className="flex items-center gap-[8px] px-[12px] py-[8px] transition-colors"
+                style={{ color: C.textSec, fontSize: 14, fontWeight: 500 }}>
+                <Layers className="h-[14px] w-[14px]" strokeWidth={1.6} />
+                ELEVENLABS
+              </Link>
+            </div>
+          )}
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 space-y-0.5 px-3 pt-1">
-          {NAV_ITEMS.map(({ id, icon: Icon, label }) => (
-            <button key={id} onClick={() => setSidebarView(id)}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors ${
-                sidebarView === id
-                  ? "bg-white/10 text-white"
-                  : "text-white/50 hover:bg-white/5 hover:text-white/80"
-              }`}>
-              <Icon className="h-[16px] w-[16px]" strokeWidth={1.8} />
-              {label}
-            </button>
-          ))}
+        {/* Nav — 5 views (custom geometric icons) */}
+        <nav className="flex-1 px-[8px] pt-[12px] space-y-[2px]">
+          {([
+            { id: "split" as View, label: "Split Audio", svg: (c: string) => (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="1" y="2" width="6" height="12" stroke={c} strokeWidth="0.7"/>
+                <line x1="7" y1="4" x2="7" y2="12" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="3.5" x2="14" y2="3.5" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="6.5" x2="14" y2="6.5" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="9.5" x2="14" y2="9.5" stroke={c} strokeWidth="0.7"/>
+                <line x1="9" y1="12.5" x2="14" y2="12.5" stroke={c} strokeWidth="0.7"/>
+              </svg>
+            )},
+            { id: "results" as View, label: "Results", svg: (c: string) => (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <line x1="2" y1="3" x2="14" y2="3" stroke={c} strokeWidth="0.7"/>
+                <line x1="2" y1="6" x2="14" y2="6" stroke={c} strokeWidth="0.7"/>
+                <line x1="2" y1="9" x2="10" y2="9" stroke={c} strokeWidth="0.7"/>
+                <line x1="2" y1="12" x2="12" y2="12" stroke={c} strokeWidth="0.7"/>
+              </svg>
+            )},
+            { id: "files" as View, label: "My Files", svg: (c: string) => (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M2 4V13H14V6H8L6 4H2Z" stroke={c} strokeWidth="0.7" strokeLinejoin="miter" fill="none"/>
+              </svg>
+            )},
+            { id: "stats" as View, label: "Statistics", svg: (c: string) => (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <polyline points="2,12 5,9 8,10 11,5 14,3" stroke={c} strokeWidth="0.7" fill="none"/>
+                <line x1="1" y1="14" x2="15" y2="14" stroke={c} strokeWidth="0.7"/>
+              </svg>
+            )},
+            { id: "games" as View, label: "Games", svg: (c: string) => (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="2" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <rect x="9" y="2" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <rect x="2" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <rect x="9" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                <line x1="8" y1="10" x2="8" y2="12" stroke={c} strokeWidth="1.2"/>
+              </svg>
+            )},
+            { id: "settings" as View, label: "Settings", svg: (c: string) => (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <line x1="4" y1="2" x2="4" y2="14" stroke={c} strokeWidth="0.7"/>
+                <line x1="8" y1="2" x2="8" y2="14" stroke={c} strokeWidth="0.7"/>
+                <line x1="12" y1="2" x2="12" y2="14" stroke={c} strokeWidth="0.7"/>
+                <line x1="2.5" y1="5" x2="5.5" y2="5" stroke={c} strokeWidth="1.4"/>
+                <line x1="6.5" y1="9" x2="9.5" y2="9" stroke={c} strokeWidth="1.4"/>
+                <line x1="10.5" y1="7" x2="13.5" y2="7" stroke={c} strokeWidth="1.4"/>
+              </svg>
+            )},
+          ]).map(item => {
+            const isActive = view === item.id;
+            const iconColor = isColorful && isActive ? NAV_COLORS[item.id] : (isActive ? C.text : C.textSec);
+            return (
+              <button key={item.id} onClick={() => { setView(item.id); setActiveGame(""); }}
+                className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
+                style={{
+                  backgroundColor: isActive ? C.navActive : "transparent",
+                  fontSize: 14, fontWeight: 500, letterSpacing: "0.01em",
+                  color: isActive ? C.text : C.textSec,
+                }}>
+                <div className="w-[16px] h-[16px] shrink-0">{item.svg(iconColor)}</div>
+                {item.label}
+              </button>
+            );
+          })}
         </nav>
 
-        {/* Credits */}
-        <div className="border-t border-white/10 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Zap className="h-3.5 w-3.5 text-amber-400" strokeWidth={2} />
-            <span className="text-[12px] text-white/50">
-              {new Intl.NumberFormat("en-US").format(credits)} credits
-            </span>
-          </div>
+        {/* Bottom: style toggle + upgrade */}
+        <div style={{ backgroundColor: C.bgSubtle }} className="px-[8px] py-[6px] space-y-[1px]">
+          <button onClick={() => switchTheme(() => setStyle(style === "classic" ? "colorful" : "classic"))}
+            className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: isColorful ? "#FF9500" : C.textSec }}>
+            <Palette className="h-[16px] w-[16px]" strokeWidth={1.6} style={{ color: isColorful ? "#FF9500" : C.textSec }} />
+            {isColorful ? "COLORFUL" : "CLASSIC"}
+          </button>
+          <button className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec }}>
+            <Sparkles className="h-[16px] w-[16px]" strokeWidth={1.6} />
+            UPGRADE
+          </button>
         </div>
       </aside>
 
       {/* ─── Main ─── */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Top bar */}
-          <div className="flex h-[52px] shrink-0 items-center justify-between bg-white border-b border-neutral-200/60 px-6">
-            <h1 className="text-[13px] font-semibold" style={{ fontFamily: "Satoshi, sans-serif" }}>
-              {sidebarView === "split" ? "Split Audio" : sidebarView === "files" ? "My Files" : "Settings"}
-            </h1>
-            <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span className="text-[11px] font-medium text-emerald-700">{new Intl.NumberFormat("en-US").format(credits)} credits</span>
+      <div className="flex flex-1 flex-col overflow-hidden">
+
+        {/* Top bar */}
+        <div className="flex h-[52px] shrink-0 items-center justify-between px-[24px]" style={{ backgroundColor: C.bgSubtle }}>
+          <div />
+          <div className="flex items-center gap-[4px]">
+            {/* Pills */}
+            <button className="px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>FEEDBACK</button>
+            <button className="px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>DOCS</button>
+            <button className="flex items-center gap-[4px] px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>
+              <RiQuestionFill size={13}/>
+              ASK
+            </button>
+            <div className="w-[1px] h-[16px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
+            <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
+              className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
+              {themeMode === "system" ? <RiContrastFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
+            </button>
+            <div className="relative" ref={activityRef}>
+              <button onClick={() => { setActivityOpen(!activityOpen); if (!activityOpen) markAllRead(); }} className="p-[8px] relative" style={{ color: C.textSec }}>
+                <RiNotificationFill size={16}/>
+                {(unreadCount > 0 || queueItems.some(i => i.status === "uploading" || i.status === "processing" || i.status === "pending")) && (
+                  <div className="absolute top-[4px] right-[4px] flex items-center justify-center" style={{ minWidth: 14, height: 14, backgroundColor: C.accent, padding: "0 3px" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "#fff" }}>{unreadCount || queueItems.filter(i => i.status !== "completed" && i.status !== "failed").length}</span>
+                  </div>
+                )}
+              </button>
+              <AnimatePresence>
+                {activityOpen && (
+                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.1 }} className="absolute right-0 top-full mt-[4px] z-30 w-[320px] overflow-hidden"
+                    style={{ backgroundColor: C.bgCard, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+                    <div className="flex items-center justify-between px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.text }}>ACTIVITY</span>
+                      {queueItems.length > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{queueItems.filter(i => i.status === "completed").length} / {queueItems.length}</span>}
+                    </div>
+                    <div className="max-h-[340px] overflow-y-auto">
+                      {queueItems.length === 0 ? (
+                        <div className="px-[14px] py-[24px] text-center"><span style={{ fontSize: 14, color: C.textMuted }}>NO ACTIVITY YET</span></div>
+                      ) : [...queueItems].reverse().map(qi => (
+                        <div key={qi.id} className="px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                          {(qi.status === "uploading" || qi.status === "processing") && (<>
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted }}>{Math.round(qi.progress)}%</span>
+                            </div>
+                            <div className="w-full mt-[6px] mb-[4px]" style={{ height: 3, backgroundColor: C.bgHover }}>
+                              <div style={{ height: "100%", width: `${qi.progress}%`, backgroundColor: isColorful ? undefined : C.accent, background: isColorful ? "linear-gradient(90deg, #FF2D55, #FF9500, #FFCC00, #34C759, #007AFF, #5856D6)" : undefined, transition: "width 0.3s" }} />
+                            </div>
+                            <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>{(qi.stage || "PREPARING").toUpperCase()}</span>
+                          </>)}
+                          {qi.status === "pending" && (
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, color: C.textMuted, maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>PENDING</span>
+                            </div>
+                          )}
+                          {qi.status === "completed" && (
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-[6px]">
+                                <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke={C.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 180 }}>{qi.fileName}</p>
+                              </div>
+                              <span style={{ fontSize: 12, color: C.textMuted }}>{qi.job?.stems?.length || 0} stems</span>
+                            </div>
+                          )}
+                          {qi.status === "failed" && (<>
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, color: "#FF3B30", maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, color: "#FF3B30", letterSpacing: "0.03em" }}>ERROR</span>
+                            </div>
+                            {qi.error && <p className="truncate mt-[2px]" style={{ fontSize: 12, color: C.textMuted }}>{qi.error}</p>}
+                            <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em", marginTop: 4 }}>RETRY</button>
+                          </>)}
+                        </div>
+                      ))}
+                    </div>
+                    {queueItems.some(i => i.status === "completed") && (
+                      <div className="px-[14px] py-[8px]" style={{ borderTop: `1px solid ${C.text}08` }}>
+                        <button onClick={clearCompleted} style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>CLEAR COMPLETED</button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="flex h-[26px] w-[26px] items-center justify-center" style={{ backgroundColor: isColorful ? "#FF2D55" : C.accent }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
             </div>
           </div>
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto">
-            {sidebarView === "split" && (
-              <>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+
+          {/* ═══ SPLIT AUDIO ═══ */}
+          {view === "split" && (
+            <div className="px-[24px] pt-[24px] pb-[40px]">
+              <div style={{ maxWidth: 900, margin: "0 auto" }}>
+
                 {(appState === "idle" || appState === "file-selected") && (
-                  <div className="flex items-center justify-center p-8 py-20">
-                    <div className="w-full max-w-lg">
+                  <>
+                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text, marginBottom: 24 }}>
+                      Split Audio
+                    </h2>
+
+                    <input ref={inputRef} type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac" multiple
+                      onChange={(e) => { const files = Array.from(e.target.files || []); if (files.length) handleFiles(files); e.target.value = ""; }} />
+
+                    {/* Tabs: UPLOAD | LINK */}
+                    <div className="flex items-center gap-[20px] mb-[8px]">
+                      {([["file", "UPLOAD"], ["url", "LINK"]] as const).map(([mode, label]) => (
+                        <button key={mode} onClick={() => { setInputMode(mode); if (mode === "file") setUrlInput(""); if (mode === "url") { setFile(null); setAppState("idle"); } }}
+                          className="pb-[6px] text-[14px] font-semibold transition-colors"
+                          style={{
+                            color: inputMode === mode ? C.text : C.textMuted,
+                            borderBottom: inputMode === mode ? `2px solid ${C.accent}` : "2px solid transparent",
+                            letterSpacing: "0.04em",
+                          }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Drop zone / URL input */}
+                    {inputMode === "url" ? (
+                      <div className="flex items-center justify-center transition-all"
+                        style={{ minHeight: 160, backgroundColor: C.dropZoneBg, position: "relative" }}>
+                        {isValidUrl ? (
+                          <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
+                            <div className="flex items-center gap-[10px]">
+                              <span style={{ fontSize: 11, fontWeight: 700, color: C.textSec, letterSpacing: "0.06em", padding: "4px 10px", backgroundColor: C.bgHover }}>{detectedPlatform}</span>
+                              <span style={{ fontSize: 14, color: C.textSec }}>{urlInput}</span>
+                            </div>
+                            <button onClick={() => setUrlInput("")}
+                              style={{ fontSize: 14, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>REMOVE</button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
+                            <input type="url" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} autoFocus
+                              placeholder="PASTE LINK HERE"
+                              className="w-full bg-transparent outline-none"
+                              style={{ fontSize: 15, color: urlInput ? C.text : C.textMuted, letterSpacing: "0.02em", caretColor: C.textMuted, textAlign: "center" }} />
+                            <div className="flex items-center gap-[8px]" style={{ position: "absolute", bottom: -30 }}>
+                              {PLATFORMS.map(p => (
+                                <span key={p.name} style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, letterSpacing: "0.05em", opacity: 0.5 }}>{p.name}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
                       <div
-                        onDrop={(e) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                        onDragLeave={() => setIsDragging(false)}
-                        onClick={() => !file && inputRef.current?.click()}
-                        className={`rounded-2xl border-2 border-dashed bg-white transition-all duration-200 ${
-                          isDragging ? "border-violet-400 bg-violet-50/30" :
-                          file ? "border-neutral-200" :
-                          "border-neutral-200/80 hover:border-violet-300 hover:bg-violet-50/20 cursor-pointer"
-                        }`}
-                      >
-                        <input ref={inputRef} type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
-                          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-                        <div className="flex flex-col items-center justify-center gap-3 py-20 px-8">
-                          {file ? (
-                            <>
-                              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50">
-                                <FileAudio className="h-6 w-6 text-violet-500" strokeWidth={1.5} />
-                              </div>
-                              <p className="text-[15px] font-semibold" style={{ fontFamily: "Satoshi, sans-serif" }}>{file.name}</p>
-                              <p className="text-xs text-neutral-400">{formatSize(file.size)}</p>
-                              <button onClick={(e) => { e.stopPropagation(); setFile(null); setAppState("idle"); }}
-                                className="flex items-center gap-1 text-xs text-neutral-400 hover:text-neutral-600"><X className="h-3 w-3" /> Remove</button>
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50">
-                                <Upload className="h-5 w-5 text-violet-400" strokeWidth={1.5} />
-                              </div>
-                              <p className="text-[15px] font-medium">{isDragging ? "Drop it here" : "Click to upload, or drag and drop"}</p>
-                              <p className="text-xs text-neutral-400">Audio files up to 50MB each</p>
-                              <div className="flex gap-1 pt-1">
-                                {["MP3", "WAV", "FLAC", "OGG", "M4A"].map((f) => (
-                                  <span key={f} className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">{f}</span>
+                        onClick={() => !file && !pendingFiles.length && !isRecording && inputRef.current?.click()}
+                        onDrop={async (e) => { e.preventDefault(); const files = await extractAudioFiles(e.dataTransfer); if (files.length) handleFiles(files); }}
+                        onDragOver={(e) => e.preventDefault()}
+                        className="flex items-center justify-center transition-all"
+                        style={{ minHeight: 160, backgroundColor: C.dropZoneBg, cursor: file || pendingFiles.length || isRecording ? "default" : "pointer", position: "relative" }}>
+                        {file ? (
+                          <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
+                            <div className="flex items-center gap-[10px]">
+                              <span style={{ fontSize: 11, fontWeight: 700, color: C.textSec, letterSpacing: "0.06em", padding: "4px 10px", backgroundColor: C.bgHover }}>{file.name.split(".").pop()?.toUpperCase()}</span>
+                              <span style={{ fontSize: 14, color: C.textSec }}>{file.name}</span>
+                              <span style={{ fontSize: 13, color: C.textMuted }}>{(file.size / 1048576).toFixed(1)} MB</span>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); setFile(null); setAppState("idle"); }}
+                              style={{ fontSize: 14, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>REMOVE</button>
+                          </div>
+                        ) : pendingFiles.length > 0 ? (
+                          <div className="flex flex-col items-center justify-center w-full gap-[4px]" style={{ position: "relative" }}>
+                            <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>{pendingFiles.length} FILES SELECTED</span>
+                            {pendingFiles.slice(0, 3).map((f, i) => (
+                              <span key={i} className="truncate" style={{ fontSize: 13, color: C.textMuted, maxWidth: 400 }}>{f.name}</span>
+                            ))}
+                            {pendingFiles.length > 3 && (
+                              <span style={{ fontSize: 13, color: C.textMuted }}>+{pendingFiles.length - 3} more</span>
+                            )}
+                            <button onClick={(e) => { e.stopPropagation(); setPendingFiles([]); setAppState("idle"); }}
+                              style={{ fontSize: 13, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", marginTop: 4 }}>REMOVE</button>
+                          </div>
+                        ) : isRecording ? (
+                          <div className="flex items-center gap-[10px]">
+                            <span className="relative flex h-[10px] w-[10px]">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex h-[10px] w-[10px] rounded-full bg-red-500" />
+                            </span>
+                            <span style={{ fontSize: 15, fontWeight: 500, color: C.text, letterSpacing: "0.02em" }}>RECORDING</span>
+                            <span className="tabular-nums" style={{ fontSize: 14, color: C.textMuted, letterSpacing: "0.02em" }}>{formatSeconds(elapsedSeconds)}</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 15, color: C.textMuted, letterSpacing: "0.02em" }}>SELECT OR DROP FILES HERE</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action bar */}
+                    <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
+                      <div className="flex items-center gap-[4px]">
+                        <button onClick={() => { setInputMode("file"); inputRef.current?.click(); }} className="p-[8px] transition-colors" style={{ color: C.textMuted }}>
+                          <RiFileUploadFill size={16}/>
+                        </button>
+                        <button onClick={isRecording ? handleStopRecording : handleStartRecording}
+                          className="p-[8px] transition-colors"
+                          style={{ color: isRecording ? "#EF4444" : C.textMuted }}>
+                          {isRecording ? <RiStopFill size={16}/> : <RiMicFill size={16}/>}
+                        </button>
+                        <div className="w-[1px] h-[14px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
+                        {/* Stems selector */}
+                        <div className="relative" ref={stemsRef}>
+                          <button onClick={() => { setStemsOpen(!stemsOpen); setFormatOpen(false); setExtraOpen(false); }}
+                            className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
+                            style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: stemsOpen ? C.bgHover : undefined }}>
+                            {stemLabel}
+                            <ChevronDown className="h-[11px] w-[11px]" style={{ color: C.textMuted }} strokeWidth={2} />
+                          </button>
+                          <AnimatePresence>
+                            {stemsOpen && (
+                              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                                transition={{ duration: 0.1 }} className="absolute left-0 top-full mt-[2px] z-30 w-[220px]"
+                                style={{ backgroundColor: C.bgCard }}>
+                                {STEM_OPTIONS.map(opt => (
+                                  <button key={opt.value} onClick={() => { setStemCount(opt.value); setStemsOpen(false); }}
+                                    className="flex w-full items-center gap-[8px] px-[12px] py-[10px] text-left transition-colors"
+                                    style={{ backgroundColor: stemCount === opt.value ? C.bgHover : undefined }}>
+                                    <div>
+                                      <p style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.02em", color: C.text }}>{opt.label.toUpperCase()}</p>
+                                      <p style={{ fontSize: 13, color: C.textMuted }}>{opt.desc}</p>
+                                    </div>
+                                  </button>
                                 ))}
-                              </div>
-                            </>
-                          )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                        {/* Gear popover */}
+                        <div className="relative" ref={extraRef}>
+                          <button onClick={() => { setExtraOpen(!extraOpen); setStemsOpen(false); setFormatOpen(false); }}
+                            className="p-[8px] transition-colors" style={{ color: extraOpen ? C.text : C.textMuted, backgroundColor: extraOpen ? C.bgHover : undefined }}>
+                            <RiEqualizerFill size={15}/>
+                          </button>
+                          <AnimatePresence>
+                            {extraOpen && (
+                              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                                transition={{ duration: 0.1 }} className="absolute left-0 top-full mt-[4px] z-30 w-[280px]"
+                                style={{ backgroundColor: C.bgCard }}>
+                                <div className="px-[16px] py-[12px]" style={{ backgroundColor: C.bgHover }}>
+                                  <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em" }}>ADVANCED SETTINGS</span>
+                                </div>
+                                <div className="px-[16px] py-[14px] space-y-[16px]">
+                                  <div className="space-y-[6px]">
+                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>MODEL</label>
+                                    <div className="flex items-center gap-[8px] px-[10px] py-[7px]" style={{ backgroundColor: C.bgHover }}>
+                                      <div className="flex h-[16px] items-center px-[4px]" style={{ backgroundColor: C.accent }}>
+                                        <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>AI</span>
+                                      </div>
+                                      <span style={{ fontSize: 15, fontWeight: 500 }}>MelBand RoFormer</span>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-[8px]">
+                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>PROCESSING QUALITY</label>
+                                    <div className="flex gap-[4px]">
+                                      {([["fast", "Fast", "~35s"], ["balanced", "Balanced", "~45s"], ["high", "High Quality", "~55s"]] as const).map(([val, label, time]) => (
+                                        <button key={val} onClick={() => setQualityPreset(val as typeof qualityPreset)}
+                                          className="flex-1 flex flex-col items-center gap-[2px] py-[8px] transition-colors"
+                                          style={{ backgroundColor: qualityPreset === val ? C.accent : C.bgHover, color: qualityPreset === val ? C.accentText : C.text }}>
+                                          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.03em" }}>{label.toUpperCase()}</span>
+                                          <span style={{ fontSize: 11, opacity: 0.7 }}>{time}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <p style={{ fontSize: 11, color: C.textMuted }}>Higher quality uses more overlap between audio chunks for smoother results</p>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </div>
+                      <div className="flex items-center gap-[10px]">
+                        <span style={{ fontSize: 15, color: C.textMuted }}>0 / 10,000 credits</span>
+                        <button onClick={handleSplit} disabled={!canSplit}
+                          className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+                          style={{ backgroundColor: canSplit ? C.accent : C.textMuted, color: C.accentText, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
+                          SPLIT
+                        </button>
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Upload error */}
+                    {uploadError && (
+                      <div className="flex items-center gap-[10px] px-[14px] py-[10px] mt-[8px]" style={{ backgroundColor: "rgba(255,59,48,0.1)" }}>
+                        <span style={{ fontSize: 14, color: "#FF3B30", fontWeight: 500 }}>{uploadError}</span>
+                        <button onClick={() => setUploadError(null)} style={{ fontSize: 13, color: "#FF3B30", textDecoration: "underline" }}>DISMISS</button>
+                      </div>
+                    )}
+
+                    {/* Recent splits */}
+                    <div style={{ marginTop: 40 }}>
+                      <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 20, color: C.text }}>Recent splits</h2>
+
+                      <div style={{ backgroundColor: C.bgCard }}>
+                        <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                          <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
+                          <input type="text" placeholder="SEARCH HISTORY" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[13px]" style={{ color: C.text, letterSpacing: "0.03em" }} />
+                        </div>
+                        <div className="flex items-center px-[16px] py-[8px]" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
+                          <span className="flex-1">NAME</span>
+                          <span className="w-[60px] text-right">BPM</span>
+                          <span className="w-[50px] text-right">KEY</span>
+                          <span className="w-[80px] text-right">DURATION</span>
+                          <span className="w-[80px] text-right">FORMAT</span>
+                          <span className="w-[72px]" />
+                        </div>
+                        {history.map((item, i) => (
+                          <div key={item.id}
+                            className="flex items-center px-[16px] py-[14px] cursor-pointer transition-colors"
+                            style={{
+                              borderBottom: i < history.length - 1 ? `1px solid ${C.text}08` : undefined,
+                            }}
+                            onClick={() => setExpandedFile(item.id)}>
+                            <div className="flex items-center gap-[12px] flex-1 min-w-0">
+                              <div className="flex h-[36px] w-[36px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgHover }}>
+                                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
+                              </div>
+                              <div className="min-w-0">
+                                <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
+                                <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
+                              </div>
+                            </div>
+                            <span className="w-[60px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.bpm != null ? Math.round(item.bpm) : "—"}</span>
+                            <span className="w-[50px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.key}</span>
+                            <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.duration ?? "—"}</span>
+                            <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.format.toUpperCase()}</span>
+                            <div className="flex items-center justify-end gap-[2px] w-[72px]">
+                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><DownloadIcon size={14} color={C.textMuted}/></button>
+                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><TrashIcon size={14} color={C.textMuted}/></button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Stem detail modal — Recent splits */}
+                    <AnimatePresence>
+                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} />}
+                    </AnimatePresence>
+                  </>
                 )}
 
-                {appState === "processing" && (
-                  <div className="flex flex-col items-center justify-center gap-8 px-8 py-20">
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}>
-                      <Loader2 className="h-8 w-8 text-violet-300" strokeWidth={1.5} />
-                    </motion.div>
-                    <div className="text-center">
-                      <span className="font-heading text-6xl font-bold tabular-nums">{Math.floor(progress)}</span>
-                      <span className="font-heading text-3xl font-bold text-neutral-300">%</span>
-                    </div>
-                    <div className="h-2 w-full max-w-sm overflow-hidden rounded-full bg-neutral-200">
-                      <motion.div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" animate={{ width: `${progress}%` }} transition={{ duration: 0.4 }} />
-                    </div>
-                    <p className="text-sm text-neutral-400">{stage}</p>
-                  </div>
-                )}
+                {/* Processing */}
+                {appState === "processing" && <ProcessingSection progress={progress} activeAgentIdx={activeAgentIdx} C={C} isColorful={isColorful} />}
 
+                {/* Complete — Results view */}
                 {appState === "complete" && (
-                  <div className="flex flex-col p-6 gap-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="text-lg font-bold" style={{ fontFamily: "Satoshi, sans-serif" }}>Separation Complete</h2>
-                        <p className="text-sm text-neutral-400 mt-0.5">{file?.name} &mdash; {STEM_MAP[stemCount].length} stems</p>
-                      </div>
-                      <button onClick={handleNewSplit}
-                        className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-900 transition-colors">
-                        <RotateCcw className="h-3 w-3" /> New split
+                  <StemVariants
+                    stemCount={stemCount}
+                    stemMap={STEM_MAP}
+                    labels={LABELS}
+                    stemColors={stemColors}
+                    C={C}
+                    isDark={isDark}
+                    fileName={file?.name}
+                    onNewSplit={handleNewSplit}
+                    bpm={currentJob?.bpm}
+                    stemKey={currentJob?.key}
+                    keyRaw={currentJob?.key_raw}
+                    realStemList={currentJob?.stems}
+                    jobId={jobId || undefined}
+                    stemUrls={stemUrls}
+                    trackDuration={currentJob?.duration}
+                    precomputedPeaks={currentJob?.peaks}
+                    outputFormat={outputFormat}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══ RESULTS ═══ */}
+          {view === "results" && (
+            <div className="px-[24px] pt-[24px] pb-[40px] overflow-y-auto flex-1">
+              <div style={{ maxWidth: 900, margin: "0 auto" }}>
+                {currentJob?.status === "completed" ? (
+                  <StemVariants
+                    stemCount={stemCount}
+                    stemMap={STEM_MAP}
+                    labels={LABELS}
+                    stemColors={stemColors}
+                    C={C}
+                    isDark={isDark}
+                    fileName={file?.name}
+                    onNewSplit={() => { handleNewSplit(); setView("split"); }}
+                    bpm={currentJob?.bpm}
+                    stemKey={currentJob?.key}
+                    keyRaw={currentJob?.key_raw}
+                    realStemList={currentJob?.stems}
+                    jobId={jobId || undefined}
+                    stemUrls={stemUrls}
+                    trackDuration={currentJob?.duration}
+                    outputFormat={outputFormat}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-[80px]">
+                    <div className="flex h-[48px] w-[48px] items-center justify-center" style={{ backgroundColor: C.bgHover }}>
+                      <svg width="22" height="22" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
+                    </div>
+                    <p style={{ fontSize: 15, color: C.textMuted, marginTop: 12, letterSpacing: "0.03em" }}>NO RESULTS YET — SPLIT A TRACK FIRST</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══ MY FILES ═══ */}
+          {view === "files" && (
+            <>
+              <div className="px-[24px] pt-[24px] pb-[40px]">
+                <div style={{ maxWidth: 900, margin: "0 auto" }}>
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-[24px]">
+                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>My Files</h2>
+                    <div className="flex items-center gap-[8px]">
+                      {exportMode && (
+                        <button onClick={exitExport} className="px-[14px] py-[8px] transition-colors"
+                          style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em" }}>CANCEL</button>
+                      )}
+                      <button onClick={() => { if (exportMode) { if (selectedTracks.size > 0) setExportStemPicker(true); } else setExportMode(true); }}
+                        className="flex items-center gap-[6px] px-[14px] py-[8px] transition-colors"
+                        style={{
+                          fontSize: 15, fontWeight: 500, letterSpacing: "0.03em",
+                          color: exportMode && selectedTracks.size > 0 ? C.bg : C.textSec,
+                          backgroundColor: exportMode && selectedTracks.size > 0 ? C.text : C.bgHover,
+                          cursor: exportMode && selectedTracks.size === 0 ? "not-allowed" : "pointer",
+                        }}>
+                        <DownloadIcon size={13} color={C.textMuted}/>
+                        {exportMode ? `EXPORT${selectedTracks.size > 0 ? ` (${selectedTracks.size})` : ""}` : "EXPORT"}
                       </button>
                     </div>
+                  </div>
 
-                    {/* Transport */}
-                    <div className="flex items-center gap-3 rounded-xl bg-white border border-neutral-200/60 px-4 py-3 shadow-sm">
-                      <button onClick={() => { setCurrentTime(0); setIsPlaying(false); }} className="text-neutral-400 hover:text-neutral-900">
-                        <SkipBack className="h-4 w-4" />
-                      </button>
-                      <button onClick={togglePlay}
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white hover:scale-105 active:scale-95 transition-transform shadow-md shadow-violet-200">
-                        {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-                      </button>
-                      <span className="w-24 text-center text-xs tabular-nums text-neutral-400">
-                        {formatTime(currentTime)} / {formatTime(duration)}
-                      </span>
-                      <div className="relative flex-1 h-2 rounded-full bg-neutral-200 cursor-pointer group"
-                        onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); seek((e.clientX - r.left) / r.width); }}>
-                        <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" style={{ width: `${playProgress * 100}%` }} />
-                        <div className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white border-2 border-violet-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                          style={{ left: `calc(${playProgress * 100}% - 7px)` }} />
-                      </div>
-                      <button className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-500 to-indigo-600 px-4 py-2 text-xs font-medium text-white shadow-sm shadow-violet-200 hover:opacity-90 transition-opacity">
-                        <Download className="h-3 w-3" /> Download All
-                      </button>
+                  {/* Contained card — same style as Recent splits V2 */}
+                  <div style={{ backgroundColor: C.bgCard, overflow: "hidden" }}>
+                    {/* Search */}
+                    <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                      <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
+                      <input type="text" value={fileSearch} onChange={e => setFileSearch(e.target.value)}
+                        placeholder="SEARCH FILES" className="flex-1 bg-transparent text-[13px] outline-none"
+                        style={{ color: C.text, letterSpacing: "0.03em" }} />
                     </div>
-
-                    {/* Tracks */}
-                    <div className="flex-1 space-y-1.5 overflow-y-auto">
-                      {STEM_MAP[stemCount].map((name, i) => {
-                        const c = STEM_COLORS[name] || { label: name, color: "#6B7280", played: "#4B5563", bg: "rgba(107,114,128,0.08)" };
-                        const isMuted = mutedTracks.has(name);
-                        const isSolo = soloTrack === name;
-                        const isActive = soloTrack ? isSolo : !isMuted;
-                        return (
-                          <motion.div key={name} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.04 }}
-                            className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all ${
-                              isActive ? "border-neutral-200/60 bg-white shadow-sm" : "border-neutral-100 bg-white/50 opacity-40"
-                            }`}>
-                            <div className="flex w-20 shrink-0 items-center gap-2">
-                              <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                              <span className="text-xs font-semibold">{c.label}</span>
-                            </div>
-                            <div className="flex gap-1 shrink-0">
-                              <button onClick={() => setSoloTrack(soloTrack === name ? null : name)}
-                                className={`rounded px-2 py-0.5 text-[10px] font-bold transition-colors ${isSolo ? "bg-amber-400 text-amber-950" : "bg-neutral-100 text-neutral-400 hover:bg-neutral-200"}`}>S</button>
-                              <button onClick={() => { if (soloTrack === name) { setSoloTrack(null); return; } setMutedTracks(p => { const n = new Set(p); n.has(name) ? n.delete(name) : n.add(name); return n; }); }}
-                                className={`rounded px-2 py-0.5 text-[10px] font-bold transition-colors ${isMuted ? "bg-red-400 text-white" : "bg-neutral-100 text-neutral-400 hover:bg-neutral-200"}`}>M</button>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <Waveform seed={(i + 1) * 7919 + 42} color={c.color} playedColor={c.played} progress={playProgress} height={48} onSeek={seek} barCount={160} />
-                            </div>
-                            <button className="shrink-0 p-1.5 text-neutral-300 hover:text-neutral-600 transition-colors">
-                              <Download className="h-3.5 w-3.5" />
+                    {/* Column headers */}
+                    <div className="flex items-center px-[16px] py-[8px] select-none" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
+                      {exportMode && (
+                        <button onClick={toggleAllTracks} className="w-[28px] shrink-0 flex items-center">
+                          {allTracksSelected
+                            ? <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="0" y="0" width="13" height="13" fill={C.text} opacity="0.9"/></svg>
+                            : <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="0" y="0" width="13" height="13" fill={C.text} opacity="0.08"/></svg>}
+                        </button>
+                      )}
+                      <button onClick={() => toggleSort("name")} className="flex-1 text-left flex items-center cursor-pointer outline-none focus:outline-none">NAME <SortIcon col="name" /></button>
+                      <button onClick={() => toggleSort("bpm")} className="w-[60px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">BPM <SortIcon col="bpm" /></button>
+                      <button onClick={() => toggleSort("key")} className="w-[50px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">KEY <SortIcon col="key" /></button>
+                      <button onClick={() => toggleSort("duration")} className="w-[80px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">DURATION <SortIcon col="duration" /></button>
+                      <button onClick={() => toggleSort("format")} className="w-[80px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">FORMAT <SortIcon col="format" /></button>
+                      <span className="w-[72px]" />
+                    </div>
+                    {/* Rows */}
+                    {sorted.map((item, i) => {
+                      const isTrackSelected = selectedTracks.has(item.id);
+                      return (
+                        <div key={item.id}
+                          className="flex items-center px-[16px] py-[14px] cursor-pointer transition-colors"
+                          style={{
+                            ...(i < sorted.length - 1 ? { borderBottom: `1px solid ${`${C.text}08`}` } : {}),
+                            backgroundColor: exportMode ? (isTrackSelected ? (isDark ? C.bgHover : C.bgCard) : (isDark ? "transparent" : C.bgSubtle)) : undefined,
+                          }}
+                          
+                          
+                          onClick={() => exportMode ? toggleTrack(item.id) : setExpandedFile(item.id)}>
+                          {exportMode && (
+                            <button onClick={(e) => { e.stopPropagation(); toggleTrack(item.id); }} className="w-[28px] shrink-0 flex items-center">
+                              {isTrackSelected
+                                ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.9"/></svg>
+                                : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.08"/></svg>}
                             </button>
-                          </motion.div>
+                          )}
+                          <div className="flex items-center flex-1 min-w-0" style={{ gap: 12 }}>
+                            <div className="flex items-center justify-center shrink-0"
+                              style={{
+                                height: 36,
+                                width: 36,
+                                backgroundColor: C.bgHover,
+                                borderRadius: 0,
+                              }}>
+                              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
+                            </div>
+                            <div className="min-w-0">
+                              <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
+                              <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
+                            </div>
+                          </div>
+                          <span className="w-[60px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.bpm != null ? Math.round(item.bpm) : "—"}</span>
+                          <span className="w-[50px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.key}</span>
+                          <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.duration ?? "—"}</span>
+                          <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.format.toUpperCase()}</span>
+                          <div className="flex items-center justify-end gap-[2px] w-[72px]">
+                            <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
+                              <DownloadIcon size={14} color={C.textMuted}/>
+                            </button>
+                            <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
+                              <TrashIcon size={14} color={C.textMuted}/>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Export stem picker modal */}
+              <AnimatePresence>
+                {exportStemPicker && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setExportStemPicker(false)}>
+                    <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} />
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.15 }} className="relative w-[400px] overflow-hidden"
+                      style={{ backgroundColor: C.bgCard }} onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between px-[20px] py-[16px]" style={{ backgroundColor: C.bgHover }}>
+                        <div>
+                          <p style={{ fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>EXPORT STEMS</p>
+                          <p style={{ fontSize: 14, color: C.textMuted, marginTop: 2 }}>{selectedTracks.size} track{selectedTracks.size > 1 ? "s" : ""} selected</p>
+                        </div>
+                        <button onClick={() => setExportStemPicker(false)} className="p-[6px]" style={{ color: C.textMuted }}>
+                          <X className="h-[16px] w-[16px]" strokeWidth={1.6} />
+                        </button>
+                      </div>
+                      <div className="px-[20px] py-[16px] space-y-[2px]">
+                        <button onClick={toggleAllStems}
+                          className="flex w-full items-center gap-[10px] px-[12px] py-[10px] transition-colors" style={{ marginBottom: 4 }}>
+                          {allStemsSelected
+                            ? <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.9"/></svg>
+                            : <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.08"/></svg>}
+                          <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>ALL STEMS</span>
+                        </button>
+                        {allStemTypes.map(stem => {
+                          const color = stemColors[stem] || "#999";
+                          const isChecked = selectedStems.has(stem);
+                          return (
+                            <button key={stem} onClick={() => toggleExportStem(stem)}
+                              className="flex w-full items-center gap-[10px] px-[12px] py-[10px] transition-colors">
+                              {isChecked
+                                ? <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.9"/></svg>
+                                : <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.08"/></svg>}
+                              <div className="h-[8px] w-[8px] shrink-0" style={{ backgroundColor: color }} />
+                              <span style={{ fontSize: 15, fontWeight: 500, color: C.text, letterSpacing: "0.03em" }}>{LABELS[stem]}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-end gap-[8px] px-[20px] py-[14px]" style={{ backgroundColor: C.bgSubtle }}>
+                        <button onClick={() => setExportStemPicker(false)}
+                          className="px-[16px] py-[8px] transition-colors"
+                          style={{ fontSize: 15, fontWeight: 500, color: C.textSec, letterSpacing: "0.03em" }}>CANCEL</button>
+                        <button onClick={() => { setExportStemPicker(false); exitExport(); }}
+                          disabled={selectedStems.size === 0}
+                          className="px-[16px] py-[8px] transition-all disabled:opacity-30"
+                          style={{ fontSize: 15, fontWeight: 600, color: C.accentText, backgroundColor: C.text, letterSpacing: "0.03em" }}>
+                          DOWNLOAD {selectedStems.size > 0 ? `${selectedTracks.size * selectedStems.size} FILES` : ""}
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Stem detail modal — Files */}
+              <AnimatePresence>
+                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} />}
+              </AnimatePresence>
+            </>
+          )}
+
+          {/* ═══ STATISTICS ═══ */}
+          {view === "stats" && (() => {
+            const totalTracks = history.length;
+            const totalStems = history.reduce((acc, h) => acc + h.stemList.length, 0);
+            const totalMinutes = history.reduce((acc, h) => { const m = h.duration?.match(/(\d+)m\s*(\d+)s/); return acc + (m ? parseInt(m[1]) + parseInt(m[2]) / 60 : 0); }, 0);
+            const formatCounts: Record<string, number> = {}; history.forEach(h => { formatCounts[h.format] = (formatCounts[h.format] || 0) + 1; });
+            const topFormat = Object.entries(formatCounts).sort((a, b) => b[1] - a[1])[0];
+            const stemCounts: Record<string, number> = {}; history.forEach(h => h.stemList.forEach(s => { stemCounts[s] = (stemCounts[s] || 0) + 1; }));
+            const topStem = Object.entries(stemCounts).sort((a, b) => b[1] - a[1])[0];
+            const bpmTracks = history.filter(h => h.bpm != null);
+            const avgBpm = bpmTracks.length > 0 ? Math.round(bpmTracks.reduce((acc, h) => acc + h.bpm!, 0) / bpmTracks.length) : null;
+            const keyCounts: Record<string, number> = {}; history.forEach(h => { if (h.key) keyCounts[h.key] = (keyCounts[h.key] || 0) + 1; });
+            const topKey = Object.entries(keyCounts).sort((a, b) => b[1] - a[1])[0];
+            const stemCountCounts: Record<number, number> = {}; history.forEach(h => { stemCountCounts[h.stems] = (stemCountCounts[h.stems] || 0) + 1; });
+            const topStemCount = Object.entries(stemCountCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+            const stemDistribution = Object.entries(stemCounts).sort((a, b) => b[1] - a[1]);
+            const maxStemCount = stemDistribution[0]?.[1] || 1;
+
+            const stats = [
+              { label: "TOTAL TRACKS SPLIT", value: totalTracks.toString(), sub: "all time" },
+              { label: "TOTAL STEMS GENERATED", value: totalStems.toString(), sub: `across ${totalTracks} tracks` },
+              { label: "MINUTES PROCESSED", value: totalMinutes.toFixed(1), sub: "of audio" },
+              { label: "AVERAGE BPM", value: avgBpm != null ? avgBpm.toString() : "—", sub: "across all tracks" },
+              { label: "TOP FORMAT", value: topFormat?.[0]?.toUpperCase() || "—", sub: `${topFormat?.[1] || 0} tracks` },
+              { label: "TOP KEY", value: topKey?.[0] || "—", sub: `${topKey?.[1] || 0} tracks` },
+              { label: "MOST EXPORTED STEM", value: LABELS[topStem?.[0]] || "—", sub: `${topStem?.[1] || 0} times` },
+              { label: "PREFERRED SPLIT", value: `${topStemCount?.[0] || "—"} stems`, sub: `${topStemCount?.[1] || 0} tracks` },
+            ];
+
+            return (
+              <div className="px-[24px] pt-[24px] pb-[40px]">
+                <div style={{ maxWidth: 900, margin: "0 auto" }}>
+                  <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text, marginBottom: 24 }}>Statistics</h2>
+                  {/* Stat cards grid */}
+                  <div className="grid grid-cols-4 gap-[8px] mb-[24px]">
+                    {stats.map((stat) => (
+                      <div key={stat.label}
+                        className="px-[16px] py-[14px]" style={{ backgroundColor: C.bgCard }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.05em" }}>{stat.label}</p>
+                        <p style={{ fontSize: 28, fontWeight: 700, color: C.text, marginTop: 6, letterSpacing: "-0.02em" }}>{stat.value}</p>
+                        <p style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>{stat.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Stem distribution */}
+                  <div className="mb-[16px]" style={{ backgroundColor: C.bgCard }}>
+                    <div className="px-[16px] py-[12px]" style={{ backgroundColor: C.bgHover }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>STEM DISTRIBUTION</p>
+                    </div>
+                    <div className="px-[16px] py-[14px] space-y-[10px]">
+                      {stemDistribution.map(([stem, count]) => {
+                        const color = stemColors[stem] || "#999";
+                        return (
+                          <div key={stem} className="flex items-center gap-[12px]">
+                            <span className="w-[80px] shrink-0" style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.04em" }}>{LABELS[stem]}</span>
+                            <div className="flex-1 h-[6px] overflow-hidden" style={{ backgroundColor: C.bgHover }}>
+                              <div className="h-full" style={{ backgroundColor: color, width: `${(count / maxStemCount) * 100}%` }} />
+                            </div>
+                            <span className="w-[24px] text-right" style={{ fontSize: 14, color: C.textMuted }}>{count}</span>
+                          </div>
                         );
                       })}
                     </div>
                   </div>
-                )}
-              </>
-            )}
-
-            {sidebarView === "files" && (
-              <div className="p-6">
-                <div className="mx-auto max-w-2xl space-y-3">
-                  {[
-                    { name: "summer_vibes_remix.mp3", date: "2 hours ago", stems: 4, size: "8.2 MB" },
-                    { name: "midnight_drive_v2.wav", date: "Yesterday", stems: 6, size: "24.1 MB" },
-                    { name: "acoustic_demo.flac", date: "3 days ago", stems: 2, size: "31.7 MB" },
-                  ].map((f, i) => (
-                    <motion.div key={f.name} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                      className="flex items-center gap-4 rounded-xl bg-white border border-neutral-200/60 px-5 py-4 shadow-sm hover:border-neutral-300 transition-colors">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50">
-                        <FileAudio className="h-5 w-5 text-violet-400" strokeWidth={1.5} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium truncate">{f.name}</p>
-                        <p className="text-[11px] text-neutral-400 mt-0.5">{f.date} &middot; {f.stems} stems &middot; {f.size}</p>
-                      </div>
-                      <div className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5">
-                        <div className="h-1 w-1 rounded-full bg-emerald-500" />
-                        <span className="text-[10px] font-medium text-emerald-600">Complete</span>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {sidebarView === "settings" && (
-              <div className="flex flex-1 items-center justify-center min-h-full">
-                <div className="text-center space-y-2">
-                  <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-xl bg-neutral-100">
-                    <Settings2 className="h-6 w-6 text-neutral-300" strokeWidth={1.5} />
+                  {/* Format breakdown */}
+                  <div style={{ backgroundColor: C.bgCard }}>
+                    <div className="px-[16px] py-[12px]" style={{ backgroundColor: C.bgHover }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>FORMAT BREAKDOWN</p>
+                    </div>
+                    <div className="px-[16px] py-[14px] flex items-center gap-[24px]">
+                      {Object.entries(formatCounts).sort((a, b) => b[1] - a[1]).map(([fmt, count]) => {
+                        const pct = Math.round((count / totalTracks) * 100);
+                        return (
+                          <div key={fmt} className="flex flex-col items-center gap-[6px]">
+                            <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
+                              <svg width="64" height="64" viewBox="0 0 64 64">
+                                <circle cx="32" cy="32" r="28" fill="none" stroke={C.bgHover} strokeWidth="4" />
+                                <circle cx="32" cy="32" r="28" fill="none" stroke={C.accent} strokeWidth="4"
+                                  strokeDasharray={`${2 * Math.PI * 28}`}
+                                  strokeDashoffset={2 * Math.PI * 28 * (1 - pct / 100)}
+                                  strokeLinecap="butt" transform="rotate(-90 32 32)" />
+                              </svg>
+                              <span className="absolute" style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{pct}%</span>
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: C.textSec, letterSpacing: "0.04em" }}>{fmt.toUpperCase()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <p className="text-sm text-neutral-400">Account settings coming soon</p>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
+            );
+          })()}
 
-        {/* Settings panel */}
-        {showSettings && (
-          <aside className="flex h-full w-[300px] shrink-0 flex-col bg-white border-l border-neutral-200/60">
-            <div className="border-b border-neutral-200/60 px-5 py-4">
-              <h2 className="text-[13px] font-semibold" style={{ fontFamily: "Satoshi, sans-serif" }}>Settings</h2>
+          {/* ═══ GAMES ═══ */}
+          {view === "games" && (
+            <div className="flex flex-1 flex-col overflow-y-auto px-[24px] pt-[24px] pb-[40px]">
+              <div style={{ maxWidth: 900, margin: "0 auto", width: "100%" }}>
+                {activeGame === "" ? (
+                  <>
+                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text, marginBottom: 6 }}>Games</h2>
+                    <p style={{ fontSize: 15, color: C.textMuted, marginBottom: 24, letterSpacing: "0.02em" }}>TAKE A BREAK BETWEEN SPLITS</p>
+                    <div className="grid grid-cols-3 gap-[8px]">
+                      {[
+                        { id: "bpm", name: "BPM TAP", desc: "Tap the tempo of famous tracks", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v14M5 6v6M13 4v10M1 8v2M17 8v2" stroke={C.accent} strokeWidth="1.5" strokeLinecap="square"/></svg> },
+                        { id: "tomato", name: "TOMATO TOSS", desc: "Throw tomatoes at a bad DJ", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="10" r="6" stroke={C.accent} strokeWidth="1.5"/><path d="M7 4c1-2 3-2 4 0" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/></svg> },
+                        { id: "mpc", name: "MPC PAD", desc: "Play beats on a drum machine", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="2" width="5.5" height="5.5" stroke={C.accent} strokeWidth="1.5"/><rect x="10.5" y="2" width="5.5" height="5.5" stroke={C.accent} strokeWidth="1.5"/><rect x="2" y="10.5" width="5.5" height="5.5" stroke={C.accent} strokeWidth="1.5"/><rect x="10.5" y="10.5" width="5.5" height="5.5" stroke={C.accent} strokeWidth="1.5"/></svg> },
+                        { id: "melody", name: "MELODY MEMORY", desc: "Replay melodies from memory", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 14V7l4-3v10M11 14V5l4-3v12" stroke={C.accent} strokeWidth="1.5" strokeLinecap="square"/></svg> },
+                        { id: "freq", name: "FREQUENCY QUIZ", desc: "Guess the frequency of a tone", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 9h3l2-5 2 10 2-10 2 5h3" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+                        { id: "stem", name: "GUESS THE STEM", desc: "Which stem is playing?", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke={C.accent} strokeWidth="1.5"/><path d="M9 5v4l3 2" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/></svg> },
+                      ].map(g => (
+                        <button key={g.id} onClick={() => setActiveGame(g.id)}
+                          className="relative p-[20px] text-left transition-all"
+                          style={{ backgroundColor: C.bgCard }}>
+                          <div style={{ width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: C.bgElevated }}>{g.icon}</div>
+                          <p style={{ fontSize: 16, fontWeight: 600, color: C.text, marginTop: 10, letterSpacing: "0.03em" }}>{g.name}</p>
+                          <p style={{ fontSize: 13, color: C.textMuted, marginTop: 4, lineHeight: 1.4 }}>{g.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <button onClick={() => setActiveGame("")}
+                      className="flex items-center gap-[6px] mb-[20px] px-[12px] py-[6px] transition-colors"
+                      style={{ fontSize: 14, fontWeight: 500, color: C.textMuted, backgroundColor: C.bgHover, letterSpacing: "0.04em" }}>
+                      <ChevronLeft className="h-[14px] w-[14px]" strokeWidth={1.8} />
+                      ALL GAMES
+                    </button>
+                    {activeGame === "bpm" && <BpmTap isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "tomato" && <TomatoToss isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "mpc" && <MpcPad isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "melody" && <MelodyMemory isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "freq" && <FrequencyQuiz isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "stem" && <GuessTheStem isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
-              <div className="space-y-3">
-                <label className="text-[12px] font-medium text-neutral-500 uppercase tracking-wider">Stems</label>
-                <div className="space-y-2">
-                  {([2, 4, 6] as StemCount[]).map((n) => {
-                    const desc = n === 2 ? "Vocals + Instrumental" : n === 4 ? "Vocals, Drums, Bass, Other" : "Vocals, Drums, Bass, Guitar, Piano, Other";
-                    return (
-                      <button key={n} onClick={() => setStemCount(n)}
-                        className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                          stemCount === n ? "border-violet-300 bg-violet-50/50" : "border-neutral-200/60 hover:border-violet-200"
-                        }`}>
-                        <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
-                          stemCount === n ? "border-violet-500" : "border-neutral-300"
-                        }`}>
-                          {stemCount === n && <div className="h-2 w-2 rounded-full bg-violet-500" />}
-                        </div>
-                        <div>
-                          <p className="text-[13px] font-medium">{n} Stems</p>
-                          <p className="text-[11px] text-neutral-400">{desc}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+          )}
+
+          {/* ═══ SETTINGS ═══ */}
+          {view === "settings" && (
+            <div className="px-[24px] pt-[24px] pb-[40px]">
+              <div style={{ maxWidth: 900, margin: "0 auto" }}>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 24, color: C.text }}>Settings</h2>
+                <div className="flex flex-col items-center justify-center py-[80px]">
+                  <div className="flex h-[48px] w-[48px] items-center justify-center" style={{ backgroundColor: C.bgHover }}>
+                    <RiEqualizerFill size={22} style={{ color: C.textMuted }}/>
+                  </div>
+                  <p style={{ fontSize: 15, color: C.textMuted, marginTop: 12, letterSpacing: "0.03em" }}>ACCOUNT SETTINGS COMING SOON</p>
                 </div>
               </div>
-              <div className="space-y-3">
-                <label htmlFor="v3-format" className="text-[12px] font-medium text-neutral-500 uppercase tracking-wider">Output Format</label>
-                <div className="relative">
-                  <select id="v3-format" name="v3-format" value={outputFormat} onChange={(e) => setOutputFormat(e.target.value as "wav" | "mp3")}
-                    className="w-full appearance-none rounded-xl border border-neutral-200/60 bg-transparent px-4 py-3 pr-10 text-[13px] font-medium focus:border-violet-300 focus:outline-none">
-                    <option value="wav">WAV (Lossless)</option>
-                    <option value="mp3">MP3 (128kbps)</option>
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                </div>
-              </div>
             </div>
-            <div className="border-t border-neutral-200/60 px-5 py-4">
-              <button onClick={handleSplit} disabled={!file}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-600 text-sm font-semibold text-white shadow-sm shadow-violet-200 transition-all hover:opacity-90 disabled:opacity-25 disabled:cursor-not-allowed">
-                <Scissors className="h-4 w-4" />
-                Split audio
-              </button>
-            </div>
-          </aside>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
+// ─── Processing Section with Shimmer + BPM Mini-game ──────────
+const BPM_SONGS = [
+  { title: "Billie Jean", artist: "Michael Jackson", bpm: 117 },
+  { title: "Stayin' Alive", artist: "Bee Gees", bpm: 104 },
+  { title: "Blinding Lights", artist: "The Weeknd", bpm: 171 },
+  { title: "Get Lucky", artist: "Daft Punk", bpm: 116 },
+  { title: "Bohemian Rhapsody", artist: "Queen", bpm: 72 },
+  { title: "Seven Nation Army", artist: "The White Stripes", bpm: 124 },
+  { title: "Sweet Dreams", artist: "Eurythmics", bpm: 126 },
+  { title: "Blue Monday", artist: "New Order", bpm: 130 },
+  { title: "One More Time", artist: "Daft Punk", bpm: 123 },
+  { title: "Levels", artist: "Avicii", bpm: 126 },
+  { title: "Uptown Funk", artist: "Bruno Mars", bpm: 115 },
+  { title: "Mr. Brightside", artist: "The Killers", bpm: 148 },
+];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ProcessingSection({ progress, activeAgentIdx, C, isColorful }: {
+  progress: number; activeAgentIdx: number;
+  C: any; isColorful: boolean;
+}) {
+  const [gameActive, setGameActive] = useState(false);
+  const [songIdx, setSongIdx] = useState(() => Math.floor(Math.random() * BPM_SONGS.length));
+  const [taps, setTaps] = useState<number[]>([]);
+  const [userBpm, setUserBpm] = useState<number | null>(null);
+  const [result, setResult] = useState<{ diff: number; msg: string } | null>(null);
+  const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [totalRounds, setTotalRounds] = useState(0);
+  const tapRef = useRef<number[]>([]);
+
+  const song = BPM_SONGS[songIdx];
+  const shimmerMsg = activeAgentIdx <= 1 ? "PREPARING AUDIO" : activeAgentIdx <= 5 ? "ISOLATING STEMS" : "FINALIZING";
+
+  const shimmerStyle = useMemo(() => ({
+    background: `linear-gradient(90deg, ${C.textMuted} 0%, ${C.text} 40%, ${C.text} 60%, ${C.textMuted} 100%)`,
+    backgroundSize: "200% 100%",
+    WebkitBackgroundClip: "text" as const,
+    backgroundClip: "text" as const,
+    WebkitTextFillColor: "transparent",
+    animation: "shimmer 4s ease-in-out infinite",
+  }), [C.textMuted, C.text]);
+
+  const handleTap = useCallback(() => {
+    const now = Date.now();
+    const newTaps = [...tapRef.current, now].slice(-8);
+    tapRef.current = newTaps;
+    setTaps(newTaps);
+    if (newTaps.length >= 4) {
+      const intervals = [];
+      for (let i = 1; i < newTaps.length; i++) intervals.push(newTaps[i] - newTaps[i - 1]);
+      const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+      setUserBpm(Math.round(60000 / avg));
+    }
+  }, []);
+
+  const submitGuess = useCallback(() => {
+    if (userBpm === null) return;
+    const diff = Math.abs(userBpm - song.bpm);
+    let msg: string, pts = 0;
+    if (diff <= 3) { msg = "INSANE EAR"; pts = 100; }
+    else if (diff <= 8) { msg = "PRETTY GOOD"; pts = 50; }
+    else if (diff <= 15) { msg = "NOT BAD"; pts = 20; }
+    else if (diff <= 30) { msg = "MEH"; pts = 5; }
+    else { msg = "BRO WHAT"; pts = 0; }
+    setResult({ diff, msg });
+    setScore(s => s + pts);
+    setStreak(s => diff <= 15 ? s + 1 : 0);
+    setTotalRounds(r => r + 1);
+  }, [userBpm, song.bpm]);
+
+  const nextSong = useCallback(() => {
+    let next = Math.floor(Math.random() * BPM_SONGS.length);
+    while (next === songIdx) next = Math.floor(Math.random() * BPM_SONGS.length);
+    setSongIdx(next);
+    setTaps([]); tapRef.current = []; setUserBpm(null); setResult(null);
+  }, [songIdx]);
+
+  useEffect(() => {
+    if (!gameActive) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !result) { e.preventDefault(); handleTap(); }
+      if (e.code === "Enter" && userBpm && !result) { e.preventDefault(); submitGuess(); }
+      if (e.code === "Enter" && result) { e.preventDefault(); nextSong(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [gameActive, handleTap, submitGuess, nextSong, userBpm, result]);
+
+  return (
+    <div className="flex flex-col items-center justify-center px-8 py-[60px]">
+      <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+
+      <div className="w-full max-w-md space-y-8">
+        {/* Big % + shimmer */}
+        <div className="text-center space-y-[8px]">
+          <div>
+            <span style={{ fontSize: 64, fontWeight: 700, letterSpacing: 0, fontKerning: "none", color: C.text }}>{Math.floor(progress)}</span>
+            <span style={{ fontSize: 28, fontWeight: 700, color: C.textMuted }}>%</span>
+          </div>
+          <p key={`shimmer-${C.text}`} style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.12em", ...shimmerStyle }}>
+            {shimmerMsg}
+          </p>
+        </div>
+
+        {/* Progress bar */}
+        <div className="h-[4px] w-full overflow-hidden" style={{ backgroundColor: C.bgHover }}>
+          <div className="h-full" style={{
+            background: isColorful
+              ? "linear-gradient(90deg, #FF2D55, #FF9500, #FFCC00, #34C759, #007AFF, #5856D6)"
+              : C.accent,
+            width: `${progress}%`,
+          }} />
+        </div>
+
+        {/* Agent steps — current + previous */}
+        <div style={{ height: 64 }} className="relative overflow-hidden">
+          <AnimatePresence mode="popLayout">
+            {PROCESSING_AGENTS.map((agent, i) => {
+              const isPrev = i === activeAgentIdx - 1;
+              const isActive = i === activeAgentIdx;
+              if (!isPrev && !isActive) return null;
+              return (
+                <motion.div key={agent.name} layout
+                  initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
+                  transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+                  className="flex items-center gap-[10px]" style={{ height: 32 }}>
+                  <div className="w-[16px] flex items-center justify-center shrink-0">
+                    {isPrev ? (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke={C.textMuted} strokeWidth="1.5" /></svg>
+                    ) : (
+                      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}>
+                        <svg width="12" height="12" viewBox="0 0 12 12">
+                          <circle cx="6" cy="6" r="4.5" fill="none" stroke={C.bgHover} strokeWidth="1.5" />
+                          <circle cx="6" cy="6" r="4.5" fill="none" stroke={C.textSec} strokeWidth="1.5"
+                            strokeDasharray={`${2 * Math.PI * 4.5}`} strokeDashoffset={`${2 * Math.PI * 4.5 * 0.75}`}
+                            strokeLinecap="square" />
+                        </svg>
+                      </motion.div>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: isActive ? 500 : 400, color: isPrev ? C.textMuted : C.textSec, letterSpacing: "0.03em" }}>
+                    {agent.name.toUpperCase()}
+                  </span>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+
+        {/* Mini BPM game */}
+        <div className="pt-[8px] flex justify-center">
+          {!gameActive ? (
+            <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2 }}
+              onClick={() => setGameActive(true)}
+              className="px-[16px] py-[8px] transition-colors"
+              style={{ fontSize: 14, color: C.textMuted, backgroundColor: C.bgHover, letterSpacing: "0.04em" }}>
+              BORED? TAP THE BPM
+            </motion.button>
+          ) : (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              className="w-full p-[24px] text-center" style={{ backgroundColor: C.bgCard }}>
+              <div className="flex items-center justify-between mb-[24px]">
+                <span style={{ fontSize: 13, color: C.textMuted, letterSpacing: "0.04em" }}>SCORE: {score}</span>
+                {streak >= 2 && <span style={{ fontSize: 13, color: C.accent, letterSpacing: "0.04em" }}>STREAK {streak}</span>}
+                <span style={{ fontSize: 13, color: C.textMuted, letterSpacing: "0.04em" }}>ROUND {totalRounds + 1}</span>
+              </div>
+              <p style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{song.title}</p>
+              <p style={{ fontSize: 14, color: C.textMuted, marginTop: 4 }}>{song.artist}</p>
+              <AnimatePresence mode="wait">
+                {!result ? (
+                  <motion.div key="tap" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <button onClick={handleTap}
+                      className="mt-[20px] w-full py-[24px] transition-all active:scale-95"
+                      style={{ backgroundColor: taps.length > 0 ? (C.accent + "25") : C.bgHover }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: C.textSec, letterSpacing: "0.04em" }}>
+                        {taps.length === 0 ? "TAP HERE" : "KEEP TAPPING"}
+                      </p>
+                      {userBpm !== null && (
+                        <p style={{ fontSize: 32, fontWeight: 800, color: C.text, marginTop: 8 }} className="tabular-nums">{userBpm}</p>
+                      )}
+                      {taps.length > 0 && taps.length < 4 && (
+                        <p style={{ fontSize: 13, color: C.textMuted, marginTop: 6 }}>{4 - taps.length} MORE TAPS NEEDED</p>
+                      )}
+                    </button>
+                    <p style={{ fontSize: 13, color: C.textMuted, marginTop: 8, letterSpacing: "0.03em" }}>SPACE TO TAP · ENTER TO SUBMIT</p>
+                    {userBpm !== null && (
+                      <button onClick={submitGuess}
+                        className="mt-[12px] px-[20px] py-[8px] transition-all"
+                        style={{ fontSize: 15, fontWeight: 600, color: C.accentText, backgroundColor: C.accent, letterSpacing: "0.03em" }}>
+                        LOCK IN {userBpm} BPM
+                      </button>
+                    )}
+                  </motion.div>
+                ) : (
+                  <motion.div key="result" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
+                    <p style={{ fontSize: 24, fontWeight: 800, color: C.text, marginTop: 20, letterSpacing: "0.02em" }}>{result.msg}</p>
+                    <p style={{ fontSize: 15, color: C.textMuted, marginTop: 6 }}>
+                      You: <span style={{ color: C.text, fontWeight: 600 }}>{userBpm}</span> — Actual: <span style={{ color: C.accent, fontWeight: 600 }}>{song.bpm}</span>
+                      {result.diff > 0 && <span> ({result.diff} off)</span>}
+                    </p>
+                    <button onClick={nextSong}
+                      className="mt-[16px] px-[20px] py-[8px] transition-all"
+                      style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, backgroundColor: C.bgHover, letterSpacing: "0.03em" }}>
+                      NEXT SONG
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Icons: Custom SVGs (Ableton geometric style)
+// Libraries tested: Lucide, Phosphor, Tabler, Heroicons — Custom chosen for all
