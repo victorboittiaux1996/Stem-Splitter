@@ -7,7 +7,6 @@ import { Sidebar, type SidebarView } from "@/components/dashboard/sidebar";
 import {
   SettingsPanel,
   type StemCount,
-  type OutputFormat,
 } from "@/components/dashboard/settings-panel";
 import { UploadZone } from "@/components/dashboard/upload-zone";
 import { ProcessingView } from "@/components/dashboard/processing-view";
@@ -84,7 +83,7 @@ export default function Dashboard() {
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [stemCount, setStemCount] = useState<StemCount>(4);
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>("wav");
+  const [outputFormat, setOutputFormat] = useState<"wav" | "mp3">("wav");
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   const [extraOpen, setExtraOpen] = useState(false);
@@ -367,7 +366,7 @@ export default function Dashboard() {
                                   className="absolute left-0 top-full mt-[4px] z-30 w-[160px] rounded-[10px] overflow-hidden"
                                   style={{ backgroundColor: "#fff", border: `1px solid ${C.border}`, boxShadow: "0 8px 24px rgba(0,0,0,0.1)" }}>
                                   {([["wav", "WAV (Lossless)"], ["mp3", "MP3 (128kbps)"]] as const).map(([val, label]) => (
-                                    <button key={val} onClick={() => { setOutputFormat(val as OutputFormat); setFormatOpen(false); }}
+                                    <button key={val} onClick={() => { setOutputFormat(val as "wav" | "mp3"); setFormatOpen(false); }}
                                       className="flex w-full px-[14px] py-[10px] text-left transition-colors hover:bg-[#FAFAFA]"
                                       style={{ fontSize: 13, fontWeight: outputFormat === val ? 600 : 400, backgroundColor: outputFormat === val ? "#F4F4F5" : undefined }}>
                                       {label}
@@ -573,8 +572,6 @@ export default function Dashboard() {
           <SettingsPanel
             stemCount={stemCount}
             onStemCountChange={setStemCount}
-            outputFormat={outputFormat}
-            onOutputFormatChange={setOutputFormat}
           />
         )}
       </div>

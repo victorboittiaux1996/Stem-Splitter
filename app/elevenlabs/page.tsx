@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Sidebar, type SidebarView } from "@/components/dashboard/sidebar";
 import {
   type StemCount,
-  type OutputFormat,
 } from "@/components/dashboard/settings-panel";
 import { ProcessingView } from "@/components/dashboard/processing-view";
 import { ResultsView } from "@/components/dashboard/results-view";
@@ -192,7 +191,7 @@ export default function Dashboard() {
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [stemCount, setStemCount] = useState<StemCount>(4);
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>("wav");
+  const [outputFormat, setOutputFormat] = useState<"wav" | "mp3">("wav");
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   const [extraOpen, setExtraOpen] = useState(false);
@@ -538,7 +537,7 @@ export default function Dashboard() {
                                   className="absolute left-0 top-full mt-[4px] z-30 w-[160px] rounded-[10px] overflow-hidden"
                                   style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, boxShadow: "0 8px 24px rgba(0,0,0,0.1)" }}>
                                   {([["wav", "WAV (Lossless)"], ["mp3", "MP3 (128kbps)"]] as const).map(([val, label]) => (
-                                    <button key={val} onClick={() => { setOutputFormat(val as OutputFormat); setFormatOpen(false); }}
+                                    <button key={val} onClick={() => { setOutputFormat(val as "wav" | "mp3"); setFormatOpen(false); }}
                                       className="flex w-full px-[14px] py-[10px] text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                                       style={{ fontSize: 14, fontWeight: outputFormat === val ? 600 : 400, backgroundColor: outputFormat === val ? C.bgHover : undefined }}>
                                       {label}

@@ -11,7 +11,9 @@ export async function GET(
   try {
     if (stem) {
       // Redirect to a presigned R2 URL for direct download
-      const key = `stems/${id}/${stem}.wav`;
+      const format = request.nextUrl.searchParams.get("format") || "wav";
+      const ext = format === "mp3" ? ".mp3" : ".wav";
+      const key = `stems/${id}/${stem}${ext}`;
       const url = await getPresignedUrl(key, 3600);
       return NextResponse.redirect(url);
     }

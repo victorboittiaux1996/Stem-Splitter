@@ -2,6 +2,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -96,6 +97,21 @@ export async function getPresignedUploadUrl(
     }),
     { expiresIn }
   );
+}
+
+// Get the size of an object in R2 (returns 0 if not found)
+export async function getObjectSize(key: string): Promise<number> {
+  try {
+    const response = await s3.send(
+      new HeadObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: key,
+      })
+    );
+    return response.ContentLength ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 // Job helpers

@@ -56,6 +56,26 @@ def compute_peaks(wav_path: str, num_peaks: int = 1000) -> list[float]:
     return [round(p / mx, 4) for p in peaks] if mx > 0 else peaks
 
 
+def ensure_wav24(input_path: str, tmpdir: str) -> str:
+    """Convert any input to WAV 24-bit so audio-separator outputs 24-bit stems."""
+    import subprocess
+    wav_path = os.path.join(tmpdir, "input_24bit.wav")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-acodec", "pcm_s24le", "-ar", "44100", wav_path],
+        check=True, capture_output=True,
+    )
+    return wav_path
+
+
+def convert_to_mp3(wav_path: str, mp3_path: str):
+    """Convert a WAV stem to MP3 320kbps."""
+    import subprocess
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "320k", mp3_path],
+        check=True, capture_output=True,
+    )
+
+
 def download_from_url(url: str, output_dir: str) -> str:
     """Download audio from URL (YouTube/SoundCloud/Deezer) at best available quality."""
     import yt_dlp
@@ -125,6 +145,8 @@ def separate(request: dict):
     input_key = request.get("inputKey")
     download_url = request.get("downloadUrl")
     callback_url = request.get("callbackUrl")  # PATCH /api/jobs/{jobId} on Next.js
+    overlap = request.get("overlap", 8)
+    mdxc = {"overlap": overlap} if overlap != 8 else {}
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Get input file
@@ -149,6 +171,11 @@ def separate(request: dict):
             return {"error": "No audio provided"}
 
 
+        # Convert input to WAV 24-bit (forces audio-separator to output 24-bit)
+        print("Converting input to WAV 24-bit...")
+        input_path = ensure_wav24(input_path, tmpdir)
+        print("Input converted to WAV 24-bit")
+
         # Analyze BPM + key before separation (~3-4s)
         from analyzer import analyze_track
         analysis = analyze_track(input_path)
@@ -160,8 +187,8 @@ def separate(request: dict):
         vocal_dir = os.path.join(tmpdir, "vocals")
         os.makedirs(vocal_dir)
 
-        print("Extracting vocals (MelBand RoFormer)...")
-        sep_v = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9)
+        print(f"Extracting vocals (MelBand RoFormer, overlap={overlap})...")
+        sep_v = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9, **({"mdxc_params": mdxc} if mdxc else {}))
         sep_v.load_model(model_filename=VOCAL_MODEL)
         start = time.time()
         if input_key:
@@ -196,8 +223,8 @@ def separate(request: dict):
             inst_dir = os.path.join(tmpdir, "instruments")
             os.makedirs(inst_dir)
 
-            print("Extracting instruments (BS-RoFormer SW)...")
-            sep_i = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9)
+            print(f"Extracting instruments (BS-RoFormer SW, overlap={overlap})...")
+            sep_i = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9, **({"mdxc_params": mdxc} if mdxc else {}))
             sep_i.load_model(model_filename=INSTRUMENT_MODEL)
             start = time.time()
             if input_key:
@@ -262,18 +289,24 @@ def separate(request: dict):
                         merged = merged * (0.95 / peak)
 
                     other_path = os.path.join(inst_dir, "merged_other.wav")
-                    sf.write(other_path, merged.astype(np.float32), sr)
+                    sf.write(other_path, merged.astype(np.float32), sr, subtype='PCM_24')
                     results["other"] = other_path
                     stem_names.append("other")
                     print(f"4-stem mode: merged {len(merge_files)} stems into 'other'")
 
+        # Fail explicitly if no stems were produced
+        if not results:
+            error_msg = "No stems produced — input file may be corrupted or too short"
+            print(f"ERROR: {error_msg}")
+            if input_key:
+                from storage import update_job_status
+                update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg)
+            return {"error": error_msg}
+
         # Upload to R2 if job has inputKey
         if input_key:
             from storage import upload_to_r2, update_job_status
-            import os as _os
 
-            # Compute total bytes across all stems for smooth 85→99% progress
-            total_bytes = sum(_os.path.getsize(fp) for fp in results.values())
             uploaded_bytes = [0]
             last_pct = [85]
 
@@ -292,10 +325,27 @@ def separate(request: dict):
                 stem_peaks[stem_name] = compute_peaks(filepath)
             print(f"Peaks computed for {len(stem_peaks)} stems")
 
+            # Convert stems to MP3 320kbps
+            print("Converting stems to MP3 320kbps...")
+            mp3_results = {}
+            for stem_name, filepath in results.items():
+                mp3_path = filepath.replace(".wav", ".mp3")
+                convert_to_mp3(filepath, mp3_path)
+                mp3_results[stem_name] = mp3_path
+            print(f"MP3 conversion done for {len(mp3_results)} stems")
+
+            # Recompute total bytes (WAV + MP3) for accurate progress
+            import os as _os
+            total_bytes = sum(_os.path.getsize(fp) for fp in results.values())
+            total_bytes += sum(_os.path.getsize(fp) for fp in mp3_results.values())
+
             update_job_status(job_id, "processing", progress=85, stage="Uploading stems")
             for stem_name, filepath in results.items():
                 r2_key = f"stems/{job_id}/{stem_name}.wav"
                 upload_to_r2(filepath, r2_key, callback=_upload_callback)
+            for stem_name, filepath in mp3_results.items():
+                r2_key = f"stems/{job_id}/{stem_name}.mp3"
+                upload_to_r2(filepath, r2_key, content_type="audio/mpeg", callback=_upload_callback)
 
             update_job_status(job_id, "completed", progress=100, stage="Done",
                               stems=stem_names, bpm=analysis["bpm"],

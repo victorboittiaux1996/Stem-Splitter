@@ -81,6 +81,7 @@ interface StemVariantsProps {
   realStemList?: string[];
   trackDuration?: number | null;
   precomputedPeaks?: Record<string, number[]>;
+  outputFormat?: "wav" | "mp3";
 }
 
 // ─── Format duration ────────────────────────────────────────
@@ -93,7 +94,10 @@ function fmtDuration(sec: number): string {
 // ─── Main Exported Component ────────────────────────────────
 export function StemVariants(props: StemVariantsProps) {
   const { stemCount, stemMap, labels, stemColors, C, isDark, fileName, onNewSplit,
-    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration, precomputedPeaks } = props;
+    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration, precomputedPeaks, outputFormat = "wav" } = props;
+  const fmt = outputFormat;
+  const fmtExt = fmt === "mp3" ? ".mp3" : ".wav";
+  const fmtLabel = fmt.toUpperCase();
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const wfVariant = 11;
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -303,7 +307,7 @@ export function StemVariants(props: StemVariantsProps) {
             <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
             <span style={{ fontSize: 13, color: C.textMuted }} title={keyRaw || undefined}>{stemKey || "—"}</span>
             <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
-            <span style={{ fontSize: 13, color: C.textMuted }}>WAV</span>
+            <span style={{ fontSize: 13, color: C.textMuted }}>{fmtLabel}</span>
           </div>
         </div>
         <button onClick={onNewSplit} className="flex items-center gap-[5px] transition-colors shrink-0 ml-[12px]"
@@ -338,9 +342,9 @@ export function StemVariants(props: StemVariantsProps) {
                 onSeek={(p) => handleStemSeek(name, p)} data={isRealMode ? (stemPeaks[name] || undefined) : (peaks || undefined)}
                 cursorColor={isDark ? "#fff" : "#000"} />
             </div>
-            <span style={{ fontSize: 14, color: C.textMuted }}>WAV</span>
+            <span style={{ fontSize: 14, color: C.textMuted }}>{fmtLabel}</span>
             {isRealMode && stemUrls[name] ? (
-              <a href={stemUrls[name]} download={`${name}.wav`} className="shrink-0 p-[4px]" style={{ color: C.textMuted }}>
+              <a href={`${stemUrls[name]}${stemUrls[name].includes("?") ? "&" : "?"}format=${fmt}`} download={`${name}${fmtExt}`} className="shrink-0 p-[4px]" style={{ color: C.textMuted }}>
                 <RiDownloadFill size={14} />
               </a>
             ) : (
@@ -365,9 +369,10 @@ export function StemVariants(props: StemVariantsProps) {
             const zip = new JSZip();
             await Promise.all(stems.map(async (name) => {
               if (stemUrls[name]) {
-                const res = await fetch(stemUrls[name]);
+                const dlUrl = `${stemUrls[name]}${stemUrls[name].includes("?") ? "&" : "?"}format=${fmt}`;
+                const res = await fetch(dlUrl);
                 const blob = await res.blob();
-                zip.file(`${name}.wav`, blob);
+                zip.file(`${name}${fmtExt}`, blob);
               }
             }));
             const content = await zip.generateAsync({ type: "blob" });

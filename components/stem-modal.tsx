@@ -34,9 +34,12 @@ interface StemModalProps {
   cachedStemUrls?: Record<string, string>;
   /** Pre-computed peaks from server — avoids audio decode delay */
   cachedPeaks?: Record<string, number[]>;
+  outputFormat?: "wav" | "mp3";
 }
 
-export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks }: StemModalProps) {
+export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks, outputFormat = "wav" }: StemModalProps) {
+  const fmt = outputFormat;
+  const fmtExt = fmt === "mp3" ? ".mp3" : ".wav";
   const currentItem = items.find(h => h.id === expandedFile);
   if (!currentItem) return null;
   const currentIdx = items.findIndex(h => h.id === expandedFile);
@@ -217,9 +220,9 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                     data={cachedPeaks?.[stem] || _peakCache.get(stemUrls[stem]) || undefined}
                     cursorColor={isDark ? "#fff" : "#000"} />
                 </div>
-                <span style={{ fontSize: 14, color: C.textMuted }}>{currentItem.format.toUpperCase()}</span>
+                <span style={{ fontSize: 14, color: C.textMuted }}>{fmt.toUpperCase()}</span>
                 {stemUrls[stem] ? (
-                  <a href={stemUrls[stem]} download={`${stem}.wav`} className="p-[4px]" style={{ color: C.textMuted }}>
+                  <a href={`${stemUrls[stem]}${stemUrls[stem].includes("?") ? "&" : "?"}format=${fmt}`} download={`${stem}${fmtExt}`} className="p-[4px]" style={{ color: C.textMuted }}>
                     <RiDownloadFill size={14}/>
                   </a>
                 ) : (
@@ -239,9 +242,10 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
             const JSZip = (await import("jszip")).default;
             const zip = new JSZip();
             await Promise.all(Object.entries(stemUrls).map(async ([name, url]) => {
-              const res = await fetch(url);
+              const dlUrl = `${url}${url.includes("?") ? "&" : "?"}format=${fmt}`;
+              const res = await fetch(dlUrl);
               const blob = await res.blob();
-              zip.file(`${name}.wav`, blob);
+              zip.file(`${name}${fmtExt}`, blob);
             }));
             const content = await zip.generateAsync({ type: "blob" });
             const a = document.createElement("a"); a.href = URL.createObjectURL(content);

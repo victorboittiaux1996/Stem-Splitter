@@ -1,16 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, ChevronDown, Mic2, Waves, Music } from "lucide-react";
+import { ChevronRight, Mic2, Waves, Music } from "lucide-react";
 
 export type StemCount = 2 | 4 | 6;
-export type OutputFormat = "wav" | "mp3";
-
 interface SettingsPanelProps {
   stemCount: StemCount;
   onStemCountChange: (count: StemCount) => void;
-  outputFormat: OutputFormat;
-  onOutputFormatChange: (format: OutputFormat) => void;
 }
 
 const STEM_OPTIONS: { value: StemCount; label: string; description: string; icon: typeof Mic2 }[] = [
@@ -19,7 +15,7 @@ const STEM_OPTIONS: { value: StemCount; label: string; description: string; icon
   { value: 6, label: "6 Stems", description: "All instruments separated", icon: Waves },
 ];
 
-export function SettingsPanel({ stemCount, onStemCountChange, outputFormat, onOutputFormatChange }: SettingsPanelProps) {
+export function SettingsPanel({ stemCount, onStemCountChange }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<"settings" | "history">("settings");
   const [stemsOpen, setStemsOpen] = useState(false);
   const currentStem = STEM_OPTIONS.find((o) => o.value === stemCount)!;
@@ -88,63 +84,7 @@ export function SettingsPanel({ stemCount, onStemCountChange, outputFormat, onOu
             </div>
           </div>
 
-          {/* Model */}
-          <div className="space-y-[8px]">
-            <label className="text-[14px] font-semibold text-[#0F0F10]">Model</label>
-            <button style={{ border: "1px solid #E5E5E8" }}
-              className="flex w-full items-center gap-[12px] rounded-[12px] px-[14px] py-[12px] text-left transition-colors hover:bg-[#FAFAFA]">
-              <div className="flex h-[24px] items-center rounded-[6px] px-[6px]" style={{ backgroundColor: "#0F0F10" }}>
-                <span className="text-[10px] font-bold text-white tracking-[0.04em]">AI</span>
-              </div>
-              <p className="text-[14px] font-medium text-[#0F0F10] flex-1">MelBand RoFormer</p>
-              <ChevronRight className="h-[16px] w-[16px] text-[#BBBBC4] shrink-0" strokeWidth={2} />
-            </button>
-          </div>
 
-          {/* Stability — like ElevenLabs slider */}
-          <div className="space-y-[8px]">
-            <label className="text-[14px] font-semibold text-[#0F0F10]">Stability</label>
-            <input type="range" min={0} max={1} step={0.01} defaultValue={0.75}
-              className="w-full h-[4px] accent-[#0F0F10] cursor-pointer" />
-            <div className="flex justify-between">
-              <span className="text-[11px] text-[#BBBBC4]">More variable</span>
-              <span className="text-[11px] text-[#BBBBC4]">More stable</span>
-            </div>
-          </div>
-
-          {/* Quality */}
-          <div className="space-y-[8px]">
-            <label className="text-[14px] font-semibold text-[#0F0F10]">Quality</label>
-            <input type="range" min={0} max={1} step={0.01} defaultValue={0.7}
-              className="w-full h-[4px] accent-[#0F0F10] cursor-pointer" />
-            <div className="flex justify-between">
-              <span className="text-[11px] text-[#BBBBC4]">Faster</span>
-              <span className="text-[11px] text-[#BBBBC4]">Higher quality</span>
-            </div>
-          </div>
-
-          {/* Clean Vocals toggle */}
-          <div className="flex items-center justify-between py-[4px]">
-            <span className="text-[14px] text-[#0F0F10]">Clean Vocals</span>
-            <button className="relative h-[22px] w-[40px] rounded-full transition-colors" style={{ backgroundColor: "#E5E5E8" }} aria-label="Toggle clean vocals">
-              <div className="absolute left-[2px] top-[2px] h-[18px] w-[18px] rounded-full bg-white transition-transform" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.12)" }} />
-            </button>
-          </div>
-
-          {/* Output format */}
-          <div className="space-y-[8px]">
-            <label htmlFor="output-format" className="text-[14px] font-semibold text-[#0F0F10]">Output Format</label>
-            <div className="relative">
-              <select id="output-format" name="output-format" value={outputFormat}
-                onChange={(e) => onOutputFormatChange(e.target.value as OutputFormat)}
-                style={{ border: "1px solid #E5E5E8" }}
-                className="w-full appearance-none rounded-[12px] bg-white px-[14px] py-[12px] pr-[40px] text-[14px] text-[#0F0F10] transition-colors hover:bg-[#FAFAFA] focus:outline-none">
-                <option value="wav">WAV (Lossless)</option>
-                <option value="mp3">MP3 (128kbps)</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-[14px] top-1/2 h-[16px] w-[16px] -translate-y-1/2 text-[#BBBBC4]" strokeWidth={2} />
-            </div>
-          </div>
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center">

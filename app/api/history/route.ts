@@ -70,7 +70,7 @@ export async function GET() {
         date: relativeDate(job.completedAt ?? job.createdAt),
         stems: (job.stems ?? []).length,
         stemList: job.stems ?? [],
-        format: "wav",
+        format: "wav / mp3",
         bpm: job.bpm ?? null,
         key: job.key ?? null,
         key_raw: job.key_raw ?? null,

@@ -233,6 +233,7 @@ export default function AbletonDashboard() {
   const [stemsOpen, setStemsOpen] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
+  const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
   const [versionOpen, setVersionOpen] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -410,13 +411,14 @@ export default function AbletonDashboard() {
     try {
       let res: Response;
       const mode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
+      const overlap = qualityPreset === "high" ? 2 : qualityPreset === "balanced" ? 4 : 8;
 
       if (isValidUrl && inputMode === "url") {
         // URL mode: send JSON — tiny payload, no file through Vercel
         res = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: urlInput, mode }),
+          body: JSON.stringify({ url: urlInput, mode, overlap }),
         });
         if (!res.ok) {
           let msg = "Upload failed";
@@ -431,7 +433,7 @@ export default function AbletonDashboard() {
         const initRes = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "audio/mpeg", mode }),
+          body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "audio/mpeg", mode, overlap }),
         });
         if (!initRes.ok) {
           let msg = "Upload failed";
@@ -896,30 +898,6 @@ export default function AbletonDashboard() {
                             )}
                           </AnimatePresence>
                         </div>
-                        {/* Format selector */}
-                        <div className="relative" ref={formatRef}>
-                          <button onClick={() => { setFormatOpen(!formatOpen); setStemsOpen(false); setExtraOpen(false); }}
-                            className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
-                            style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: formatOpen ? C.bgHover : undefined }}>
-                            {outputFormat.toUpperCase()}
-                            <ChevronDown className="h-[11px] w-[11px]" style={{ color: C.textMuted }} strokeWidth={2} />
-                          </button>
-                          <AnimatePresence>
-                            {formatOpen && (
-                              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
-                                transition={{ duration: 0.1 }} className="absolute left-0 top-full mt-[2px] z-30 w-[180px]"
-                                style={{ backgroundColor: C.bgCard }}>
-                                {([["wav", "WAV (LOSSLESS)"], ["mp3", "MP3 (128KBPS)"]] as const).map(([val, label]) => (
-                                  <button key={val} onClick={() => { setOutputFormat(val as OutputFormat); setFormatOpen(false); }}
-                                    className="flex w-full px-[12px] py-[10px] text-left transition-colors"
-                                    style={{ fontSize: 15, fontWeight: outputFormat === val ? 600 : 400, backgroundColor: outputFormat === val ? C.bgHover : undefined, color: C.text, letterSpacing: "0.02em" }}>
-                                    {label}
-                                  </button>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
                         {/* Gear popover */}
                         <div className="relative" ref={extraRef}>
                           <button onClick={() => { setExtraOpen(!extraOpen); setStemsOpen(false); setFormatOpen(false); }}
@@ -937,28 +915,26 @@ export default function AbletonDashboard() {
                                 <div className="px-[16px] py-[14px] space-y-[16px]">
                                   <div className="space-y-[6px]">
                                     <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>MODEL</label>
-                                    <button className="flex w-full items-center gap-[8px] px-[10px] py-[7px] transition-colors"
-                                      style={{ backgroundColor: C.bgHover }}>
+                                    <div className="flex items-center gap-[8px] px-[10px] py-[7px]" style={{ backgroundColor: C.bgHover }}>
                                       <div className="flex h-[16px] items-center px-[4px]" style={{ backgroundColor: C.accent }}>
                                         <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>AI</span>
                                       </div>
-                                      <span style={{ fontSize: 15, fontWeight: 500 }} className="flex-1 text-left">MelBand RoFormer</span>
-                                      <ChevronDown className="h-[11px] w-[11px]" style={{ color: C.textMuted }} strokeWidth={2} />
-                                    </button>
+                                      <span style={{ fontSize: 15, fontWeight: 500 }}>MelBand RoFormer</span>
+                                    </div>
                                   </div>
-                                  <div className="space-y-[6px]">
-                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>STABILITY</label>
-                                    <input type="range" min={0} max={1} step={0.01} defaultValue={0.75} className="w-full h-[3px] cursor-pointer" style={{ accentColor: C.accent }} />
-                                  </div>
-                                  <div className="space-y-[6px]">
-                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>QUALITY</label>
-                                    <input type="range" min={0} max={1} step={0.01} defaultValue={0.7} className="w-full h-[3px] cursor-pointer" style={{ accentColor: C.accent }} />
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span style={{ fontSize: 14, letterSpacing: "0.03em" }}>CLEAN VOCALS</span>
-                                    <button className="relative h-[20px] w-[38px]" style={{ backgroundColor: C.bgHover }} aria-label="Toggle">
-                                      <div className="absolute left-[2px] top-[2px] h-[16px] w-[16px]" style={{ backgroundColor: C.bgCard }} />
-                                    </button>
+                                  <div className="space-y-[8px]">
+                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>PROCESSING QUALITY</label>
+                                    <div className="flex gap-[4px]">
+                                      {([["fast", "Fast", "~35s"], ["balanced", "Balanced", "~45s"], ["high", "High Quality", "~55s"]] as const).map(([val, label, time]) => (
+                                        <button key={val} onClick={() => setQualityPreset(val as typeof qualityPreset)}
+                                          className="flex-1 flex flex-col items-center gap-[2px] py-[8px] transition-colors"
+                                          style={{ backgroundColor: qualityPreset === val ? C.accent : C.bgHover, color: qualityPreset === val ? C.accentText : C.text }}>
+                                          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.03em" }}>{label.toUpperCase()}</span>
+                                          <span style={{ fontSize: 11, opacity: 0.7 }}>{time}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <p style={{ fontSize: 11, color: C.textMuted }}>Higher quality uses more overlap between audio chunks for smoother results</p>
                                   </div>
                                 </div>
                               </motion.div>
@@ -1032,7 +1008,7 @@ export default function AbletonDashboard() {
 
                     {/* Stem detail modal — Recent splits */}
                     <AnimatePresence>
-                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} />}
+                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} />}
                     </AnimatePresence>
                   </>
                 )}
@@ -1059,6 +1035,7 @@ export default function AbletonDashboard() {
                     stemUrls={stemUrls}
                     trackDuration={currentJob?.duration}
                     precomputedPeaks={currentJob?.peaks}
+                    outputFormat={outputFormat}
                   />
                 )}
               </div>
@@ -1086,6 +1063,7 @@ export default function AbletonDashboard() {
                     jobId={jobId || undefined}
                     stemUrls={stemUrls}
                     trackDuration={currentJob?.duration}
+                    outputFormat={outputFormat}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-[80px]">
@@ -1264,7 +1242,7 @@ export default function AbletonDashboard() {
 
               {/* Stem detail modal — Files */}
               <AnimatePresence>
-                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} />}
+                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} />}
               </AnimatePresence>
             </>
           )}
