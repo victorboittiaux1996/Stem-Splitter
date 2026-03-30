@@ -42,11 +42,6 @@ const PINNED_ITEMS: { id: SidebarView; icon: LucideIcon; label: string }[] = [
   { id: "settings", icon: Settings2, label: "Settings" },
 ];
 
-const VERSIONS = [
-  { href: "/", label: "Ableton" },
-  { href: "/elevenlabs", label: "ElevenLabs" },
-];
-
 export function Sidebar({ activeView, onViewChange, theme: t, fontStyle, onFontChange }: SidebarProps) {
   return (
     <aside className="flex h-full w-[240px] shrink-0 flex-col" style={{ borderRight: `1px solid ${t.sidebarBorder}`, backgroundColor: t.sidebarBg }}>

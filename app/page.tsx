@@ -890,10 +890,10 @@ export default function AbletonDashboard() {
                           <div className="flex flex-col items-center gap-[12px]">
                             <span style={{ fontSize: 15, color: C.textMuted, letterSpacing: "0.02em" }}>DROP FILES HERE OR</span>
                             <div className="flex items-center gap-[8px]">
-                              <button onClick={() => inputRef.current?.click()}
-                                style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: C.bgHover, width: 120, textAlign: "center" }}>SELECT FILES</button>
-                              <button onClick={() => folderInputRef.current?.click()}
-                                style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: C.bgHover, width: 120, textAlign: "center" }}>SELECT FOLDER</button>
+                              <button onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+                                style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: C.bgHover, width: 120, textAlign: "center", cursor: "pointer" }}>SELECT FILES</button>
+                              <button onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click(); }}
+                                style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: C.bgHover, width: 120, textAlign: "center", cursor: "pointer" }}>SELECT FOLDER</button>
                             </div>
                           </div>
                         )}
