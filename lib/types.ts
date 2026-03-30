@@ -30,6 +30,42 @@ export interface StemDownload {
   url: string;
 }
 
+// ─── Queue System ──────────────────────────────────────────────────────────
+
+export type StemCount = 2 | 4 | 6;
+export type OutputFormat = "wav" | "mp3";
+export type QueueItemStatus = "pending" | "uploading" | "processing" | "completed" | "failed";
+
+export interface QueueItem {
+  id: string;
+  file: File | null;
+  url?: string;
+  fileName: string;
+  fileSize: number;
+  jobId: string | null;
+  status: QueueItemStatus;
+  progress: number;
+  stage: string;
+  error: string | null;
+  mode: SplitMode;
+  outputFormat: OutputFormat;
+  job: Job | null;
+  stemDownloads: StemDownload[];
+  addedAt: number;
+  completedAt: number | null;
+}
+
+export interface QueueNotification {
+  id: string;
+  queueItemId: string;
+  fileName: string;
+  stemCount: number;
+  completedAt: number;
+  read: boolean;
+}
+
+// ─── History ───────────────────────────────────────────────────────────────
+
 export interface HistoryItem {
   id: string;
   name: string;
