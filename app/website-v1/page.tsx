@@ -170,59 +170,64 @@ export default function WebsiteV1() {
               textTransform: "uppercase",
               letterSpacing: "0.1em",
               color: t.textMuted,
-              margin: "0 0 20px 0",
+              margin: "0 0 24px 0",
             }}
           >
             AI Stem Separation
           </p>
 
-          {/* Headline */}
-          <h1
-            style={{
-              fontFamily: fonts.heading,
-              fontSize: "56px",
-              fontWeight: 700,
-              letterSpacing: "-0.02em",
-              color: t.text,
-              lineHeight: 1.1,
-              margin: "0",
-              whiteSpace: "pre-line",
-            }}
-          >
-            {"Split any track.\nHear every stem."}
-          </h1>
+          {/* 2-col split: headline+CTAs left, description right — ElevenLabs layout */}
+          <div style={{ display: "flex", alignItems: "flex-end", gap: "80px" }}>
+            {/* Left col: headline + CTAs */}
+            <div style={{ flex: "0 0 auto", maxWidth: "600px" }}>
+              <h1
+                style={{
+                  fontFamily: fonts.heading,
+                  fontSize: "64px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.03em",
+                  color: t.text,
+                  lineHeight: 1.05,
+                  margin: "0",
+                  whiteSpace: "pre-line",
+                }}
+              >
+                {"Split any track.\nHear every stem."}
+              </h1>
 
-          {/* Subheadline */}
-          <p
-            style={{
-              fontFamily: fonts.body,
-              fontSize: "18px",
-              color: t.textSecondary,
-              lineHeight: 1.6,
-              maxWidth: "540px",
-              margin: "24px 0 0 0",
-            }}
-          >
-            Studio-grade AI separation for producers, by producers. Extract
-            vocals, drums, bass, guitar, piano — in seconds.
-          </p>
+              {/* CTAs */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "row",
+                  gap: "12px",
+                  marginTop: "40px",
+                }}
+              >
+                <PrimaryButton label="Get Started Free" href="/app" />
+                <SecondaryButton
+                  label="See How It Works"
+                  href="#how-it-works"
+                  borderColor={`${t.textMuted}33`}
+                  textColor={t.text}
+                />
+              </div>
+            </div>
 
-          {/* CTAs */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              gap: "12px",
-              marginTop: "40px",
-            }}
-          >
-            <PrimaryButton label="Get Started Free" href="/app" />
-            <SecondaryButton
-              label="See How It Works"
-              href="#how-it-works"
-              borderColor={`${t.textMuted}33`}
-              textColor={t.text}
-            />
+            {/* Right col: description — aligns to bottom of headline block */}
+            <div style={{ flex: 1, paddingBottom: "4px" }}>
+              <p
+                style={{
+                  fontFamily: fonts.body,
+                  fontSize: "18px",
+                  color: t.textSecondary,
+                  lineHeight: 1.65,
+                  margin: 0,
+                }}
+              >
+                Powering producers, beatmakers, and engineers worldwide. From vocal extraction to full 6-stem separation — studio-grade results in seconds.
+              </p>
+            </div>
           </div>
         </motion.div>
 
