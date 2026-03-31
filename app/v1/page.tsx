@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Sparkles, ChevronDown, ChevronLeft,
+  Palette, Layers, ChevronsUpDown,
   Search, X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,6 +23,7 @@ type AppState = "idle" | "file-selected" | "processing" | "complete";
 type StemCount = 2 | 4 | 6;
 type OutputFormat = "wav" | "mp3";
 type View = "split" | "results" | "files" | "stats" | "games" | "settings";
+type Style = "classic" | "colorful";
 
 const F = "'Futura PT', 'futura-pt', sans-serif";
 
@@ -49,10 +51,37 @@ const classicThemes = {
   },
 } as const;
 
-// ─── Stem colors ─────────────────────────────────────────────
+// ─── Colorful theme (Apple rainbow pop — no borders) ─────────
+const colorfulThemes = {
+  dark: {
+    bg: "#0E0E0E", bgCard: "#1C1C1C", bgSubtle: "#141414", bgHover: "#242424", bgElevated: "#1E1E1E",
+    text: "#FFFFFF", textSec: "#AAAAAA", textMuted: "#666666",
+    accent: "#007AFF", accentText: "#FFFFFF",
+    sidebarBg: "#141414", navActive: "#1E1E1E",
+    badgeBg: "#2A2A2A", badgeText: "#AAAAAA", dropZoneBg: "#1C1C1C",
+  },
+  light: {
+    bg: "#F5F5F7", bgCard: "#FFFFFF", bgSubtle: "#ECECEE", bgHover: "#E4E4E6", bgElevated: "#F0F0F2",
+    text: "#1D1D1F", textSec: "#6E6E73", textMuted: "#98989D",
+    accent: "#007AFF", accentText: "#FFFFFF",
+    sidebarBg: "#ECECEE", navActive: "#E0E0E2",
+    badgeBg: "#E4E4E8", badgeText: "#6E6E73", dropZoneBg: "#FFFFFF",
+  },
+} as const;
+
+// ─── Stem colors per style ───────────────────────────────────
 const STEM_COLORS_CLASSIC: Record<string, string> = {
   vocals: "#1B10FD", drums: "#FF6B00", bass: "#00CC66", guitar: "#FF3366",
   piano: "#00BBFF", other: "#777777", instrumental: "#6633FF",
+};
+const STEM_COLORS_POP: Record<string, string> = {
+  vocals: "#FF2D55", drums: "#FF9500", bass: "#34C759", guitar: "#AF52DE",
+  piano: "#007AFF", other: "#FFCC00", instrumental: "#5856D6",
+};
+
+// ─── Nav colors for colorful mode ────────────────────────────
+const NAV_COLORS: Record<string, string> = {
+  split: "#FF2D55", results: "#FF9500", files: "#FFCC00", stats: "#34C759", games: "#AF52DE", settings: "#007AFF",
 };
 
 const STEM_OPTIONS: { value: StemCount; label: string; desc: string }[] = [
@@ -166,8 +195,12 @@ export default function AbletonDashboard() {
   }, []);
   useEffect(() => { localStorage.setItem("44stems-theme", themeMode); }, [themeMode]);
   const isDark = themeMode === "system" ? systemDark : themeMode === "dark";
-  const C = isDark ? classicThemes.dark : classicThemes.light;
-  const stemColors = STEM_COLORS_CLASSIC;
+  const [style, setStyle] = useState<Style>("classic");
+  const isColorful = style === "colorful";
+  const C = isColorful
+    ? (isDark ? colorfulThemes.dark : colorfulThemes.light)
+    : (isDark ? classicThemes.dark : classicThemes.light);
+  const stemColors = isColorful ? STEM_COLORS_POP : STEM_COLORS_CLASSIC;
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -235,24 +268,8 @@ export default function AbletonDashboard() {
   const [formatOpen, setFormatOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  // ─── Workspaces ──────────────────────────────────────────────
-  interface Workspace { id: string; name: string; color: string; }
-  const WORKSPACE_COLORS = ["#1B10FD","#FF2D55","#FF9500","#34C759","#5856D6","#007AFF"];
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
-    if (typeof window === "undefined") return [{ id: "ws-1", name: "My Workspace", color: "#1B10FD" }];
-    try { const s = localStorage.getItem("44stems-workspaces"); return s ? JSON.parse(s) : [{ id: "ws-1", name: "My Workspace", color: "#1B10FD" }]; } catch { return [{ id: "ws-1", name: "My Workspace", color: "#1B10FD" }]; }
-  });
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
-    if (typeof window === "undefined") return "ws-1";
-    return localStorage.getItem("44stems-active-workspace") || "ws-1";
-  });
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const workspaceRef = useRef<HTMLDivElement>(null);
-  const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0];
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
+  const [versionOpen, setVersionOpen] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
@@ -378,15 +395,10 @@ export default function AbletonDashboard() {
       if (formatOpen && formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false);
       if (extraOpen && extraRef.current && !extraRef.current.contains(e.target as Node)) setExtraOpen(false);
       if (activityOpen && activityRef.current && !activityRef.current.contains(e.target as Node)) setActivityOpen(false);
-      if (workspaceMenuOpen && workspaceRef.current && !workspaceRef.current.contains(e.target as Node)) setWorkspaceMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [stemsOpen, formatOpen, extraOpen, activityOpen, workspaceMenuOpen]);
-
-  // Workspace persistence
-  useEffect(() => { localStorage.setItem("44stems-workspaces", JSON.stringify(workspaces)); }, [workspaces]);
-  useEffect(() => { localStorage.setItem("44stems-active-workspace", activeWorkspaceId); }, [activeWorkspaceId]);
+  }, [stemsOpen, formatOpen, extraOpen, activityOpen]);
 
   // Results playback simulation
   useEffect(() => {
@@ -510,7 +522,7 @@ export default function AbletonDashboard() {
   }, [queueItems, activeItemId]);
 
   const stemLabel = stemCount === 2 ? "2 STEMS" : stemCount === 4 ? "4 STEMS" : "6 STEMS";
-  const logoColor = C.accent;
+  const logoColor = isColorful ? "#FF2D55" : C.accent;
   const activeAgentIdx = PROCESSING_AGENTS.reduce((acc, agent, i) => progress >= agent.threshold ? i : acc, 0);
   const playProgress = duration > 0 ? currentTime / duration : 0;
   const formatTime = (s: number) => { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2, "0")}`; };
@@ -563,82 +575,41 @@ export default function AbletonDashboard() {
       `}</style>
 
       {/* ─── Sidebar ─── */}
-      <aside className="flex h-full shrink-0 flex-col overflow-hidden"
-        style={{ width: sidebarCollapsed ? 52 : 220, transition: "width 220ms cubic-bezier(0.4,0,0.2,1)", backgroundColor: C.sidebarBg }}>
-
-        {/* Logo + toggle */}
-        <div className="flex items-center justify-between shrink-0" onClick={() => sidebarCollapsed && setSidebarCollapsed(false)}
-          style={{ height: 52, padding: sidebarCollapsed ? "0 14px" : "0 14px 0 16px", cursor: sidebarCollapsed ? "pointer" : "default" }}>
-          <svg height="14" viewBox="0 0 24 21" fill="none" overflow="visible" className="shrink-0">
-            <rect x="0" y="0"  width="24" height="3" fill={C.text}/>
-            <rect x="0" y="6"  width="24" height="3" fill={C.text}/>
-            <rect x="0" y="12" width="24" height="3" fill={C.text}/>
-            <rect x="0" y="18" width="24" height="3" fill={C.text}/>
-          </svg>
-          <span style={{ overflow: "hidden", whiteSpace: "nowrap", fontFamily: F, fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em", color: C.text, opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 110, transition: "opacity 150ms, max-width 150ms", display: "block", marginLeft: 8 }}>44Stems</span>
-          <div style={{ flex: 1 }} />
-          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-[6px]" style={{ color: C.textMuted, opacity: sidebarCollapsed ? 0 : 1, transition: "opacity 150ms", pointerEvents: sidebarCollapsed ? "none" : "auto" }}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="1" y="1" width="12" height="12" stroke="currentColor" strokeWidth="0.8"/>
-              <line x1="5" y1="1" x2="5" y2="13" stroke="currentColor" strokeWidth="0.8"/>
+      <aside className="flex h-full w-[220px] shrink-0 flex-col" style={{ backgroundColor: C.sidebarBg }}>
+        {/* Logo + Version switcher */}
+        <div className="relative">
+          <button onClick={() => setVersionOpen(!versionOpen)} className="flex w-full items-center justify-between px-[16px]" style={{ height: 52 }}>
+            <svg height="14" viewBox="0 0 150 21" fill="none" overflow="visible">
+              <rect x="0" y="0"  width="24" height="3" fill={C.text}/>
+              <rect x="0" y="6"  width="24" height="3" fill={C.text}/>
+              <rect x="0" y="12" width="24" height="3" fill={C.text}/>
+              <rect x="0" y="18" width="24" height="3" fill={C.text}/>
+              <text x="32" y="21" fontFamily={F} fontWeight="700" fontSize="29" letterSpacing="-0.5" fill={C.text}>44Stems</text>
             </svg>
+            <ChevronsUpDown className="h-[12px] w-[12px]" style={{ color: C.textMuted }} strokeWidth={2} />
           </button>
-        </div>
-
-        {/* Workspace switcher */}
-        <div className="relative shrink-0 px-[8px] pb-[4px]" ref={workspaceRef}>
-          <button onClick={() => { if (sidebarCollapsed) { setSidebarCollapsed(false); setTimeout(() => setWorkspaceMenuOpen(true), 220); } else setWorkspaceMenuOpen(!workspaceMenuOpen); }}
-            className="flex w-full items-center gap-[8px] py-[7px] transition-colors"
-            style={{ paddingLeft: sidebarCollapsed ? 0 : 8, paddingRight: sidebarCollapsed ? 0 : 8, justifyContent: sidebarCollapsed ? "center" : "flex-start", backgroundColor: workspaceMenuOpen ? C.navActive : "transparent" }}>
-            <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center" style={{ backgroundColor: activeWorkspace?.color || C.accent }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{(activeWorkspace?.name || "W").charAt(0).toUpperCase()}</span>
+          {versionOpen && (
+            <div className="absolute left-[8px] right-[8px] top-[52px] z-50 py-[4px]" style={{ backgroundColor: C.bgCard }}>
+              <div className="px-[12px] py-[6px]">
+                <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.05em" }}>VERSIONS</span>
+              </div>
+              <div className="flex items-center gap-[8px] px-[12px] py-[8px]"
+                style={{ color: C.text, fontSize: 14, fontWeight: 500, backgroundColor: C.navActive }}>
+                <Layers className="h-[14px] w-[14px]" strokeWidth={1.6} />
+                ABLETON
+              </div>
+              <Link href="/elevenlabs" onClick={() => setVersionOpen(false)}
+                className="flex items-center gap-[8px] px-[12px] py-[8px] transition-colors"
+                style={{ color: C.textSec, fontSize: 14, fontWeight: 500 }}>
+                <Layers className="h-[14px] w-[14px]" strokeWidth={1.6} />
+                ELEVENLABS
+              </Link>
             </div>
-            <span style={{ overflow: "hidden", whiteSpace: "nowrap", flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: C.text, opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>
-              {activeWorkspace?.name || "My Workspace"}
-            </span>
-            {!sidebarCollapsed && <ChevronDown className="h-[12px] w-[12px] shrink-0" style={{ color: C.textMuted }} strokeWidth={2} />}
-          </button>
-          <AnimatePresence>
-            {workspaceMenuOpen && !sidebarCollapsed && (
-              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.1 }} className="absolute left-[8px] right-[8px] top-full z-50 py-[4px]"
-                style={{ backgroundColor: C.bgCard, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
-                {workspaces.map((ws) => (
-                  <div key={ws.id} className="flex items-center gap-[8px] px-[10px] py-[8px]"
-                    style={{ backgroundColor: ws.id === activeWorkspaceId ? C.navActive : "transparent", cursor: "pointer" }}
-                    onClick={() => { setActiveWorkspaceId(ws.id); setWorkspaceMenuOpen(false); }}>
-                    <div className="flex h-[20px] w-[20px] shrink-0 items-center justify-center" style={{ backgroundColor: ws.color }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{ws.name.charAt(0).toUpperCase()}</span>
-                    </div>
-                    {renamingId === ws.id ? (
-                      <input autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)}
-                        onBlur={() => { setWorkspaces(prev => prev.map(w => w.id === ws.id ? { ...w, name: renameValue.trim() || w.name } : w)); setRenamingId(null); }}
-                        onKeyDown={e => { if (e.key === "Enter") { setWorkspaces(prev => prev.map(w => w.id === ws.id ? { ...w, name: renameValue.trim() || w.name } : w)); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }}
-                        onClick={e => e.stopPropagation()}
-                        style={{ flex: 1, background: "transparent", outline: "none", fontSize: 13, fontWeight: 500, color: C.text, caretColor: C.text }} />
-                    ) : (
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: ws.id === activeWorkspaceId ? C.text : C.textSec }}>{ws.name}</span>
-                    )}
-                    {ws.id === activeWorkspaceId && renamingId !== ws.id && (
-                      <button onClick={e => { e.stopPropagation(); setRenamingId(ws.id); setRenameValue(ws.name); }}
-                        style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.05em" }}>RENAME</button>
-                    )}
-                  </div>
-                ))}
-                <div style={{ height: 1, backgroundColor: `${C.text}10`, margin: "4px 10px" }} />
-                <button className="flex w-full items-center gap-[8px] px-[10px] py-[8px] transition-colors"
-                  onClick={() => { const id = `ws-${Date.now()}`; const color = WORKSPACE_COLORS[workspaces.length % WORKSPACE_COLORS.length]; const name = `Workspace ${workspaces.length + 1}`; setWorkspaces(prev => [...prev, { id, name, color }]); setActiveWorkspaceId(id); setRenamingId(id); setRenameValue(name); }}
-                  style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec }}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="7" y1="2" x2="7" y2="12" stroke="currentColor" strokeWidth="1"/><line x1="2" y1="7" x2="12" y2="7" stroke="currentColor" strokeWidth="1"/></svg>
-                  NEW WORKSPACE
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          )}
         </div>
 
         {/* Nav — 5 views (custom geometric icons) */}
-        <nav className="flex-1 pt-[8px] space-y-[2px]" style={{ padding: sidebarCollapsed ? "8px 0 0" : "8px 8px 0" }}>
+        <nav className="flex-1 px-[8px] pt-[12px] space-y-[2px]">
           {([
             { id: "split" as View, label: "Split Audio", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -665,11 +636,8 @@ export default function AbletonDashboard() {
             )},
             { id: "stats" as View, label: "Statistics", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <line x1="3.5" y1="7" x2="3.5" y2="13" stroke={c} strokeWidth="0.7"/>
-                <line x1="6.5" y1="4" x2="6.5" y2="13" stroke={c} strokeWidth="0.7"/>
-                <line x1="9.5" y1="9" x2="9.5" y2="13" stroke={c} strokeWidth="0.7"/>
-                <line x1="12.5" y1="2" x2="12.5" y2="13" stroke={c} strokeWidth="0.7"/>
-                <line x1="2" y1="13" x2="14" y2="13" stroke={c} strokeWidth="0.7"/>
+                <polyline points="2,12 5,9 8,10 11,5 14,3" stroke={c} strokeWidth="0.7" fill="none"/>
+                <line x1="1" y1="14" x2="15" y2="14" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
             { id: "games" as View, label: "Games", svg: (c: string) => (
@@ -692,135 +660,131 @@ export default function AbletonDashboard() {
             )},
           ]).map(item => {
             const isActive = view === item.id;
-            const iconColor = isActive ? C.text : C.textSec;
+            const iconColor = isColorful && isActive ? NAV_COLORS[item.id] : (isActive ? C.text : C.textSec);
             return (
               <button key={item.id} onClick={() => { setView(item.id); setActiveGame(""); }}
-                className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
+                className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
                 style={{
                   backgroundColor: isActive ? C.navActive : "transparent",
                   fontSize: 14, fontWeight: 500, letterSpacing: "0.01em",
                   color: isActive ? C.text : C.textSec,
-                  justifyContent: sidebarCollapsed ? "center" : "flex-start",
-                  paddingLeft: sidebarCollapsed ? 0 : 10,
-                  paddingRight: sidebarCollapsed ? 0 : 10,
-                  transition: "background-color 150ms, padding 220ms",
                 }}>
                 <div className="w-[16px] h-[16px] shrink-0">{item.svg(iconColor)}</div>
-                <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 160, transition: "opacity 150ms, max-width 150ms" }}>{item.label}</span>
+                {item.label}
               </button>
             );
           })}
         </nav>
 
-        {/* Bottom: utility + upgrade */}
-        <div className="space-y-[1px]"
-          style={{ backgroundColor: C.bgSubtle, padding: sidebarCollapsed ? "6px 0" : "6px 8px", transition: "padding 220ms cubic-bezier(0.4,0,0.2,1)" }}>
-          {[
-            { icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 2H14V11H9L5 14V11H2V2Z" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinejoin="miter"/></svg>, label: "FEEDBACK" },
-            { icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" stroke="currentColor" strokeWidth="0.7" fill="none"/><line x1="5" y1="5.5" x2="11" y2="5.5" stroke="currentColor" strokeWidth="0.7"/><line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" strokeWidth="0.7"/><line x1="5" y1="10.5" x2="9" y2="10.5" stroke="currentColor" strokeWidth="0.7"/></svg>, label: "DOCS" },
-            { icon: <RiQuestionFill size={16}/>, label: "ASK" },
-          ].map(({ icon, label }) => (
-            <button key={label} className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
-              <span className="shrink-0">{icon}</span>
-              <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>{label}</span>
-            </button>
-          ))}
-          {/* Divider */}
-          <div style={{ height: 1, backgroundColor: C.textMuted, opacity: 0.15, margin: sidebarCollapsed ? "4px 12px" : "4px 10px" }} />
-          {/* Theme toggle */}
-          <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
-            className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}
-            title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
-            <span className="shrink-0">{themeMode === "system" ? <RiContrastFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}</span>
-            <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>{themeMode === "system" ? "SYSTEM" : isDark ? "DARK" : "LIGHT"}</span>
+        {/* Bottom: style toggle + upgrade */}
+        <div style={{ backgroundColor: C.bgSubtle }} className="px-[8px] py-[6px] space-y-[1px]">
+          <button onClick={() => switchTheme(() => setStyle(style === "classic" ? "colorful" : "classic"))}
+            className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: isColorful ? "#FF9500" : C.textSec }}>
+            <Palette className="h-[16px] w-[16px]" strokeWidth={1.6} style={{ color: isColorful ? "#FF9500" : C.textSec }} />
+            {isColorful ? "COLORFUL" : "CLASSIC"}
           </button>
-          {/* Activity */}
-          <div className="relative" ref={activityRef}>
-            <button onClick={() => { setActivityOpen(!activityOpen); if (!activityOpen) markAllRead(); }}
-              className="flex w-full items-center gap-[10px] py-[9px] transition-colors relative"
-              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
-              <span className="shrink-0"><RiNotificationFill size={16}/></span>
-              <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 100, transition: "opacity 150ms, max-width 150ms" }}>ACTIVITY</span>
-              {queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length > 0 && (
-                <div className="flex items-center justify-center" style={{ minWidth: 14, height: 14, backgroundColor: C.accent, padding: "0 3px", marginLeft: sidebarCollapsed ? undefined : "auto", position: sidebarCollapsed ? "absolute" : undefined, top: sidebarCollapsed ? 6 : undefined, right: sidebarCollapsed ? 6 : undefined }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: "#fff" }}>{queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length}</span>
-                </div>
-              )}
-            </button>
-            <AnimatePresence>
-              {activityOpen && (
-                <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.1 }} className="absolute left-0 bottom-full mb-[4px] z-30 w-[320px] overflow-hidden"
-                  style={{ backgroundColor: C.bgCard, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
-                  <div className="flex items-center justify-between px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.text }}>ACTIVITY</span>
-                    {queueItems.length > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{queueItems.filter(i => i.status === "completed").length} / {queueItems.length}</span>}
-                  </div>
-                  <div className="max-h-[340px] overflow-y-auto">
-                    {queueItems.length === 0 ? (
-                      <div className="px-[14px] py-[24px] text-center"><span style={{ fontSize: 14, color: C.textMuted }}>NO ACTIVITY YET</span></div>
-                    ) : [...queueItems].reverse().map(qi => (
-                      <div key={qi.id} className="px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08`, cursor: (qi.status === "uploading" || qi.status === "processing") ? "pointer" : undefined }}
-                        onClick={() => { if (qi.status === "uploading" || qi.status === "processing") { setAppState("processing"); setView("split"); setActivityOpen(false); } }}>
-                        {(qi.status === "uploading" || qi.status === "processing") && (<>
-                          <div className="flex items-center justify-between">
-                            <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 200 }}>{qi.fileName}</p>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted }}>{Math.floor(qi.id === activeItemId ? progress : qi.progress)}%</span>
-                          </div>
-                          <div className="w-full mt-[6px] mb-[4px]" style={{ height: 3, backgroundColor: C.bgHover }}>
-                            <div style={{ height: "100%", width: `${qi.id === activeItemId ? progress : qi.progress}%`, backgroundColor: C.accent, transition: "width 0.3s" }} />
-                          </div>
-                          <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>{(qi.stage || "PREPARING").toUpperCase()}</span>
-                        </>)}
-                        {qi.status === "pending" && (
-                          <div className="flex items-center justify-between">
-                            <p className="truncate" style={{ fontSize: 14, color: C.textMuted, maxWidth: 200 }}>{qi.fileName}</p>
-                            <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>PENDING</span>
-                          </div>
-                        )}
-                        {qi.status === "completed" && (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-[6px]">
-                              <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke={C.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                              <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 180 }}>{qi.fileName}</p>
-                            </div>
-                            <span style={{ fontSize: 12, color: C.textMuted }}>{qi.job?.stems?.length || 0} stems</span>
-                          </div>
-                        )}
-                        {qi.status === "failed" && (<>
-                          <div className="flex items-center justify-between">
-                            <p className="truncate" style={{ fontSize: 14, color: "#FF3B30", maxWidth: 200 }}>{qi.fileName}</p>
-                            <span style={{ fontSize: 12, color: "#FF3B30", letterSpacing: "0.03em" }}>ERROR</span>
-                          </div>
-                          {qi.error && <p className="truncate mt-[2px]" style={{ fontSize: 12, color: C.textMuted }}>{qi.error}</p>}
-                          <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em", marginTop: 4 }}>RETRY</button>
-                        </>)}
-                      </div>
-                    ))}
-                  </div>
-                  {queueItems.some(i => i.status === "completed") && (
-                    <div className="px-[14px] py-[8px]" style={{ borderTop: `1px solid ${C.text}08` }}>
-                      <button onClick={clearCompleted} style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>CLEAR COMPLETED</button>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          {/* Divider */}
-          <div style={{ height: 1, backgroundColor: C.textMuted, opacity: 0.15, margin: sidebarCollapsed ? "4px 12px" : "4px 10px" }} />
-          <button className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
-            <Sparkles className="h-[16px] w-[16px] shrink-0" strokeWidth={1.6} />
-            <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>UPGRADE</span>
+          <button className="flex w-full items-center gap-[10px] px-[10px] py-[9px] transition-colors"
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec }}>
+            <Sparkles className="h-[16px] w-[16px]" strokeWidth={1.6} />
+            UPGRADE
           </button>
         </div>
       </aside>
 
       {/* ─── Main ─── */}
       <div className="flex flex-1 flex-col overflow-hidden">
+
+        {/* Top bar */}
+        <div className="flex h-[52px] shrink-0 items-center justify-between px-[24px]" style={{ backgroundColor: C.bgSubtle }}>
+          <div />
+          <div className="flex items-center gap-[4px]">
+            {/* Pills */}
+            <button className="px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>FEEDBACK</button>
+            <button className="px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>DOCS</button>
+            <button className="flex items-center gap-[4px] px-[12px] py-[6px] transition-colors" style={{ fontSize: 13, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec, backgroundColor: C.bgHover }}>
+              <RiQuestionFill size={13}/>
+              ASK
+            </button>
+            <div className="w-[1px] h-[16px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
+            <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
+              className="p-[8px]" style={{ color: C.textSec }} title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
+              {themeMode === "system" ? <RiContrastFill size={16}/> : isDark ? <RiSunFill size={16}/> : <RiMoonFill size={16}/>}
+            </button>
+            <div className="relative" ref={activityRef}>
+              <button onClick={() => { setActivityOpen(!activityOpen); if (!activityOpen) markAllRead(); }} className="p-[8px] relative" style={{ color: C.textSec }}>
+                <RiNotificationFill size={16}/>
+                {queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length > 0 && (
+                  <div className="absolute top-[4px] right-[4px] flex items-center justify-center" style={{ minWidth: 14, height: 14, backgroundColor: C.accent, padding: "0 3px" }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "#fff" }}>{queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length}</span>
+                  </div>
+                )}
+              </button>
+              <AnimatePresence>
+                {activityOpen && (
+                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.1 }} className="absolute right-0 top-full mt-[4px] z-30 w-[320px] overflow-hidden"
+                    style={{ backgroundColor: C.bgCard, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+                    <div className="flex items-center justify-between px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.text }}>ACTIVITY</span>
+                      {queueItems.length > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{queueItems.filter(i => i.status === "completed").length} / {queueItems.length}</span>}
+                    </div>
+                    <div className="max-h-[340px] overflow-y-auto">
+                      {queueItems.length === 0 ? (
+                        <div className="px-[14px] py-[24px] text-center"><span style={{ fontSize: 14, color: C.textMuted }}>NO ACTIVITY YET</span></div>
+                      ) : [...queueItems].reverse().map(qi => (
+                        <div key={qi.id} className="px-[14px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08`, cursor: (qi.status === "uploading" || qi.status === "processing") ? "pointer" : undefined }}
+                          onClick={() => { if (qi.status === "uploading" || qi.status === "processing") { setAppState("processing"); setView("split"); setActivityOpen(false); } }}>
+                          {(qi.status === "uploading" || qi.status === "processing") && (<>
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted }}>{Math.floor(qi.id === activeItemId ? progress : qi.progress)}%</span>
+                            </div>
+                            <div className="w-full mt-[6px] mb-[4px]" style={{ height: 3, backgroundColor: C.bgHover }}>
+                              <div style={{ height: "100%", width: `${qi.id === activeItemId ? progress : qi.progress}%`, backgroundColor: isColorful ? undefined : C.accent, background: isColorful ? "linear-gradient(90deg, #FF2D55, #FF9500, #FFCC00, #34C759, #007AFF, #5856D6)" : undefined, transition: "width 0.3s" }} />
+                            </div>
+                            <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>{(qi.stage || "PREPARING").toUpperCase()}</span>
+                          </>)}
+                          {qi.status === "pending" && (
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, color: C.textMuted, maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>PENDING</span>
+                            </div>
+                          )}
+                          {qi.status === "completed" && (
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-[6px]">
+                                <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke={C.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text, maxWidth: 180 }}>{qi.fileName}</p>
+                              </div>
+                              <span style={{ fontSize: 12, color: C.textMuted }}>{qi.job?.stems?.length || 0} stems</span>
+                            </div>
+                          )}
+                          {qi.status === "failed" && (<>
+                            <div className="flex items-center justify-between">
+                              <p className="truncate" style={{ fontSize: 14, color: "#FF3B30", maxWidth: 200 }}>{qi.fileName}</p>
+                              <span style={{ fontSize: 12, color: "#FF3B30", letterSpacing: "0.03em" }}>ERROR</span>
+                            </div>
+                            {qi.error && <p className="truncate mt-[2px]" style={{ fontSize: 12, color: C.textMuted }}>{qi.error}</p>}
+                            <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em", marginTop: 4 }}>RETRY</button>
+                          </>)}
+                        </div>
+                      ))}
+                    </div>
+                    {queueItems.some(i => i.status === "completed") && (
+                      <div className="px-[14px] py-[8px]" style={{ borderTop: `1px solid ${C.text}08` }}>
+                        <button onClick={clearCompleted} style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>CLEAR COMPLETED</button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="flex h-[26px] w-[26px] items-center justify-center" style={{ backgroundColor: isColorful ? "#FF2D55" : C.accent }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
+            </div>
+          </div>
+        </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
@@ -1091,7 +1055,7 @@ export default function AbletonDashboard() {
                 )}
 
                 {/* Processing */}
-                {appState === "processing" && <ProcessingSection progress={progress} activeAgentIdx={activeAgentIdx} C={C} queueItems={queueItems} activeItemId={activeItemId} onMinimize={() => setAppState("idle")} />}
+                {appState === "processing" && <ProcessingSection progress={progress} activeAgentIdx={activeAgentIdx} C={C} isColorful={isColorful} queueItems={queueItems} activeItemId={activeItemId} onMinimize={() => setAppState("idle")} />}
 
                 {/* Complete — Results view */}
                 {appState === "complete" && (
@@ -1454,12 +1418,12 @@ export default function AbletonDashboard() {
                       <ChevronLeft className="h-[14px] w-[14px]" strokeWidth={1.8} />
                       ALL GAMES
                     </button>
-                    {activeGame === "bpm" && <BpmTap isDark={isDark} isColorful={false} theme={gameTheme} />}
-                    {activeGame === "tomato" && <TomatoToss isDark={isDark} isColorful={false} theme={gameTheme} />}
-                    {activeGame === "mpc" && <MpcPad isDark={isDark} isColorful={false} theme={gameTheme} />}
-                    {activeGame === "melody" && <MelodyMemory isDark={isDark} isColorful={false} theme={gameTheme} />}
-                    {activeGame === "freq" && <FrequencyQuiz isDark={isDark} isColorful={false} theme={gameTheme} />}
-                    {activeGame === "stem" && <GuessTheStem isDark={isDark} isColorful={false} theme={gameTheme} />}
+                    {activeGame === "bpm" && <BpmTap isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "tomato" && <TomatoToss isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "mpc" && <MpcPad isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "melody" && <MelodyMemory isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "freq" && <FrequencyQuiz isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
+                    {activeGame === "stem" && <GuessTheStem isDark={isDark} isColorful={isColorful} theme={gameTheme} />}
                   </div>
                 )}
               </div>
@@ -1503,9 +1467,9 @@ const BPM_SONGS = [
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ProcessingSection({ progress, activeAgentIdx, C, queueItems, activeItemId, onMinimize }: {
+function ProcessingSection({ progress, activeAgentIdx, C, isColorful, queueItems, activeItemId, onMinimize }: {
   progress: number; activeAgentIdx: number;
-  C: any;
+  C: any; isColorful: boolean;
   queueItems?: QueueItem[]; activeItemId?: string | null; onMinimize?: () => void;
 }) {
   const [gameActive, setGameActive] = useState(false);
@@ -1594,7 +1558,12 @@ function ProcessingSection({ progress, activeAgentIdx, C, queueItems, activeItem
 
         {/* Progress bar */}
         <div className="h-[4px] w-full overflow-hidden" style={{ backgroundColor: C.bgHover }}>
-          <div className="h-full" style={{ backgroundColor: C.accent, width: `${progress}%` }} />
+          <div className="h-full" style={{
+            background: isColorful
+              ? "linear-gradient(90deg, #FF2D55, #FF9500, #FFCC00, #34C759, #007AFF, #5856D6)"
+              : C.accent,
+            width: `${progress}%`,
+          }} />
         </div>
 
         {/* Agent steps — current + previous */}
