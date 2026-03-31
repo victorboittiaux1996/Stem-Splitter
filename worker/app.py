@@ -95,7 +95,7 @@ def download_from_url(url: str, output_dir: str) -> str:
     raise Exception(f"Failed to download audio from {url}")
 
 
-def _make_tqdm_hook(start_pct, end_pct, job_id, stage):
+def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
     """Monkey-patch tqdm.update to write real progress directly to R2.
 
     Throttled to 1 write/s. Maps the model's 0→100% chunk progress onto [start_pct, end_pct].
@@ -116,7 +116,7 @@ def _make_tqdm_hook(start_pct, end_pct, job_id, stage):
             if now - _last_write[0] >= 1.0:
                 _last_write[0] = now
                 try:
-                    update_job_status(job_id, "processing", progress=real_pct, stage=stage)
+                    update_job_status(job_id, "processing", progress=real_pct, stage=stage, workspace_id=workspace_id)
                 except Exception:
                     pass  # never let a progress write failure kill the job
 
@@ -146,6 +146,7 @@ def separate(request: dict):
     download_url = request.get("downloadUrl")
     callback_url = request.get("callbackUrl")  # PATCH /api/jobs/{jobId} on Next.js
     overlap = request.get("overlap", 8)
+    workspace_id = request.get("workspaceId") or None
     mdxc = {"overlap": overlap} if overlap != 8 else {}
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -165,7 +166,7 @@ def separate(request: dict):
             from storage import download_from_r2, update_job_status
             ext = os.path.splitext(input_key)[1] or ".mp3"
             input_path = os.path.join(tmpdir, f"input{ext}")
-            update_job_status(job_id, "processing", progress=5, stage="Downloading audio")
+            update_job_status(job_id, "processing", progress=5, stage="Downloading audio", workspace_id=workspace_id)
             download_from_r2(input_key, input_path)
         else:
             return {"error": "No audio provided"}
@@ -194,7 +195,7 @@ def separate(request: dict):
         if input_key:
             from tqdm import tqdm as _tqdm
             _end_pct = 85 if mode == "2stem" else 50
-            _patched, _orig = _make_tqdm_hook(10, _end_pct, job_id, "Extracting vocals")
+            _patched, _orig = _make_tqdm_hook(10, _end_pct, job_id, "Extracting vocals", workspace_id=workspace_id)
             _tqdm.update = _patched
             try:
                 sep_v.separate(input_path)
@@ -229,7 +230,7 @@ def separate(request: dict):
             start = time.time()
             if input_key:
                 from tqdm import tqdm as _tqdm
-                _patched, _orig = _make_tqdm_hook(50, 85, job_id, "Extracting instruments")
+                _patched, _orig = _make_tqdm_hook(50, 85, job_id, "Extracting instruments", workspace_id=workspace_id)
                 _tqdm.update = _patched
                 try:
                     sep_i.separate(input_path)
@@ -300,7 +301,7 @@ def separate(request: dict):
             print(f"ERROR: {error_msg}")
             if input_key:
                 from storage import update_job_status
-                update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg)
+                update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg, workspace_id=workspace_id)
             return {"error": error_msg}
 
         # Upload to R2 if job has inputKey
@@ -316,7 +317,7 @@ def separate(request: dict):
                 pct = min(pct, 99)
                 if pct > last_pct[0]:
                     last_pct[0] = pct
-                    update_job_status(job_id, "processing", progress=pct, stage="Uploading stems")
+                    update_job_status(job_id, "processing", progress=pct, stage="Uploading stems", workspace_id=workspace_id)
 
             # Compute waveform peaks before upload (~1s)
             print("Computing waveform peaks...")
@@ -339,18 +340,20 @@ def separate(request: dict):
             total_bytes = sum(_os.path.getsize(fp) for fp in results.values())
             total_bytes += sum(_os.path.getsize(fp) for fp in mp3_results.values())
 
-            update_job_status(job_id, "processing", progress=85, stage="Uploading stems")
+            from storage import stem_key as _stem_key
+            update_job_status(job_id, "processing", progress=85, stage="Uploading stems", workspace_id=workspace_id)
             for stem_name, filepath in results.items():
-                r2_key = f"stems/{job_id}/{stem_name}.wav"
+                r2_key = _stem_key(workspace_id, job_id, stem_name, ".wav")
                 upload_to_r2(filepath, r2_key, callback=_upload_callback)
             for stem_name, filepath in mp3_results.items():
-                r2_key = f"stems/{job_id}/{stem_name}.mp3"
+                r2_key = _stem_key(workspace_id, job_id, stem_name, ".mp3")
                 upload_to_r2(filepath, r2_key, content_type="audio/mpeg", callback=_upload_callback)
 
             update_job_status(job_id, "completed", progress=100, stage="Done",
                               stems=stem_names, bpm=analysis["bpm"],
                               key=analysis["key"], key_raw=analysis["key_raw"],
-                              duration=analysis["duration"], peaks=stem_peaks)
+                              duration=analysis["duration"], peaks=stem_peaks,
+                              workspace_id=workspace_id)
             return {"status": "completed", "stems": stem_names}
 
         # Compute peaks for direct mode too

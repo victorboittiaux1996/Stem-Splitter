@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getJob, getPresignedUrl, listStems } from "@/lib/r2";
+import { getJobForWorkspace, getPresignedUrl, listStemsForWorkspace, stemKey } from "@/lib/r2";
 
 export async function GET(
   request: NextRequest,
@@ -7,29 +7,28 @@ export async function GET(
 ) {
   const { id } = await params;
   const stem = request.nextUrl.searchParams.get("stem");
+  const wsId = request.headers.get("x-workspace-id") || null;
 
   try {
     if (stem) {
-      // Redirect to a presigned R2 URL for direct download
       const format = request.nextUrl.searchParams.get("format") || "wav";
       const ext = format === "mp3" ? ".mp3" : ".wav";
-      const key = `stems/${id}/${stem}${ext}`;
+      const key = stemKey(wsId, id, stem, ext);
       const url = await getPresignedUrl(key, 3600);
       return NextResponse.redirect(url);
     }
 
-    const job = await getJob(id);
+    const job = await getJobForWorkspace(wsId, id);
     if (!job || job.status !== "completed") {
       return NextResponse.json({ error: "Job not completed" }, { status: 400 });
     }
 
-    const keys = await listStems(id);
+    const resolvedWsId = job.workspaceId ?? wsId;
+    const keys = await listStemsForWorkspace(resolvedWsId ?? null, id);
+    const stemsPrefix = resolvedWsId ? `workspaces/${resolvedWsId}/stems/${id}/` : `stems/${id}/`;
     const stems = keys.map((key) => {
-      const name = key.replace(`stems/${id}/`, "").replace(".wav", "");
-      return {
-        name,
-        url: `/api/download/${id}?stem=${name}`,
-      };
+      const name = key.replace(stemsPrefix, "").replace(".wav", "");
+      return { name, url: `/api/download/${id}?stem=${name}` };
     });
 
     return NextResponse.json({ stems });

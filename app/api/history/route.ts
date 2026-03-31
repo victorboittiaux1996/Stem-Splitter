@@ -34,10 +34,13 @@ function relativeDate(ts: number): string {
   return `${Math.floor(d / 7)} week${d >= 14 ? "s" : ""} ago`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const wsId = new URL(request.url).searchParams.get("workspaceId") ||
+      (request.headers as Headers).get("x-workspace-id") || null;
+    const prefix = wsId ? `workspaces/${wsId}/jobs/` : "jobs/";
     const list = await s3.send(
-      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: "jobs/" })
+      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix })
     );
 
     const keys = (list.Contents ?? [])

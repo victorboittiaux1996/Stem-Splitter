@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize } from "@/lib/r2";
+import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jobKey } from "@/lib/r2";
 
 const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|webm)$/i;
@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
       `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
 
     const body = await request.json();
-    const { url, mode = "4stem", filename, size, contentType, overlap = 8 } = body;
+    const { url, mode = "4stem", filename, size, contentType, overlap = 8, workspaceId = null } = body;
+    const wsId: string | null = typeof workspaceId === "string" && workspaceId ? workspaceId : null;
 
     // ── URL mode: { url, mode } ──────────────────────────────────────────────
     if (url) {
@@ -23,27 +24,23 @@ export async function POST(request: NextRequest) {
 
       const jobId = nanoid(12);
       const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
+      const key = jobKey(wsId, jobId);
 
-      await writeJsonToR2(`jobs/${jobId}.json`, {
-        id: jobId,
-        status: "processing",
-        mode,
-        progress: 5,
-        stage: "Downloading audio...",
-        createdAt: Date.now(),
-        fileName: url,
+      await writeJsonToR2(key, {
+        id: jobId, status: "processing", mode, progress: 5,
+        stage: "Downloading audio...", createdAt: Date.now(), fileName: url, workspaceId: wsId,
       });
 
       fetch(MODAL_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap }),
+        body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap, workspaceId: wsId }),
       }).then(async (res) => {
         const result = await res.json().catch(() => ({}));
         if (result.error) {
-          await writeJsonToR2(`jobs/${jobId}.json`, {
+          await writeJsonToR2(key, {
             id: jobId, status: "failed", mode, progress: 0,
-            stage: "Error", error: result.error, createdAt: Date.now(),
+            stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId,
           });
         }
       }).catch(() => {});
@@ -70,17 +67,11 @@ export async function POST(request: NextRequest) {
     const ext = filename.match(/\.[^.]+$/)?.[0] ?? ".mp3";
     const inputKey = `inputs/${jobId}${ext}`;
     const mimeType = (typeof contentType === "string" && contentType) ? contentType : "audio/mpeg";
+    const key = jobKey(wsId, jobId);
 
-    await writeJsonToR2(`jobs/${jobId}.json`, {
-      id: jobId,
-      status: "uploading",
-      mode,
-      progress: 0,
-      stage: "Uploading...",
-      createdAt: Date.now(),
-      fileName: filename,
-      inputKey,
-      overlap,
+    await writeJsonToR2(key, {
+      id: jobId, status: "uploading", mode, progress: 0,
+      stage: "Uploading...", createdAt: Date.now(), fileName: filename, inputKey, overlap, workspaceId: wsId,
     });
 
     // Presigned PUT URL — valid 2 hours (large files on slow connections)
@@ -105,9 +96,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "jobId required" }, { status: 400 });
     }
 
+    const wsIdPut: string | null = typeof request.headers.get("x-workspace-id") === "string" ? request.headers.get("x-workspace-id") : null;
+    const keyPut = jobKey(wsIdPut, jobId);
     const job = await readJsonFromR2<{
-      id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number;
-    }>(`jobs/${jobId}.json`);
+      id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null;
+    }>(keyPut) ?? await readJsonFromR2<{ id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null; }>(`jobs/${jobId}.json`);
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
@@ -118,37 +111,35 @@ export async function PUT(request: NextRequest) {
     // Verify the file was actually uploaded (not empty/corrupted)
     const fileSize = await getObjectSize(job.inputKey);
     if (fileSize < 1000) {
-      await writeJsonToR2(`jobs/${jobId}.json`, {
+      const resolvedWsId = job.workspaceId ?? wsIdPut;
+      await writeJsonToR2(jobKey(resolvedWsId ?? null, jobId), {
         id: job.id, status: "failed", mode: job.mode, progress: 0,
         stage: "Error", error: "Upload incomplete — please try again",
-        createdAt: job.createdAt, fileName: job.fileName,
+        createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId,
       });
       return NextResponse.json({ error: "Upload incomplete — please try again" }, { status: 400 });
     }
 
     const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
+    const resolvedWsId = job.workspaceId ?? wsIdPut;
+    const finalKey = jobKey(resolvedWsId ?? null, jobId);
 
-    await writeJsonToR2(`jobs/${jobId}.json`, {
-      id: job.id,
-      status: "processing",
-      mode: job.mode,
-      progress: 5,
-      stage: "Sending to GPU...",
-      createdAt: job.createdAt,
-      fileName: job.fileName,
-      inputKey: job.inputKey,
+    await writeJsonToR2(finalKey, {
+      id: job.id, status: "processing", mode: job.mode, progress: 5,
+      stage: "Sending to GPU...", createdAt: job.createdAt, fileName: job.fileName,
+      inputKey: job.inputKey, workspaceId: resolvedWsId,
     });
 
     fetch(MODAL_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl, overlap: job.overlap ?? 8 }),
+      body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl, overlap: job.overlap ?? 8, workspaceId: resolvedWsId }),
     }).then(async (res) => {
       const result = await res.json().catch(() => ({}));
       if (result.error) {
-        await writeJsonToR2(`jobs/${jobId}.json`, {
+        await writeJsonToR2(finalKey, {
           id: job.id, status: "failed", mode: job.mode, progress: 0,
-          stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName,
+          stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId,
         });
       }
     }).catch(() => {});

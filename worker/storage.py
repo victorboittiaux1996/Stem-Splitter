@@ -37,6 +37,20 @@ def upload_to_r2(local_path: str, key: str, content_type: str = "audio/wav", cal
     )
 
 
+def job_key(workspace_id: str | None, job_id: str) -> str:
+    """Return the R2 key for a job JSON file."""
+    if workspace_id:
+        return f"workspaces/{workspace_id}/jobs/{job_id}.json"
+    return f"jobs/{job_id}.json"
+
+
+def stem_key(workspace_id: str | None, job_id: str, stem_name: str, ext: str) -> str:
+    """Return the R2 key for a stem audio file."""
+    if workspace_id:
+        return f"workspaces/{workspace_id}/stems/{job_id}/{stem_name}{ext}"
+    return f"stems/{job_id}/{stem_name}{ext}"
+
+
 def update_job_status(
     job_id: str,
     status: str,
@@ -49,15 +63,26 @@ def update_job_status(
     key_raw: str | None = None,
     duration: float | None = None,
     peaks: dict | None = None,
+    workspace_id: str | None = None,
 ):
     """Update the job status JSON in R2."""
     s3 = get_s3_client()
+    r2_key = job_key(workspace_id, job_id)
 
-    # Read existing job
+    # Read existing job (try workspace path first, fall back to legacy)
+    job = None
     try:
-        response = s3.get_object(Bucket=BUCKET, Key=f"jobs/{job_id}.json")
+        response = s3.get_object(Bucket=BUCKET, Key=r2_key)
         job = json.loads(response["Body"].read().decode("utf-8"))
     except Exception:
+        pass
+    if job is None and workspace_id:
+        try:
+            response = s3.get_object(Bucket=BUCKET, Key=f"jobs/{job_id}.json")
+            job = json.loads(response["Body"].read().decode("utf-8"))
+        except Exception:
+            pass
+    if job is None:
         job = {"id": job_id}
 
     # Update fields
@@ -79,6 +104,8 @@ def update_job_status(
         job["duration"] = duration
     if peaks is not None:
         job["peaks"] = peaks
+    if workspace_id is not None:
+        job["workspaceId"] = workspace_id
     if status == "completed":
         import time
         job["completedAt"] = int(time.time() * 1000)
@@ -86,7 +113,7 @@ def update_job_status(
     # Write back
     s3.put_object(
         Bucket=BUCKET,
-        Key=f"jobs/{job_id}.json",
+        Key=r2_key,
         Body=json.dumps(job),
         ContentType="application/json",
     )

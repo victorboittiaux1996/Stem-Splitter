@@ -26,6 +26,7 @@ interface QueueContextValue {
   retry: (itemId: string) => void;
   clearCompleted: () => void;
   markAllRead: () => void;
+  setCurrentWorkspace: (workspaceId: string) => void;
 }
 
 const QueueContext = createContext<QueueContextValue | null>(null);
@@ -33,6 +34,19 @@ const QueueContext = createContext<QueueContextValue | null>(null);
 // ─── Provider ───────────────────────────────────────────────────────────────
 
 export function QueueProvider({ children }: { children: React.ReactNode }) {
+  const [workspaceId, setWorkspaceIdState] = useState<string>(() => {
+    if (typeof window === "undefined") return "ws-1";
+    return localStorage.getItem("44stems-active-workspace") || "ws-1";
+  });
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
+
+  const setCurrentWorkspace = useCallback((id: string) => {
+    setWorkspaceIdState(id);
+    // Clear completed/failed items when switching workspaces; keep active processing
+    setItems(prev => prev.filter(i => i.status === "processing" || i.status === "uploading"));
+  }, []);
+
   const [items, setItems] = useState<QueueItem[]>([]);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<QueueNotification[]>([]);
@@ -126,13 +140,14 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     const overlap = 8; // default overlap
 
     try {
+      const wsId = workspaceIdRef.current;
       if (item.url && !item.file) {
         // URL mode
         updateItem(item.id, { status: "uploading", stage: "Downloading audio..." });
         const res = await fetch("/api/upload", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: item.url, mode: item.mode, overlap }),
+          headers: { "Content-Type": "application/json", "x-workspace-id": wsId },
+          body: JSON.stringify({ url: item.url, mode: item.mode, overlap, workspaceId: wsId }),
         });
         if (!res.ok) {
           let msg = "Upload failed";
@@ -148,13 +163,14 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         // Step 1: get presigned URL
         const initRes = await fetch("/api/upload", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-workspace-id": wsId },
           body: JSON.stringify({
             filename: item.file.name,
             size: item.file.size,
             contentType: item.file.type || "audio/mpeg",
             mode: item.mode,
             overlap,
+            workspaceId: wsId,
           }),
         });
         if (!initRes.ok) {
@@ -189,7 +205,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         // Step 3: confirm and trigger Modal
         const confirmRes = await fetch("/api/upload", {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-workspace-id": wsId },
           body: JSON.stringify({ jobId }),
         });
         if (!confirmRes.ok) {
@@ -247,7 +263,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`/api/jobs/${jobId}`, {
+          headers: { "x-workspace-id": workspaceIdRef.current },
+        });
         if (!res.ok) return;
         const job: Job = await res.json();
 
@@ -366,6 +384,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     retry,
     clearCompleted,
     markAllRead,
+    setCurrentWorkspace,
   };
 
   return <QueueContext.Provider value={value}>{children}</QueueContext.Provider>;

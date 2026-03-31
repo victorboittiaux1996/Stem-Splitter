@@ -23,6 +23,7 @@ export interface Job {
   key_raw?: string | null;
   duration?: number | null;
   peaks?: Record<string, number[]>;
+  workspaceId?: string;
 }
 
 export interface StemDownload {
@@ -53,6 +54,7 @@ export interface QueueItem {
   stemDownloads: StemDownload[];
   addedAt: number;
   completedAt: number | null;
+  workspaceId?: string;
 }
 
 export interface QueueNotification {
@@ -83,4 +85,5 @@ export interface HistoryItem {
   duration?: string;
   quality?: number;
   stability?: number;
+  workspaceId?: string;
 }

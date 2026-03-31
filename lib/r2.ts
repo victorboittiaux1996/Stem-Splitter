@@ -119,6 +119,36 @@ export async function getJob(jobId: string): Promise<Job | null> {
   return readJsonFromR2<Job>(`jobs/${jobId}.json`);
 }
 
+// Workspace-aware job lookup: tries workspace path first, falls back to legacy
+export async function getJobForWorkspace(workspaceId: string | null, jobId: string): Promise<Job | null> {
+  if (workspaceId) {
+    const wsJob = await readJsonFromR2<Job>(`workspaces/${workspaceId}/jobs/${jobId}.json`);
+    if (wsJob) return wsJob;
+  }
+  return readJsonFromR2<Job>(`jobs/${jobId}.json`);
+}
+
+// Workspace-aware job key helper
+export function jobKey(workspaceId: string | null, jobId: string): string {
+  return workspaceId ? `workspaces/${workspaceId}/jobs/${jobId}.json` : `jobs/${jobId}.json`;
+}
+
+// Workspace-aware stems listing
+export async function listStemsForWorkspace(workspaceId: string | null, jobId: string): Promise<string[]> {
+  const prefix = workspaceId ? `workspaces/${workspaceId}/stems/${jobId}/` : `stems/${jobId}/`;
+  const response = await s3.send(new ListObjectsV2Command({ Bucket: R2_BUCKET_NAME, Prefix: prefix }));
+  const keys = response.Contents?.map((obj) => obj.Key!).filter((k) => k.endsWith(".wav")) ?? [];
+  if (keys.length > 0 || !workspaceId) return keys;
+  // Fallback to legacy stems path
+  return listStems(jobId);
+}
+
+// Workspace-aware stem key helper
+export function stemKey(workspaceId: string | null, jobId: string, stem: string, ext: string): string {
+  const prefix = workspaceId ? `workspaces/${workspaceId}/stems/${jobId}` : `stems/${jobId}`;
+  return `${prefix}/${stem}${ext}`;
+}
+
 export async function createJob(job: Job) {
   await writeJsonToR2(`jobs/${job.id}.json`, job);
 }
