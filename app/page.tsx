@@ -13,6 +13,7 @@ import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib
 import { useQueue } from "@/contexts/queue-context";
 import { prefetchStemPeaks } from "@/components/stem-variants";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { toast } from "sonner";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
@@ -238,6 +239,9 @@ export default function AbletonDashboard() {
   const [formatOpen, setFormatOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("profile");
+  const profileRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const WORKSPACE_ID = "ws-1";
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
@@ -368,10 +372,11 @@ export default function AbletonDashboard() {
       if (formatOpen && formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false);
       if (extraOpen && extraRef.current && !extraRef.current.contains(e.target as Node)) setExtraOpen(false);
       if (activityOpen && activityRef.current && !activityRef.current.contains(e.target as Node)) setActivityOpen(false);
+      if (profileOpen && profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [stemsOpen, formatOpen, extraOpen, activityOpen]);
+  }, [stemsOpen, formatOpen, extraOpen, activityOpen, profileOpen]);
 
   // Results playback simulation
   useEffect(() => {
@@ -545,11 +550,12 @@ export default function AbletonDashboard() {
         button:focus { outline: none !important; }
         .ableton-root, .ableton-root * { border-color: transparent; }
         .ableton-root.theme-switching, .ableton-root.theme-switching * { transition: none !important; animation-duration: 0s !important; }
+        .sidebar-btn:hover { background-color: ${C.bgHover} !important; }
       `}</style>
 
       {/* ─── Sidebar ─── */}
-      <aside className="flex h-full shrink-0 flex-col overflow-hidden"
-        style={{ width: sidebarCollapsed ? 52 : 220, transition: "width 220ms cubic-bezier(0.4,0,0.2,1)", backgroundColor: C.sidebarBg }}>
+      <aside className="flex h-full shrink-0 flex-col"
+        style={{ width: sidebarCollapsed ? 52 : 220, transition: "width 220ms cubic-bezier(0.4,0,0.2,1)", backgroundColor: C.sidebarBg, overflow: "visible", position: "relative", zIndex: 20 }}>
 
         {/* Logo + toggle */}
         <div className="flex items-center justify-between shrink-0" onClick={() => sidebarCollapsed && setSidebarCollapsed(false)}
@@ -570,19 +576,72 @@ export default function AbletonDashboard() {
           </button>
         </div>
 
-        {/* Profile chip */}
-        <div className="shrink-0 px-[8px] pb-[4px]"
-          style={{ display: "flex", alignItems: "center", paddingLeft: sidebarCollapsed ? 0 : 8, paddingRight: sidebarCollapsed ? 0 : 8, justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: 8, padding: "7px 8px" }}>
-          <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center" style={{ backgroundColor: C.accent }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
-          </div>
-          <span style={{ overflow: "hidden", whiteSpace: "nowrap", fontSize: 13, fontWeight: 600, color: C.text, opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>
-            Victor
-          </span>
+        {/* Profile — V1 Kits style */}
+        <div ref={profileRef} className="relative shrink-0" style={{ padding: sidebarCollapsed ? "6px 0" : "8px 10px" }}>
+          <button onClick={() => setProfileOpen(!profileOpen)} className="flex w-full items-center gap-[8px]"
+            style={{ justifyContent: sidebarCollapsed ? "center" : "flex-start" }}>
+            <div className="shrink-0 flex items-center justify-center" style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg, #1B10FD 0%, #7C3AED 100%)" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>V</span>
+            </div>
+            <div style={{ overflow: "hidden", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 160, transition: "opacity 150ms, max-width 150ms", textAlign: "left", flex: 1 }}>
+              <div className="flex items-center gap-[4px]">
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Victor Boittiaux</span>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, transform: profileOpen ? "scaleY(-1)" : undefined, transition: "transform 150ms" }}>
+                  <path d="M2 3.5L5 6.5L8 3.5" stroke={C.textMuted} strokeWidth="0.8" strokeLinejoin="miter"/>
+                </svg>
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>Free Plan · <span style={{ color: C.accent }}>Upgrade</span></div>
+            </div>
+          </button>
+          {!sidebarCollapsed && (
+            <div style={{ marginTop: 8 }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: C.textSec }}>8:27 left</span>
+                <span style={{ fontSize: 11, color: C.textMuted }}>Resets in 18d</span>
+              </div>
+              <div style={{ height: 2, backgroundColor: C.bgHover }}>
+                <div style={{ height: "100%", width: "15.5%", backgroundColor: C.accent }} />
+              </div>
+            </div>
+          )}
+          {!sidebarCollapsed && (
+            <button className="w-full mt-[8px] py-[7px]"
+              style={{ backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer" }}>
+              UPGRADE
+            </button>
+          )}
+          <AnimatePresence>
+            {profileOpen && !sidebarCollapsed && (
+              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.1 }} className="absolute top-full z-50"
+                style={{ width: 260, left: 10, backgroundColor: C.bgCard, boxShadow: "0 8px 32px rgba(0,0,0,0.24)" }}>
+                <div className="px-[14px] py-[12px]" style={{ borderBottom: `1px solid ${C.text}10` }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Victor Boittiaux</div>
+                  <div style={{ fontSize: 12, color: C.textMuted }}>victorboittiaux@gmail.com</div>
+                </div>
+                {([
+                  { label: "Account Settings", action: () => { setView("settings"); setSettingsSection("profile"); setProfileOpen(false); } },
+                  { label: "Usage & Billing",   action: () => { setView("settings"); setSettingsSection("usage");        setProfileOpen(false); } },
+                  { label: "Plans & Pricing",   action: () => { setView("settings"); setSettingsSection("subscription"); setProfileOpen(false); } },
+                  { label: "What's New",        action: () => { setProfileOpen(false); } },
+                ] as { label: string; action: () => void }[]).map(item => (
+                  <button key={item.label} onClick={item.action} className="flex w-full items-center px-[14px] py-[9px] sidebar-btn"
+                    style={{ fontSize: 13, color: C.textSec, fontWeight: 500, cursor: "pointer" }}>
+                    {item.label}
+                  </button>
+                ))}
+                <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "2px 0" }} />
+                <button className="flex w-full items-center px-[14px] py-[9px] sidebar-btn"
+                  style={{ fontSize: 13, color: "#FF3B30", fontWeight: 500 }}>
+                  Sign out
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Nav — 5 views (custom geometric icons) */}
-        <nav className="flex-1 pt-[8px] space-y-[2px]" style={{ padding: sidebarCollapsed ? "8px 0 0" : "8px 8px 0" }}>
+        <nav className="flex-1 pt-[8px] space-y-[2px]" style={{ padding: sidebarCollapsed ? "8px 0 0" : "8px 10px 0" }}>
           {([
             { id: "split" as View, label: "Split Audio", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -616,22 +675,12 @@ export default function AbletonDashboard() {
                 <rect x="9" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
-            { id: "settings" as View, label: "Settings", svg: (c: string) => (
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <line x1="4" y1="2" x2="4" y2="14" stroke={c} strokeWidth="0.7"/>
-                <line x1="8" y1="2" x2="8" y2="14" stroke={c} strokeWidth="0.7"/>
-                <line x1="12" y1="2" x2="12" y2="14" stroke={c} strokeWidth="0.7"/>
-                <line x1="2.5" y1="5" x2="5.5" y2="5" stroke={c} strokeWidth="1.4"/>
-                <line x1="6.5" y1="9" x2="9.5" y2="9" stroke={c} strokeWidth="1.4"/>
-                <line x1="10.5" y1="7" x2="13.5" y2="7" stroke={c} strokeWidth="1.4"/>
-              </svg>
-            )},
           ]).map(item => {
             const isActive = view === item.id;
             const iconColor = isActive ? C.text : C.textSec;
             return (
               <button key={item.id} onClick={() => { setView(item.id); setActiveGame(""); }}
-                className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
+                className={`flex w-full items-center gap-[10px] py-[9px]${isActive ? "" : " sidebar-btn"}`}
                 style={{
                   backgroundColor: isActive ? C.navActive : "transparent",
                   fontSize: 14, fontWeight: 500, letterSpacing: "0.01em",
@@ -640,6 +689,7 @@ export default function AbletonDashboard() {
                   paddingLeft: sidebarCollapsed ? 0 : 10,
                   paddingRight: sidebarCollapsed ? 0 : 10,
                   transition: "background-color 150ms, padding 220ms",
+                  cursor: "pointer",
                 }}>
                 <div className="w-[16px] h-[16px] shrink-0">{item.svg(iconColor)}</div>
                 <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 160, transition: "opacity 150ms, max-width 150ms" }}>{item.label}</span>
@@ -650,14 +700,14 @@ export default function AbletonDashboard() {
 
         {/* Bottom: utility + upgrade */}
         <div className="space-y-[1px]"
-          style={{ backgroundColor: C.bgSubtle, padding: sidebarCollapsed ? "6px 0" : "6px 8px", transition: "padding 220ms cubic-bezier(0.4,0,0.2,1)" }}>
+          style={{ backgroundColor: C.bgSubtle, padding: sidebarCollapsed ? "6px 0" : "6px 10px", transition: "padding 220ms cubic-bezier(0.4,0,0.2,1)" }}>
           {[
             { icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 2H14V11H9L5 14V11H2V2Z" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinejoin="miter"/></svg>, label: "Feedback" },
             { icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" stroke="currentColor" strokeWidth="0.7" fill="none"/><line x1="5" y1="5.5" x2="11" y2="5.5" stroke="currentColor" strokeWidth="0.7"/><line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" strokeWidth="0.7"/><line x1="5" y1="10.5" x2="9" y2="10.5" stroke="currentColor" strokeWidth="0.7"/></svg>, label: "Docs" },
             { icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="0.7"/><path d="M6 6.5C6 5.4 6.9 4.5 8 4.5C9.1 4.5 10 5.4 10 6.5C10 7.6 9 8 8 8.5V9.5" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinecap="square"/><line x1="8" y1="11" x2="8" y2="11.5" stroke="currentColor" strokeWidth="0.7"/></svg>, label: "Ask" },
           ].map(({ icon, label }) => (
-            <button key={label} className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
+            <button key={label} className="flex w-full items-center gap-[10px] py-[9px] sidebar-btn"
+              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "background-color 100ms, padding 220ms", cursor: "pointer" }}>
               <div className="w-[16px] h-[16px] shrink-0 flex items-center justify-center">{icon}</div>
               <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>{label}</span>
             </button>
@@ -666,8 +716,8 @@ export default function AbletonDashboard() {
           <div style={{ height: 1, backgroundColor: C.textMuted, opacity: 0.15, margin: sidebarCollapsed ? "4px 12px" : "4px 10px" }} />
           {/* Theme toggle */}
           <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
-            className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}
+            className="flex w-full items-center gap-[10px] py-[9px] sidebar-btn"
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "background-color 100ms, padding 220ms", cursor: "pointer" }}
             title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
             <div className="w-[16px] h-[16px] shrink-0 flex items-center justify-center">
               {themeMode === "system"
@@ -682,8 +732,8 @@ export default function AbletonDashboard() {
           {/* Activity */}
           <div className="relative" ref={activityRef}>
             <button onClick={() => { setActivityOpen(!activityOpen); if (!activityOpen) markAllRead(); }}
-              className="flex w-full items-center gap-[10px] py-[9px] transition-colors relative"
-              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
+              className="flex w-full items-center gap-[10px] py-[9px] relative"
+              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: activityOpen ? C.text : C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "background-color 100ms, padding 220ms", cursor: "pointer", backgroundColor: activityOpen ? C.navActive : "transparent" }}>
               <div className="w-[16px] h-[16px] shrink-0 flex items-center justify-center"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 10V7C4 4.8 5.8 3 8 3C10.2 3 12 4.8 12 7V10L13 12H3L4 10Z" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinejoin="miter"/><path d="M6.5 12C6.5 13.4 7.2 14 8 14C8.8 14 9.5 13.4 9.5 12" stroke="currentColor" strokeWidth="0.7" fill="none"/></svg></div>
               <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 100, transition: "opacity 150ms, max-width 150ms" }}>Activity</span>
               {queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length > 0 && (
@@ -752,13 +802,6 @@ export default function AbletonDashboard() {
               )}
             </AnimatePresence>
           </div>
-          {/* Divider */}
-          <div style={{ height: 1, backgroundColor: C.textMuted, opacity: 0.15, margin: sidebarCollapsed ? "4px 12px" : "4px 10px" }} />
-          <button className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
-            <div className="w-[16px] h-[16px] shrink-0" />
-            <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>Upgrade</span>
-          </button>
         </div>
       </aside>
 
@@ -1411,17 +1454,7 @@ export default function AbletonDashboard() {
 
           {/* ═══ SETTINGS ═══ */}
           {view === "settings" && (
-            <div className="px-[24px] pt-[24px] pb-[40px]">
-              <div style={{ maxWidth: 900, margin: "0 auto" }}>
-                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 24, color: C.text }}>Settings</h2>
-                <div className="flex flex-col items-center justify-center py-[80px]">
-                  <div className="flex h-[48px] w-[48px] items-center justify-center" style={{ backgroundColor: C.bgHover }}>
-                    <RiEqualizerFill size={22} style={{ color: C.textMuted }}/>
-                  </div>
-                  <p style={{ fontSize: 15, color: C.textMuted, marginTop: 12, letterSpacing: "0.03em" }}>ACCOUNT SETTINGS COMING SOON</p>
-                </div>
-              </div>
-            </div>
+            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} />
           )}
         </div>
       </div>
