@@ -665,14 +665,6 @@ export default function AbletonDashboard() {
                 <line x1="9" y1="12.5" x2="14" y2="12.5" stroke={c} strokeWidth="0.7"/>
               </svg>
             )},
-            { id: "results" as View, label: "Results", svg: (c: string) => (
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <line x1="2" y1="3" x2="14" y2="3" stroke={c} strokeWidth="0.7"/>
-                <line x1="2" y1="6" x2="14" y2="6" stroke={c} strokeWidth="0.7"/>
-                <line x1="2" y1="9" x2="10" y2="9" stroke={c} strokeWidth="0.7"/>
-                <line x1="2" y1="12" x2="12" y2="12" stroke={c} strokeWidth="0.7"/>
-              </svg>
-            )},
             { id: "files" as View, label: "My Files", svg: (c: string) => (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M2 4V13H14V6H8L6 4H2Z" stroke={c} strokeWidth="0.7" strokeLinejoin="miter" fill="none"/>
@@ -736,7 +728,7 @@ export default function AbletonDashboard() {
             { icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="0.7"/><path d="M6 6.5C6 5.4 6.9 4.5 8 4.5C9.1 4.5 10 5.4 10 6.5C10 7.6 9 8 8 8.5V9.5" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinecap="square"/><line x1="8" y1="11" x2="8" y2="11.5" stroke="currentColor" strokeWidth="0.7"/></svg>, label: "Ask" },
           ].map(({ icon, label }) => (
             <button key={label} className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-              style={{ fontSize: 14, fontWeight: 400, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
+              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
               <div className="w-[16px] h-[16px] shrink-0 flex items-center justify-center">{icon}</div>
               <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>{label}</span>
             </button>
@@ -746,11 +738,11 @@ export default function AbletonDashboard() {
           {/* Theme toggle */}
           <button onClick={() => switchTheme(() => setThemeMode(themeMode === "dark" ? "light" : themeMode === "light" ? "system" : "dark"))}
             className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-            style={{ fontSize: 14, fontWeight: 400, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}
             title={themeMode === "system" ? "System" : isDark ? "Dark" : "Light"}>
             <div className="w-[16px] h-[16px] shrink-0 flex items-center justify-center">
               {themeMode === "system"
-                ? <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 9V3H13V9" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinejoin="miter"/><line x1="1" y1="9" x2="15" y2="9" stroke="currentColor" strokeWidth="0.7"/><line x1="1" y1="11" x2="15" y2="11" stroke="currentColor" strokeWidth="0.7"/><line x1="1" y1="9" x2="1" y2="11" stroke="currentColor" strokeWidth="0.7"/><line x1="15" y1="9" x2="15" y2="11" stroke="currentColor" strokeWidth="0.7"/></svg>
+                ? <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 10V4H13V10" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinejoin="miter"/><line x1="1" y1="10" x2="15" y2="10" stroke="currentColor" strokeWidth="0.7"/><line x1="1" y1="12" x2="15" y2="12" stroke="currentColor" strokeWidth="0.7"/><line x1="1" y1="10" x2="1" y2="12" stroke="currentColor" strokeWidth="0.7"/><line x1="15" y1="10" x2="15" y2="12" stroke="currentColor" strokeWidth="0.7"/></svg>
                 : isDark
                   ? <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="0.7"/><line x1="8" y1="1.5" x2="8" y2="3" stroke="currentColor" strokeWidth="0.7"/><line x1="8" y1="13" x2="8" y2="14.5" stroke="currentColor" strokeWidth="0.7"/><line x1="1.5" y1="8" x2="3" y2="8" stroke="currentColor" strokeWidth="0.7"/><line x1="13" y1="8" x2="14.5" y2="8" stroke="currentColor" strokeWidth="0.7"/><line x1="3.4" y1="3.4" x2="4.5" y2="4.5" stroke="currentColor" strokeWidth="0.7"/><line x1="11.5" y1="11.5" x2="12.6" y2="12.6" stroke="currentColor" strokeWidth="0.7"/><line x1="12.6" y1="3.4" x2="11.5" y2="4.5" stroke="currentColor" strokeWidth="0.7"/><line x1="4.5" y1="11.5" x2="3.4" y2="12.6" stroke="currentColor" strokeWidth="0.7"/></svg>
                   : <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M9 3C6.2 3 4 5.2 4 8C4 10.8 6.2 13 9 13C11 13 12.7 11.9 13.5 10.3C12.8 10.6 12 10.8 11.2 10.8C8.7 10.8 6.7 8.8 6.7 6.3C6.7 5.1 7.2 4.1 8 3.3C8.3 3.1 8.6 3 9 3Z" stroke="currentColor" strokeWidth="0.7" fill="none"/></svg>
@@ -762,7 +754,7 @@ export default function AbletonDashboard() {
           <div className="relative" ref={activityRef}>
             <button onClick={() => { setActivityOpen(!activityOpen); if (!activityOpen) markAllRead(); }}
               className="flex w-full items-center gap-[10px] py-[9px] transition-colors relative"
-              style={{ fontSize: 14, fontWeight: 400, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
+              style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
               <div className="w-[16px] h-[16px] shrink-0 flex items-center justify-center"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 10V7C4 4.8 5.8 3 8 3C10.2 3 12 4.8 12 7V10L13 12H3L4 10Z" stroke="currentColor" strokeWidth="0.7" fill="none" strokeLinejoin="miter"/><path d="M6.5 12C6.5 13.4 7.2 14 8 14C8.8 14 9.5 13.4 9.5 12" stroke="currentColor" strokeWidth="0.7" fill="none"/></svg></div>
               <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 100, transition: "opacity 150ms, max-width 150ms" }}>Activity</span>
               {queueItems.filter(i => i.status === "pending" || i.status === "uploading" || i.status === "processing").length > 0 && (
@@ -834,7 +826,7 @@ export default function AbletonDashboard() {
           {/* Divider */}
           <div style={{ height: 1, backgroundColor: C.textMuted, opacity: 0.15, margin: sidebarCollapsed ? "4px 12px" : "4px 10px" }} />
           <button className="flex w-full items-center gap-[10px] py-[9px] transition-colors"
-            style={{ fontSize: 14, fontWeight: 400, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
+            style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em", color: C.textSec, justifyContent: sidebarCollapsed ? "center" : "flex-start", paddingLeft: sidebarCollapsed ? 0 : 10, paddingRight: sidebarCollapsed ? 0 : 10, transition: "padding 220ms" }}>
             <div className="w-[16px] h-[16px] shrink-0" />
             <span style={{ overflow: "hidden", whiteSpace: "nowrap", opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>Upgrade</span>
           </button>
