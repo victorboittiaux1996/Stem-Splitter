@@ -178,7 +178,7 @@ export default function AbletonDashboard() {
   // Prefetch stem URLs + server-side peaks for a job (fire-and-forget)
   const prefetchJobStems = useCallback((jobId: string) => {
     if (stemUrlCacheRef.current[jobId]) return; // already cached
-    const wsId = localStorage.getItem("44stems-active-workspace") || "ws-1";
+    const wsId = WORKSPACE_ID;
     // Fetch stem URLs
     fetch(`/api/download/${jobId}`, { headers: { "x-workspace-id": wsId } })
       .then(r => r.json())
@@ -202,7 +202,7 @@ export default function AbletonDashboard() {
 
   // Load history from API on mount
   useEffect(() => {
-    const wsId = localStorage.getItem("44stems-active-workspace") || "ws-1";
+    const wsId = WORKSPACE_ID;
     fetch("/api/history", { headers: { "x-workspace-id": wsId } })
       .then(r => r.json())
       .then(d => {
@@ -216,7 +216,7 @@ export default function AbletonDashboard() {
   }, [prefetchJobStems]);
 
   const refreshHistory = useCallback(() => {
-    const wsId = localStorage.getItem("44stems-active-workspace") || "ws-1";
+    const wsId = WORKSPACE_ID;
     fetch("/api/history", { headers: { "x-workspace-id": wsId } })
       .then(r => r.json())
       .then(d => {
@@ -239,22 +239,7 @@ export default function AbletonDashboard() {
   const [extraOpen, setExtraOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  // ─── Workspaces ──────────────────────────────────────────────
-  interface Workspace { id: string; name: string; color: string; }
-  const WORKSPACE_COLORS = ["#1B10FD","#FF2D55","#FF9500","#34C759","#5856D6","#007AFF"];
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
-    if (typeof window === "undefined") return [{ id: "ws-1", name: "My Workspace", color: "#1B10FD" }];
-    try { const s = localStorage.getItem("44stems-workspaces"); return s ? JSON.parse(s) : [{ id: "ws-1", name: "My Workspace", color: "#1B10FD" }]; } catch { return [{ id: "ws-1", name: "My Workspace", color: "#1B10FD" }]; }
-  });
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
-    if (typeof window === "undefined") return "ws-1";
-    return localStorage.getItem("44stems-active-workspace") || "ws-1";
-  });
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const workspaceRef = useRef<HTMLDivElement>(null);
-  const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0];
+  const WORKSPACE_ID = "ws-1";
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -317,7 +302,7 @@ export default function AbletonDashboard() {
         let id = mockId;
         // If "1", fetch the latest completed job from history
         if (id === "1") {
-          const wsId = localStorage.getItem("44stems-active-workspace") || "ws-1";
+          const wsId = WORKSPACE_ID;
           const histRes = await fetch("/api/history", { headers: { "x-workspace-id": wsId } });
           if (!histRes.ok) return;
           const { jobs } = await histRes.json();
@@ -326,7 +311,7 @@ export default function AbletonDashboard() {
         }
 
         // Load job data
-        const wsId2 = localStorage.getItem("44stems-active-workspace") || "ws-1";
+        const wsId2 = WORKSPACE_ID;
         const jobRes = await fetch(`/api/jobs/${id}`, { headers: { "x-workspace-id": wsId2 } });
         if (!jobRes.ok) return;
         const job: Job = await jobRes.json();
@@ -383,25 +368,10 @@ export default function AbletonDashboard() {
       if (formatOpen && formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false);
       if (extraOpen && extraRef.current && !extraRef.current.contains(e.target as Node)) setExtraOpen(false);
       if (activityOpen && activityRef.current && !activityRef.current.contains(e.target as Node)) setActivityOpen(false);
-      if (workspaceMenuOpen && workspaceRef.current && !workspaceRef.current.contains(e.target as Node)) setWorkspaceMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [stemsOpen, formatOpen, extraOpen, activityOpen, workspaceMenuOpen]);
-
-  // Workspace persistence
-  useEffect(() => { localStorage.setItem("44stems-workspaces", JSON.stringify(workspaces)); }, [workspaces]);
-  useEffect(() => { localStorage.setItem("44stems-active-workspace", activeWorkspaceId); }, [activeWorkspaceId]);
-
-  // Sync active workspace to queue context + reload history
-  useEffect(() => {
-    setCurrentWorkspace(activeWorkspaceId);
-    fetch("/api/history", { headers: { "x-workspace-id": activeWorkspaceId } })
-      .then(r => r.json())
-      .then(d => { if (d.jobs) setHistory(d.jobs); })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId]);
+  }, [stemsOpen, formatOpen, extraOpen, activityOpen]);
 
   // Results playback simulation
   useEffect(() => {
@@ -418,7 +388,7 @@ export default function AbletonDashboard() {
     return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
   }, [isPlaying]);
 
-  const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem, setCurrentWorkspace } = useQueue();
+  const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem } = useQueue();
   const handleFiles = useCallback((files: File[]) => {
     if (files.length === 1) {
       setFile(files[0]); setPendingFiles([]); setAppState("file-selected");
@@ -600,56 +570,15 @@ export default function AbletonDashboard() {
           </button>
         </div>
 
-        {/* Workspace switcher */}
-        <div className="relative shrink-0 px-[8px] pb-[4px]" ref={workspaceRef}>
-          <button onClick={() => { if (sidebarCollapsed) { setSidebarCollapsed(false); setTimeout(() => setWorkspaceMenuOpen(true), 220); } else setWorkspaceMenuOpen(!workspaceMenuOpen); }}
-            className="flex w-full items-center gap-[8px] py-[7px] transition-colors"
-            style={{ paddingLeft: sidebarCollapsed ? 0 : 8, paddingRight: sidebarCollapsed ? 0 : 8, justifyContent: sidebarCollapsed ? "center" : "flex-start", backgroundColor: workspaceMenuOpen ? C.navActive : "transparent" }}>
-            <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center" style={{ backgroundColor: activeWorkspace?.color || C.accent }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{(activeWorkspace?.name || "W").charAt(0).toUpperCase()}</span>
-            </div>
-            <span style={{ overflow: "hidden", whiteSpace: "nowrap", flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: C.text, opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>
-              {activeWorkspace?.name || "My Workspace"}
-            </span>
-            {!sidebarCollapsed && <ChevronDown className="h-[12px] w-[12px] shrink-0" style={{ color: C.textMuted }} strokeWidth={2} />}
-          </button>
-          <AnimatePresence>
-            {workspaceMenuOpen && !sidebarCollapsed && (
-              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.1 }} className="absolute left-[8px] right-[8px] top-full z-50 py-[4px]"
-                style={{ backgroundColor: C.bgCard, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
-                {workspaces.map((ws) => (
-                  <div key={ws.id} className="flex items-center gap-[8px] px-[10px] py-[8px]"
-                    style={{ backgroundColor: ws.id === activeWorkspaceId ? C.navActive : "transparent", cursor: "pointer" }}
-                    onClick={() => { setActiveWorkspaceId(ws.id); setWorkspaceMenuOpen(false); }}>
-                    <div className="flex h-[20px] w-[20px] shrink-0 items-center justify-center" style={{ backgroundColor: ws.color }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{ws.name.charAt(0).toUpperCase()}</span>
-                    </div>
-                    {renamingId === ws.id ? (
-                      <input autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)}
-                        onBlur={() => { setWorkspaces(prev => prev.map(w => w.id === ws.id ? { ...w, name: renameValue.trim() || w.name } : w)); setRenamingId(null); }}
-                        onKeyDown={e => { if (e.key === "Enter") { setWorkspaces(prev => prev.map(w => w.id === ws.id ? { ...w, name: renameValue.trim() || w.name } : w)); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }}
-                        onClick={e => e.stopPropagation()}
-                        style={{ flex: 1, background: "transparent", outline: "none", fontSize: 13, fontWeight: 500, color: C.text, caretColor: C.text }} />
-                    ) : (
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: ws.id === activeWorkspaceId ? C.text : C.textSec }}>{ws.name}</span>
-                    )}
-                    {ws.id === activeWorkspaceId && renamingId !== ws.id && (
-                      <button onClick={e => { e.stopPropagation(); setRenamingId(ws.id); setRenameValue(ws.name); }}
-                        style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.05em" }}>RENAME</button>
-                    )}
-                  </div>
-                ))}
-                <div style={{ height: 1, backgroundColor: `${C.text}10`, margin: "4px 10px" }} />
-                <button className="flex w-full items-center gap-[8px] px-[10px] py-[8px] transition-colors"
-                  onClick={() => { const id = `ws-${Date.now()}`; const color = WORKSPACE_COLORS[workspaces.length % WORKSPACE_COLORS.length]; const name = `Workspace ${workspaces.length + 1}`; setWorkspaces(prev => [...prev, { id, name, color }]); setActiveWorkspaceId(id); setRenamingId(id); setRenameValue(name); }}
-                  style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.04em", color: C.textSec }}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="7" y1="2" x2="7" y2="12" stroke="currentColor" strokeWidth="1"/><line x1="2" y1="7" x2="12" y2="7" stroke="currentColor" strokeWidth="1"/></svg>
-                  NEW WORKSPACE
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        {/* Profile chip */}
+        <div className="shrink-0 px-[8px] pb-[4px]"
+          style={{ display: "flex", alignItems: "center", paddingLeft: sidebarCollapsed ? 0 : 8, paddingRight: sidebarCollapsed ? 0 : 8, justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: 8, padding: "7px 8px" }}>
+          <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center" style={{ backgroundColor: C.accent }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>V</span>
+          </div>
+          <span style={{ overflow: "hidden", whiteSpace: "nowrap", fontSize: 13, fontWeight: 600, color: C.text, opacity: sidebarCollapsed ? 0 : 1, maxWidth: sidebarCollapsed ? 0 : 130, transition: "opacity 150ms, max-width 150ms" }}>
+            Victor
+          </span>
         </div>
 
         {/* Nav — 5 views (custom geometric icons) */}
