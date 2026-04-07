@@ -30,7 +30,7 @@ const C = {
 // ─── Shared ─────────────────────────────────────────────────
 function Container({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 64px", ...style }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px", ...style }}>
       {children}
     </div>
   );
