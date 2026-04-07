@@ -754,7 +754,7 @@ function PricingCTA({ label, accent, hovered: cardHovered, isDark }: { label: st
           ? (isDark
             ? (btnHovered ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.85)")
             : (btnHovered ? C.accent : C.accent))
-          : (btnHovered ? "#F0F0F0" : "transparent"),
+          : (btnHovered ? "#F0F0F0" : "rgba(0,0,0,0)"),
         color: cardHovered ? (isDark ? accent : "#FFFFFF") : C.text,
         borderColor: cardHovered ? "transparent" : "#E0E0E0",
       }}
