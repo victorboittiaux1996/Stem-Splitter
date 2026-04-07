@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
-import { themes, fonts } from "./theme";
+import { useState } from "react";
+import { fonts } from "./theme";
+
+const T = {
+  bg: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#555555",
+  textMuted: "#8C8C8C",
+  border: "#E5E5E5",
+};
 
 const faqItems = [
   {
@@ -38,21 +45,7 @@ const faqItems = [
 ];
 
 export function FAQ() {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Handle SSR hydration
-  if (!mounted) {
-    return null;
-  }
-
-  const isDark = resolvedTheme === "dark";
-  const theme = isDark ? themes.dark : themes.light;
 
   const toggleItem = (index: number) => {
     setOpenIndex(openIndex === index ? null : index);
@@ -61,7 +54,7 @@ export function FAQ() {
   return (
     <section
       style={{
-        backgroundColor: theme.bg,
+        backgroundColor: T.bg,
         padding: "100px 40px",
       }}
     >
@@ -80,7 +73,7 @@ export function FAQ() {
             fontWeight: 700,
             textTransform: "uppercase",
             letterSpacing: "0.08em",
-            color: theme.textMuted,
+            color: T.textMuted,
             textAlign: "center",
             marginBottom: "16px",
           }}
@@ -94,7 +87,7 @@ export function FAQ() {
             fontFamily: fonts.heading,
             fontSize: "36px",
             fontWeight: 700,
-            color: theme.text,
+            color: T.text,
             textAlign: "center",
             marginBottom: "48px",
             margin: "0 0 48px 0",
@@ -109,7 +102,7 @@ export function FAQ() {
             <div
               key={index}
               style={{
-                borderBottom: `1px solid ${theme.textMuted}22`,
+                borderBottom: `1px solid ${T.border}`,
               }}
             >
               {/* Question button */}
@@ -123,7 +116,7 @@ export function FAQ() {
                   fontFamily: fonts.body,
                   fontSize: "16px",
                   fontWeight: 500,
-                  color: theme.text,
+                  color: T.text,
                   padding: "20px 0",
                   backgroundColor: "transparent",
                   border: "none",
@@ -131,10 +124,10 @@ export function FAQ() {
                   transition: "color 0.2s ease",
                 }}
                 onMouseEnter={(e) => {
-                  (e.currentTarget).style.color = theme.accent;
+                  (e.currentTarget).style.color = "#000000";
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget).style.color = theme.text;
+                  (e.currentTarget).style.color = T.text;
                 }}
               >
                 <span>{item.question}</span>
@@ -142,7 +135,7 @@ export function FAQ() {
                 <span
                   style={{
                     fontSize: "20px",
-                    color: theme.textMuted,
+                    color: T.textMuted,
                     minWidth: "20px",
                     display: "flex",
                     alignItems: "center",
@@ -162,7 +155,7 @@ export function FAQ() {
                   style={{
                     fontFamily: fonts.body,
                     fontSize: "14px",
-                    color: theme.textSecondary,
+                    color: T.textSecondary,
                     lineHeight: "1.6",
                     paddingBottom: "20px",
                   }}

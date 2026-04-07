@@ -1,26 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
 import { Logo } from "./logo";
-import { themes, fonts } from "./theme";
+import { fonts } from "./theme";
+
+const T = {
+  bg: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#555555",
+  textMuted: "#8C8C8C",
+  border: "#E5E5E5",
+};
 
 export function Footer() {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Handle SSR hydration
-  if (!mounted) {
-    return null;
-  }
-
-  const isDark = resolvedTheme === "dark";
-  const theme = isDark ? themes.dark : themes.light;
-
   const sections = [
     {
       title: "Product",
@@ -43,7 +34,8 @@ export function Footer() {
   return (
     <footer
       style={{
-        backgroundColor: theme.bgAlt,
+        backgroundColor: T.bg,
+        borderTop: `1px solid ${T.border}`,
       }}
     >
       {/* Main content */}
@@ -77,7 +69,7 @@ export function Footer() {
                   fontWeight: 700,
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
-                  color: theme.textMuted,
+                  color: T.textMuted,
                   margin: "0 0 16px 0",
                 }}
               >
@@ -98,18 +90,18 @@ export function Footer() {
                       style={{
                         fontFamily: fonts.body,
                         fontSize: "14px",
-                        color: theme.textSecondary,
+                        color: T.textSecondary,
                         textDecoration: "none",
                         transition: "color 0.2s ease",
                         cursor: "pointer",
                       }}
                       onMouseEnter={(e) => {
                         (e.target as HTMLAnchorElement).style.color =
-                          theme.text;
+                          T.text;
                       }}
                       onMouseLeave={(e) => {
                         (e.target as HTMLAnchorElement).style.color =
-                          theme.textSecondary;
+                          T.textSecondary;
                       }}
                     >
                       {link}
@@ -124,7 +116,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div
           style={{
-            borderTop: `1px solid ${theme.textMuted}22`,
+            borderTop: `1px solid ${T.border}`,
             paddingTop: "24px",
             display: "flex",
             alignItems: "center",
@@ -138,12 +130,12 @@ export function Footer() {
               gap: "16px",
             }}
           >
-            <Logo size="sm" color={theme.textMuted} />
+            <Logo size="sm" color={T.textMuted} />
             <span
               style={{
                 fontFamily: fonts.body,
                 fontSize: "14px",
-                color: theme.textMuted,
+                color: T.textMuted,
               }}
             >
               Copyright © 2026 44Stems. All rights reserved.

@@ -270,6 +270,10 @@ export default function AbletonDashboard() {
   const [sortBy, setSortBy] = useState<"name" | "date" | "duration" | "format" | "bpm" | "key">("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [fileSearch, setFileSearch] = useState("");
+  const [filterBpm, setFilterBpm] = useState<string | null>(null);
+  const [filterKeys, setFilterKeys] = useState<Set<string>>(new Set());
+  const [filterStems, setFilterStems] = useState<Set<number>>(new Set());
+  const [filterDuration, setFilterDuration] = useState<string | null>(null);
   const [selectedTracks, setSelectedTracks] = useState<Set<string>>(new Set());
   const [selectedStems, setSelectedStems] = useState<Set<string>>(new Set());
   const [exportMode, setExportMode] = useState(false);
@@ -509,7 +513,32 @@ export default function AbletonDashboard() {
   const durToSec = (d?: string) => { if (!d) return 0; const m = d.match(/(\d+)m\s*(\d+)s/); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0; };
   const toggleSort = (col: typeof sortBy) => { if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortBy(col); setSortDir("asc"); } };
 
-  const searched = history.filter(item => !fileSearch || item.name.toLowerCase().includes(fileSearch.toLowerCase()));
+  const availableKeys = Array.from(new Set(history.map(h => h.key).filter(Boolean) as string[])).sort((a, b) => {
+    const parse = (k: string) => { const m = k.match(/(\d+)([AB])/); return m ? parseInt(m[1]) * 2 + (m[2] === "B" ? 1 : 0) : 999; };
+    return parse(a) - parse(b);
+  });
+  const hasActiveFilters = filterBpm !== null || filterKeys.size > 0 || filterStems.size > 0 || filterDuration !== null;
+  const clearFilters = () => { setFilterBpm(null); setFilterKeys(new Set()); setFilterStems(new Set()); setFilterDuration(null); };
+
+  const searched = history.filter(item => {
+    if (fileSearch && !item.name.toLowerCase().includes(fileSearch.toLowerCase())) return false;
+    if (filterBpm) {
+      if (item.bpm === null) return false;
+      if (filterBpm === "< 90" && item.bpm >= 90) return false;
+      if (filterBpm === "90–120" && (item.bpm < 90 || item.bpm > 120)) return false;
+      if (filterBpm === "120–140" && (item.bpm < 120 || item.bpm > 140)) return false;
+      if (filterBpm === "> 140" && item.bpm <= 140) return false;
+    }
+    if (filterKeys.size > 0 && (item.key === null || !filterKeys.has(item.key))) return false;
+    if (filterStems.size > 0 && !filterStems.has(item.stems)) return false;
+    if (filterDuration) {
+      const sec = durToSec(item.duration);
+      if (filterDuration === "< 2min" && sec >= 120) return false;
+      if (filterDuration === "2–5min" && (sec < 120 || sec > 300)) return false;
+      if (filterDuration === "> 5min" && sec <= 300) return false;
+    }
+    return true;
+  });
   const sorted = [...searched].sort((a, b) => {
     let cmp = 0;
     switch (sortBy) {
@@ -1176,6 +1205,74 @@ export default function AbletonDashboard() {
                         placeholder="SEARCH FILES" className="flex-1 bg-transparent text-[13px] outline-none"
                         style={{ color: C.text, letterSpacing: "0.03em" }} />
                     </div>
+                    {/* Filters */}
+                    {history.length > 0 && (
+                      <div className="flex items-center gap-[20px] px-[16px] py-[9px] flex-wrap" style={{ borderBottom: `1px solid ${C.text}08` }}>
+                        {/* BPM */}
+                        <div className="flex items-center gap-[5px]">
+                          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>BPM</span>
+                          {(["< 90", "90–120", "120–140", "> 140"] as const).map(label => (
+                            <button key={label} onClick={() => setFilterBpm(filterBpm === label ? null : label)}
+                              style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
+                                color: filterBpm === label ? C.bg : C.textSec,
+                                backgroundColor: filterBpm === label ? C.text : `${C.text}10` }}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        {/* KEY */}
+                        {availableKeys.length > 0 && (
+                          <div className="flex items-center gap-[5px] flex-wrap">
+                            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>KEY</span>
+                            {availableKeys.map(k => {
+                              const active = filterKeys.has(k);
+                              return (
+                                <button key={k} onClick={() => setFilterKeys(prev => { const next = new Set(prev); active ? next.delete(k) : next.add(k); return next; })}
+                                  style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
+                                    color: active ? C.bg : C.textSec,
+                                    backgroundColor: active ? C.text : `${C.text}10` }}>
+                                  {k}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {/* STEMS */}
+                        <div className="flex items-center gap-[5px]">
+                          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>STEMS</span>
+                          {([2, 4, 6] as const).map(n => {
+                            const active = filterStems.has(n);
+                            return (
+                              <button key={n} onClick={() => setFilterStems(prev => { const next = new Set(prev); active ? next.delete(n) : next.add(n); return next; })}
+                                style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
+                                  color: active ? C.bg : C.textSec,
+                                  backgroundColor: active ? C.text : `${C.text}10` }}>
+                                {n}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* DURATION */}
+                        <div className="flex items-center gap-[5px]">
+                          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>DURATION</span>
+                          {(["< 2min", "2–5min", "> 5min"] as const).map(label => (
+                            <button key={label} onClick={() => setFilterDuration(filterDuration === label ? null : label)}
+                              style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
+                                color: filterDuration === label ? C.bg : C.textSec,
+                                backgroundColor: filterDuration === label ? C.text : `${C.text}10` }}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        {/* Clear */}
+                        {hasActiveFilters && (
+                          <button onClick={clearFilters}
+                            style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginLeft: "auto" }}>
+                            CLEAR
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {/* Column headers */}
                     <div className="flex items-center px-[16px] py-[8px] select-none" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
                       {exportMode && (

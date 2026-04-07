@@ -39,7 +39,7 @@ export const stemColors = {
 
 export const fonts = {
   heading: "'Futura PT', 'futura-pt', sans-serif",
-  body: "'Aeonik', sans-serif",
+  body: "'Futura PT', 'futura-pt', sans-serif",
   mono: "'Fira Code', monospace",
 } as const;
 

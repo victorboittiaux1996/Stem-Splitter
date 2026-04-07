@@ -1,8 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
-import { themes, fonts, stemColors } from "./theme";
+import { useState } from "react";
+import { stemColors } from "./theme";
+
+const F = "'Futura PT', 'futura-pt', sans-serif";
+
+const T = {
+  bg: "#FFFFFF",
+  bgCard: "#F5F5F5",
+  text: "#000000",
+  textSecondary: "#555555",
+  textMuted: "#8C8C8C",
+  border: "#E5E5E5",
+  accent: "#1B10FD",
+};
 
 type PricingVariant = "minimal" | "pop" | "structured";
 
@@ -69,80 +80,216 @@ const barColors = [
   stemColors.guitar,
 ] as const;
 
-export function Pricing({ variant }: PricingProps) {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+function CTAButton({
+  label,
+  highlighted,
+}: {
+  label: string;
+  highlighted: boolean;
+  variant: PricingVariant;
+}) {
+  const [hovered, setHovered] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const base: React.CSSProperties = {
+    width: "100%",
+    padding: "12px 24px",
+    fontFamily: F,
+    fontSize: "14px",
+    fontWeight: 500,
+    borderRadius: 0,
+    cursor: "pointer",
+    transition: "background-color 0.15s ease",
+    border: "none",
+    display: "block",
+    textAlign: "center",
+  };
 
-  if (!mounted) {
-    return null;
-  }
-
-  const isDark = resolvedTheme === "dark";
-  const theme = isDark ? themes.dark : themes.light;
-
-  function getProCardTopAccent(): React.ReactNode {
-    if (variant === "minimal") {
-      return null; // handled via borderTop on card
-    }
-    if (variant === "pop") {
-      return null; // handled via borderTop + boxShadow on card
-    }
-    if (variant === "structured") {
-      return (
-        <div
-          style={{
-            display: "flex",
-            gap: "3px",
-            marginBottom: "24px",
-          }}
-        >
-          {barColors.map((color) => (
-            <div
-              key={color}
-              style={{
-                flex: 1,
-                height: "3px",
-                backgroundColor: color,
-              }}
-            />
-          ))}
-        </div>
-      );
-    }
-    return null;
-  }
-
-  function getProCardStyle(): React.CSSProperties {
-    const base: React.CSSProperties = {
-      backgroundColor: theme.bgAlt,
-      padding: "40px 32px",
-      display: "flex",
-      flexDirection: "column",
-      position: "relative",
-    };
-
-    if (variant === "minimal") {
-      return { ...base, borderTop: `3px solid ${theme.accent}` };
-    }
-    if (variant === "pop") {
-      return {
-        ...base,
-        borderTop: `3px solid ${theme.accent}`,
-        boxShadow: `0 -1px 20px ${theme.accent}15`,
-      };
-    }
-    // structured — no extra border, the bar motif handles the top
-    return base;
+  if (highlighted) {
+    return (
+      <button
+        style={{
+          ...base,
+          backgroundColor: hovered ? "#0E08D8" : "#1B10FD",
+          color: "#FFFFFF",
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {label}
+      </button>
+    );
   }
 
   return (
+    <button
+      style={{
+        ...base,
+        backgroundColor: "transparent",
+        color: T.text,
+        border: `1px solid ${T.border}`,
+        background: hovered ? T.bgCard : "transparent",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {label}
+    </button>
+  );
+}
+
+function PricingCard({ tier, variant }: { tier: typeof tiers[number]; variant: PricingVariant }) {
+  const [hovered, setHovered] = useState(false);
+  const isHighlighted = tier.highlighted;
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        backgroundColor: isHighlighted ? "#EDEAFF" : T.bg,
+        padding: "0 0 40px 0",
+        display: "flex",
+        flexDirection: "column",
+        borderRadius: 0,
+        transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+        boxShadow: "none",
+        border: isHighlighted ? "none" : `1px solid ${hovered ? "#D0D0D0" : T.border}`,
+      }}
+    >
+      {/* 4-bar stem color motif — always on highlighted, on hover for others */}
+      <div
+        style={{
+          display: "flex",
+          height: "3px",
+          marginBottom: "0",
+          opacity: isHighlighted || hovered ? 1 : 0,
+          transition: "opacity 0.2s ease",
+        }}
+      >
+        {barColors.map((color) => (
+          <div key={color} style={{ flex: 1, backgroundColor: color }} />
+        ))}
+      </div>
+
+      <div style={{ padding: "36px 32px 0" }}>
+        {/* Badge */}
+        {tier.badge && (
+          <div style={{ marginBottom: "12px" }}>
+            <span
+              style={{
+                fontFamily: F,
+                fontSize: "11px",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: isHighlighted ? "#1B10FD99" : T.textMuted,
+                backgroundColor: isHighlighted ? "#1B10FD15" : "#EFEFEF",
+                padding: "3px 10px",
+                borderRadius: 0,
+              }}
+            >
+              {tier.badge}
+            </span>
+          </div>
+        )}
+
+        {/* Tier name */}
+        <h3
+          style={{
+            fontFamily: F,
+            fontSize: "13px",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: isHighlighted ? "#1B10FD" : T.textMuted,
+            margin: "0 0 16px 0",
+          }}
+        >
+          {tier.name}
+        </h3>
+
+        {/* Price */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: "4px",
+            marginBottom: "32px",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: F,
+              fontSize: "40px",
+              fontWeight: 300,
+              color: isHighlighted ? "#1B10FD" : T.text,
+              lineHeight: 1,
+            }}
+          >
+            {tier.price}
+          </span>
+          <span
+            style={{
+              fontFamily: F,
+              fontSize: "14px",
+              fontWeight: 300,
+              color: isHighlighted ? "#1B10FD88" : T.textMuted,
+            }}
+          >
+            {tier.period}
+          </span>
+        </div>
+
+        {/* Features */}
+        <ul
+          style={{
+            listStyle: "none",
+            margin: "0 0 32px 0",
+            padding: 0,
+            flex: 1,
+          }}
+        >
+          {tier.features.map((feature) => (
+            <li
+              key={feature}
+              style={{
+                fontFamily: F,
+                fontSize: "14px",
+                fontWeight: 300,
+                color: isHighlighted ? "#111111" : T.textSecondary,
+                marginBottom: "10px",
+                display: "flex",
+                gap: "10px",
+                alignItems: "flex-start",
+              }}
+            >
+              <span
+                style={{
+                  color: isHighlighted ? "#1B10FD44" : T.textMuted,
+                  flexShrink: 0,
+                  lineHeight: "1.5",
+                  fontSize: "12px",
+                }}
+              >
+                —
+              </span>
+              {feature}
+            </li>
+          ))}
+        </ul>
+
+        {/* CTA */}
+        <CTAButton label={tier.cta} highlighted={isHighlighted} variant={variant} />
+      </div>
+    </div>
+  );
+}
+
+export function Pricing({ variant }: PricingProps) {
+  return (
     <section
       style={{
-        backgroundColor: theme.bg,
+        backgroundColor: T.bgCard,
         padding: "100px 40px",
       }}
     >
@@ -153,196 +300,69 @@ export function Pricing({ variant }: PricingProps) {
           marginRight: "auto",
         }}
       >
-        {/* Section header */}
-        <div style={{ marginBottom: "56px" }}>
-          <p
-            style={{
-              fontFamily: fonts.heading,
-              fontSize: "11px",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              color: theme.textMuted,
-              margin: "0 0 12px 0",
-            }}
-          >
-            Pricing
-          </p>
-          <h2
-            style={{
-              fontFamily: fonts.heading,
-              fontSize: "36px",
-              fontWeight: 700,
-              color: theme.text,
-              margin: 0,
-              lineHeight: 1.1,
-            }}
-          >
-            Simple, transparent pricing
-          </h2>
+        {/* Section header — 2-col ElevenLabs pattern */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "80px",
+            marginBottom: "56px",
+          }}
+        >
+          <div style={{ flex: "0 0 42%" }}>
+            <p
+              style={{
+                fontFamily: F,
+                fontSize: "13px",
+                fontWeight: 500,
+                color: T.textMuted,
+                margin: "0 0 20px 0",
+                letterSpacing: "0.01em",
+              }}
+            >
+              Pricing
+            </p>
+            <h2
+              style={{
+                fontFamily: F,
+                fontSize: "48px",
+                fontWeight: 300,
+                color: T.text,
+                margin: 0,
+                lineHeight: "52px",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Simple, transparent pricing
+            </h2>
+          </div>
+          <div style={{ flex: 1, paddingTop: "6px" }}>
+            <p
+              style={{
+                fontFamily: F,
+                fontSize: "16px",
+                fontWeight: 300,
+                color: T.textSecondary,
+                lineHeight: 1.65,
+                margin: 0,
+              }}
+            >
+              Start for free. Upgrade when you need more stems, better quality, or batch processing. No hidden fees.
+            </p>
+          </div>
         </div>
 
-        {/* Cards grid — 1px gap creates thin separator from bg bleeding through */}
+        {/* Cards grid */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "1px",
-            backgroundColor: theme.bg,
+            gap: "12px",
           }}
         >
-          {tiers.map((tier) => {
-            const isHighlighted = tier.highlighted;
-
-            const cardStyle: React.CSSProperties = isHighlighted
-              ? getProCardStyle()
-              : {
-                  backgroundColor: theme.bgAlt,
-                  padding: "40px 32px",
-                  display: "flex",
-                  flexDirection: "column",
-                };
-
-            return (
-              <div key={tier.id} style={cardStyle}>
-                {/* Structured variant 4-bar motif for Pro */}
-                {isHighlighted && getProCardTopAccent()}
-
-                {/* Badge */}
-                {tier.badge && (
-                  <div style={{ marginBottom: "12px" }}>
-                    <span
-                      style={{
-                        fontFamily: fonts.heading,
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.08em",
-                        color: theme.accent,
-                        backgroundColor: `${theme.accent}18`,
-                        padding: "3px 8px",
-                      }}
-                    >
-                      {tier.badge}
-                    </span>
-                  </div>
-                )}
-
-                {/* Tier name */}
-                <h3
-                  style={{
-                    fontFamily: fonts.heading,
-                    fontSize: "14px",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    color: theme.text,
-                    margin: "0 0 20px 0",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  {tier.name}
-                </h3>
-
-                {/* Price */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: "4px",
-                    marginBottom: "32px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: fonts.heading,
-                      fontSize: "40px",
-                      fontWeight: 700,
-                      color: theme.text,
-                      lineHeight: 1,
-                    }}
-                  >
-                    {tier.price}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: fonts.body,
-                      fontSize: "14px",
-                      color: theme.textMuted,
-                    }}
-                  >
-                    {tier.period}
-                  </span>
-                </div>
-
-                {/* Features */}
-                <ul
-                  style={{
-                    listStyle: "none",
-                    margin: "0 0 32px 0",
-                    padding: 0,
-                    flex: 1,
-                  }}
-                >
-                  {tier.features.map((feature) => (
-                    <li
-                      key={feature}
-                      style={{
-                        fontFamily: fonts.body,
-                        fontSize: "14px",
-                        color: theme.textSecondary,
-                        marginBottom: "10px",
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <span
-                        style={{
-                          color: theme.accent,
-                          fontWeight: 600,
-                          flexShrink: 0,
-                          lineHeight: "1.4",
-                        }}
-                      >
-                        +
-                      </span>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-
-                {/* CTA */}
-                <button
-                  style={{
-                    width: "100%",
-                    padding: "14px 24px",
-                    fontFamily: fonts.body,
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    borderRadius: 0,
-                    border: isHighlighted
-                      ? "none"
-                      : `1px solid ${theme.textMuted}44`,
-                    backgroundColor: isHighlighted
-                      ? theme.accent
-                      : "transparent",
-                    color: isHighlighted ? "#FFFFFF" : theme.textSecondary,
-                    cursor: "pointer",
-                    transition: "opacity 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity =
-                      "0.85";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = "1";
-                  }}
-                >
-                  {tier.cta}
-                </button>
-              </div>
-            );
-          })}
+          {tiers.map((tier) => (
+            <PricingCard key={tier.id} tier={tier} variant={variant} />
+          ))}
         </div>
       </div>
     </section>

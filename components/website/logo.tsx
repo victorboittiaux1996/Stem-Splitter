@@ -3,11 +3,12 @@
 import { stemColors, fonts } from "./theme";
 
 interface LogoProps {
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   color?: string;
+  monochrome?: boolean;
 }
 
-const scales = { sm: 0.5, md: 0.75, lg: 1 };
+const scales = { sm: 0.5, md: 0.75, lg: 1, xl: 1.25 };
 
 const barColors = [
   stemColors.vocals,  // #1B10FD
@@ -16,7 +17,7 @@ const barColors = [
   stemColors.guitar,  // #FF3366
 ];
 
-export function Logo({ size = "md", color }: LogoProps) {
+export function Logo({ size = "md", color, monochrome }: LogoProps) {
   const s = scales[size];
   return (
     <svg
@@ -27,7 +28,7 @@ export function Logo({ size = "md", color }: LogoProps) {
       fill="none"
     >
       {barColors.map((c, i) => (
-        <rect key={i} x={0} y={i * 6} width={24} height={3} fill={c} />
+        <rect key={i} x={0} y={i * 6} width={24} height={3} fill={monochrome && color ? color : c} />
       ))}
       <text
         x={32}

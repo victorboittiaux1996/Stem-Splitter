@@ -18,15 +18,17 @@ export function ResultsSection({ jobId, stems, job }: ResultsSectionProps) {
 
   const downloadAll = async () => {
     setIsDownloadingAll(true);
+    const songTitle = job?.fileName ? job.fileName.replace(/\.[^/.]+$/, "") : null;
     try {
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
 
       await Promise.all(
         stems.map(async (stem) => {
-          const response = await fetch(stem.url);
+          const response = await fetch(`${stem.url}&format=wav`);
           const blob = await response.blob();
-          zip.file(`${stem.name}.wav`, blob);
+          const label = stem.name.charAt(0).toUpperCase() + stem.name.slice(1);
+          zip.file(`${label}${songTitle ? " - " + songTitle : ""}.wav`, blob);
         })
       );
 
@@ -34,7 +36,7 @@ export function ResultsSection({ jobId, stems, job }: ResultsSectionProps) {
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `stems-${jobId}.zip`;
+      a.download = `${songTitle ? songTitle + " - " : ""}Stems.zip`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -84,7 +86,7 @@ export function ResultsSection({ jobId, stems, job }: ResultsSectionProps) {
       </motion.div>
 
       {/* Multi-track player */}
-      <MultiTrackPlayer stems={stems} jobId={jobId} />
+      <MultiTrackPlayer stems={stems} jobId={jobId} fileName={job?.fileName} />
 
       {/* Download all */}
       <ShimmerButton

@@ -33,9 +33,11 @@ const STEM_CONFIG: Record<
 interface MultiTrackPlayerProps {
   stems: StemDownload[];
   jobId: string;
+  fileName?: string;
 }
 
-export function MultiTrackPlayer({ stems, jobId }: MultiTrackPlayerProps) {
+export function MultiTrackPlayer({ stems, jobId, fileName }: MultiTrackPlayerProps) {
+  const songTitle = fileName ? fileName.replace(/\.[^/.]+$/, "") : null;
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -153,7 +155,7 @@ export function MultiTrackPlayer({ stems, jobId }: MultiTrackPlayerProps) {
           <audio
             key={stem.name}
             ref={(el) => { audioRefs.current[stem.name] = el; }}
-            src={stem.url}
+            src={`${stem.url}&format=mp3`}
             preload="metadata"
             onLoadedMetadata={() => handleLoadedMetadata(stem.name)}
             onEnded={() => setIsPlaying(false)}
@@ -252,7 +254,7 @@ export function MultiTrackPlayer({ stems, jobId }: MultiTrackPlayerProps) {
                 />
               </div>
 
-              <a href={stem.url} download={`${stem.name}.wav`}>
+              <a href={stem.url} download={`${config.label}${songTitle ? " - " + songTitle : ""}.wav`}>
                 <Button variant="ghost" size="icon" className="h-8 w-8">
                   <Download className="h-3.5 w-3.5" />
                 </Button>
