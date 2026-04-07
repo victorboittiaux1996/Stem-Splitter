@@ -22,7 +22,7 @@ const C = {
   bgCard: "#F5F5F5",      // cards on white bg
   text: "#000000",
   textLight: "#333333",   // body text — dark, not gray (charter)
-  textMuted: "#555555",   // only for truly de-emphasized metadata
+  textMuted: "#666666",   // labels, metadata (charter)
   accent: "#1B10FD",      // 44Stems brand blue (original)
   accentHover: "#0E08D8",
 } as const;
