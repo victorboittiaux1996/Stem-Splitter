@@ -459,22 +459,17 @@ function HowItWorks() {
     <section style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Process</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Three steps.
-                <br />
-                Zero friction.
-              </h2>
-            </div>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Process</SectionLabel>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: "16px 0 0", maxWidth: 520,
+            }}>
+              Three steps. Zero friction.
+            </h2>
+            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: "20px 0 0", maxWidth: 480 }}>
               Upload, pick your stem count, download. No account required to try.
-              Start separating in under a minute.
             </p>
           </div>
         </FadeIn>
@@ -546,25 +541,21 @@ function Processing() {
     <section style={{ backgroundColor: C.bg, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Speed</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Fast enough to
-                <br />
-                not think about it.
-              </h2>
-            </div>
+          <SectionLabel>Speed</SectionLabel>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 24, margin: "16px 0 0" }}>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: 0, flexShrink: 0,
+            }}>
+              &lt;40s
+            </h2>
             <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
-              LALAL.AI takes ~58s. Moises takes ~75s. We run on H100 GPUs and finish
-              in under 40 seconds. The benchmark is real.
+              per track. LALAL.AI takes ~58s. Moises takes ~75s. H100 GPUs, real benchmarks.
             </p>
           </div>
         </FadeIn>
+        <div style={{ height: 56 }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "58fr 42fr", gap: 2 }}>
           <FadeIn delay={0.1}>
@@ -644,6 +635,12 @@ const TIERS = [
 
 function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
   const [hovered, setHovered] = useState(false);
+  const isDark = tier.accent !== "#E8E8E8"; // Free tier is light accent
+
+  const hText = isDark ? "#FFFFFF" : C.text;
+  const hTextMuted = isDark ? "rgba(255,255,255,0.7)" : C.textMuted;
+  const hTextSec = isDark ? "rgba(255,255,255,0.85)" : C.textLight;
+  const hTextFaint = isDark ? "rgba(255,255,255,0.4)" : C.textMuted;
 
   return (
     <motion.div
@@ -661,14 +658,21 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
         cursor: "default",
       }}
     >
+      {/* Top colored bar — appears on hover */}
+      <motion.div
+        animate={{ height: hovered ? 4 : 0 }}
+        transition={{ duration: 0.3 }}
+        style={{ backgroundColor: isDark ? "rgba(255,255,255,0.3)" : C.accent, flexShrink: 0 }}
+      />
+
       <div style={{ padding: "36px 32px 40px", display: "flex", flexDirection: "column", flex: 1 }}>
         {/* Badge */}
         {"badge" in tier && tier.badge && (
           <div style={{ marginBottom: 12 }}>
             <motion.span
               animate={{
-                color: hovered ? "rgba(255,255,255,0.8)" : tier.accent,
-                backgroundColor: hovered ? "rgba(255,255,255,0.15)" : tier.accent + "15",
+                color: hovered ? hTextMuted : tier.accent,
+                backgroundColor: hovered ? (isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.06)") : tier.accent + "15",
               }}
               transition={{ duration: 0.3 }}
               style={{
@@ -683,7 +687,7 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
         )}
 
         <motion.h3
-          animate={{ color: hovered ? "rgba(255,255,255,0.7)" : C.textMuted }}
+          animate={{ color: hovered ? hTextMuted : C.textMuted }}
           transition={{ duration: 0.3 }}
           style={{
             fontFamily: fonts.heading, fontSize: 13, fontWeight: 600,
@@ -696,14 +700,14 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
 
         <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 32 }}>
           <motion.span
-            animate={{ color: hovered ? "#FFFFFF" : C.text }}
+            animate={{ color: hovered ? hText : C.text }}
             transition={{ duration: 0.3 }}
             style={{ fontFamily: fonts.heading, fontSize: 44, fontWeight: 400, lineHeight: 1 }}
           >
             {tier.price}
           </motion.span>
           <motion.span
-            animate={{ color: hovered ? "rgba(255,255,255,0.6)" : C.textMuted }}
+            animate={{ color: hovered ? hTextMuted : C.textMuted }}
             transition={{ duration: 0.3 }}
             style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 400 }}
           >
@@ -715,7 +719,7 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
           {tier.features.map((f) => (
             <motion.li
               key={f}
-              animate={{ color: hovered ? "rgba(255,255,255,0.85)" : C.textLight }}
+              animate={{ color: hovered ? hTextSec : C.textLight }}
               transition={{ duration: 0.3 }}
               style={{
                 fontFamily: fonts.body, fontSize: 14, fontWeight: 400,
@@ -723,7 +727,7 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
               }}
             >
               <motion.span
-                animate={{ color: hovered ? "rgba(255,255,255,0.4)" : C.textMuted }}
+                animate={{ color: hovered ? hTextFaint : C.textMuted }}
                 transition={{ duration: 0.3 }}
                 style={{ flexShrink: 0, lineHeight: "1.5", fontSize: 12 }}
               >—</motion.span>
@@ -732,13 +736,13 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
           ))}
         </ul>
 
-        <PricingCTA label={tier.cta} accent={tier.accent} hovered={hovered} />
+        <PricingCTA label={tier.cta} accent={tier.accent} hovered={hovered} isDark={isDark} />
       </div>
     </motion.div>
   );
 }
 
-function PricingCTA({ label, accent, hovered: cardHovered }: { label: string; accent: string; hovered: boolean }) {
+function PricingCTA({ label, accent, hovered: cardHovered, isDark }: { label: string; accent: string; hovered: boolean; isDark: boolean }) {
   const [btnHovered, setBtnHovered] = useState(false);
 
   return (
@@ -746,8 +750,12 @@ function PricingCTA({ label, accent, hovered: cardHovered }: { label: string; ac
       onMouseEnter={() => setBtnHovered(true)}
       onMouseLeave={() => setBtnHovered(false)}
       animate={{
-        backgroundColor: cardHovered ? (btnHovered ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.85)") : (btnHovered ? "#F0F0F0" : "transparent"),
-        color: cardHovered ? accent : C.text,
+        backgroundColor: cardHovered
+          ? (isDark
+            ? (btnHovered ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.85)")
+            : (btnHovered ? C.accent : C.accent))
+          : (btnHovered ? "#F0F0F0" : "transparent"),
+        color: cardHovered ? (isDark ? accent : "#FFFFFF") : C.text,
         borderColor: cardHovered ? "transparent" : "#E0E0E0",
       }}
       transition={{ duration: 0.2 }}
@@ -768,23 +776,15 @@ function PricingSection() {
     <section id="pricing" style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Pricing</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Simple, transparent
-                <br />
-                pricing.
-              </h2>
-            </div>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
-              Start for free. Upgrade when you need more stems, better quality,
-              or batch processing. No hidden fees.
-            </p>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Pricing</SectionLabel>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: "16px 0 0",
+            }}>
+              Simple, transparent pricing.
+            </h2>
           </div>
         </FadeIn>
 
