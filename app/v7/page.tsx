@@ -626,7 +626,7 @@ function Processing() {
 // ─── Pricing ────────────────────────────────────────────────
 const TIERS = [
   {
-    name: "Free", price: "$0", period: "forever", accent: "#1A1A1A",
+    name: "Free", price: "$0", period: "forever", accent: "#E8E8E8",
     cta: "Get started", ctaStyle: "outline" as const,
     features: ["10 tracks/month", "MP3 output", "2 & 4 stems", "Standard queue"],
   },
