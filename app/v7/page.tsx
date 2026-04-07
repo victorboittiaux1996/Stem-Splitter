@@ -21,7 +21,7 @@ const C = {
   bgAlt: "#F3F3F3",       // neutral light gray — clean alternation
   bgCard: "#F5F5F5",      // cards on white bg
   text: "#000000",
-  textLight: "#000000",   // same black, use fontWeight 300-400 for lighter feel
+  textLight: "#333333",   // body text — dark, not gray (charter)
   textMuted: "#555555",   // only for truly de-emphasized metadata
   accent: "#1B10FD",      // 44Stems brand blue (original)
   accentHover: "#0E08D8",
