@@ -309,14 +309,14 @@ function HeroCTA({ label, variant, href }: { label: string; variant: "primary" |
 
 // ─── Trust Bar ──────────────────────────────────────────────
 const DAWS = [
-  { name: "ableton", style: { fontWeight: 700, fontSize: 15, letterSpacing: -0.3, textTransform: "lowercase" as const } },
-  { name: "FL Studio", style: { fontWeight: 800, fontSize: 14, letterSpacing: 0.5 } },
-  { name: "Logic Pro", style: { fontWeight: 400, fontSize: 15, letterSpacing: 0.5 } },
-  { name: "PRO TOOLS", style: { fontWeight: 900, fontSize: 12, letterSpacing: 2, textTransform: "uppercase" as const } },
-  { name: "Cubase", style: { fontWeight: 700, fontSize: 15, letterSpacing: 0.2 } },
-  { name: "Studio One", style: { fontWeight: 400, fontSize: 14, letterSpacing: 0.8 } },
-  { name: "REAPER", style: { fontWeight: 900, fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase" as const } },
-  { name: "Bitwig", style: { fontWeight: 700, fontSize: 15, letterSpacing: -0.2 } },
+  { name: "Ableton", file: "ableton" },
+  { name: "FL Studio", file: "flstudio" },
+  { name: "Logic Pro", file: "logicpro" },
+  { name: "Pro Tools", file: "protools" },
+  { name: "Cubase", file: "cubase" },
+  { name: "Studio One", file: "studioone" },
+  { name: "Reaper", file: "reaper" },
+  { name: "Bitwig", file: "bitwig" },
 ];
 
 function TrustBar() {
@@ -329,9 +329,12 @@ function TrustBar() {
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             {DAWS.map((d) => (
-              <span key={d.name} style={{ fontFamily: fonts.body, color: C.text, opacity: 0.35, whiteSpace: "nowrap", ...d.style }}>
-                {d.name}
-              </span>
+              <img
+                key={d.file}
+                src={`/logos/${d.file}.svg`}
+                alt={d.name}
+                style={{ height: 18, width: "auto", opacity: 0.3 }}
+              />
             ))}
           </div>
         </FadeIn>
@@ -541,21 +544,20 @@ function Processing() {
     <section style={{ backgroundColor: C.bg, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <SectionLabel>Speed</SectionLabel>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 24, margin: "16px 0 0" }}>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Speed</SectionLabel>
             <h2 style={{
               fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
               lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: 0, flexShrink: 0,
+              margin: "16px 0 0", maxWidth: 520,
             }}>
-              &lt;40s
+              Fast enough to not think about it.
             </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
-              per track. LALAL.AI takes ~58s. Moises takes ~75s. H100 GPUs, real benchmarks.
+            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: "20px 0 0", maxWidth: 480 }}>
+              LALAL.AI takes ~58s. Moises takes ~75s. We finish in under 40 seconds.
             </p>
           </div>
         </FadeIn>
-        <div style={{ height: 56 }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "58fr 42fr", gap: 2 }}>
           <FadeIn delay={0.1}>
