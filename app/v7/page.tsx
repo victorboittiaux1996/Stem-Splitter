@@ -462,17 +462,22 @@ function HowItWorks() {
     <section style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Process</SectionLabel>
-            <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0", maxWidth: 520,
-            }}>
-              Three steps. Zero friction.
-            </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: "20px 0 0", maxWidth: 480 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
+            <div>
+              <SectionLabel>Process</SectionLabel>
+              <h2 style={{
+                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+                margin: "16px 0 0",
+              }}>
+                Three steps.
+                <br />
+                Zero friction.
+              </h2>
+            </div>
+            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
               Upload, pick your stem count, download. No account required to try.
+              Start separating in under a minute.
             </p>
           </div>
         </FadeIn>
@@ -544,17 +549,22 @@ function Processing() {
     <section style={{ backgroundColor: C.bg, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Speed</SectionLabel>
-            <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0", maxWidth: 520,
-            }}>
-              Fast enough to not think about it.
-            </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: "20px 0 0", maxWidth: 480 }}>
-              LALAL.AI takes ~58s. Moises takes ~75s. We finish in under 40 seconds.
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
+            <div>
+              <SectionLabel>Speed</SectionLabel>
+              <h2 style={{
+                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+                margin: "16px 0 0",
+              }}>
+                Fast enough to
+                <br />
+                not think about it.
+              </h2>
+            </div>
+            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+              LALAL.AI takes ~58s. Moises takes ~75s. We run on H100 GPUs and finish
+              in under 40 seconds. The benchmark is real.
             </p>
           </div>
         </FadeIn>
@@ -778,15 +788,23 @@ function PricingSection() {
     <section id="pricing" style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Pricing</SectionLabel>
-            <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0",
-            }}>
-              Simple, transparent pricing.
-            </h2>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
+            <div>
+              <SectionLabel>Pricing</SectionLabel>
+              <h2 style={{
+                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+                margin: "16px 0 0",
+              }}>
+                Simple, transparent
+                <br />
+                pricing.
+              </h2>
+            </div>
+            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+              Start for free. Upgrade when you need more stems, better quality,
+              or batch processing. No hidden fees.
+            </p>
           </div>
         </FadeIn>
 
