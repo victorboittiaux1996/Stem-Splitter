@@ -430,7 +430,7 @@ function Features() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, backgroundColor: C.bg }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2, backgroundColor: C.bg }}>
           {FEATURES.map((f, i) => (
             <FeatureCard key={f.title} feature={f} index={i} />
           ))}
@@ -479,7 +479,7 @@ function HowItWorks() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
           {STEPS.map((step, i) => (
             <StepCard key={step.num} step={step} index={i} />
           ))}
@@ -566,7 +566,7 @@ function Processing() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "58fr 42fr", gap: 1 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "58fr 42fr", gap: 2 }}>
           <FadeIn delay={0.1}>
             <div style={{ backgroundColor: C.bgCard, padding: "36px 32px", display: "flex", flexDirection: "column", gap: 24 }}>
               {[
@@ -788,7 +788,7 @@ function PricingSection() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
           {TIERS.map((t, i) => (
             <FadeIn key={t.name} delay={i * 0.08}>
               <PricingCard tier={t} />
