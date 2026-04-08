@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jobKey } from "@/lib/r2";
 import { getAuthUser, getUserPlan, checkUsage } from "@/lib/supabase/auth-helpers";
+import { PLANS } from "@/lib/plans";
 
-const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
-const MAX_SIZE_FREE = 200 * 1024 * 1024; // 200 MB for free plan
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
 
@@ -25,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const maxFileSize = plan === "free" ? MAX_SIZE_FREE : MAX_SIZE;
+    const maxFileSize = PLANS[plan].maxFileSizeMB * 1024 * 1024;
 
     const appUrl =
       process.env.APP_URL ??
@@ -79,7 +78,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unsupported format" }, { status: 400 });
     }
     if (typeof size === "number" && size > maxFileSize) {
-      const limit = plan === "free" ? "200 MB" : "2 GB";
+      const mb = PLANS[plan].maxFileSizeMB;
+      const limit = mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`;
       return NextResponse.json({ error: `File too large (${limit} max)` }, { status: 400 });
     }
 

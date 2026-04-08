@@ -130,20 +130,45 @@ const TrashIcon = ({ color }: { color: string }) => (
   </svg>
 );
 
+// ─── Seeded waveform generator (DAW-style mirrored SVG) ─────
+function mulberry32(seed: number) {
+  return () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function generateWaveformPath(seed: number, count = 100): string {
+  const rng = mulberry32(seed);
+  const cy = 18, amp = 14; // viewBox 0 0 100 36
+  const peaks: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const env = Math.sin((i / count) * Math.PI) * 0.6 + 0.4;
+    peaks.push(env * (rng() * 0.7 + 0.3));
+  }
+  const top = peaks.map((p, i) => `${(i / count) * 100},${cy - p * amp}`).join(" L");
+  const bot = [...peaks].reverse().map((p, i) => `${((count - 1 - i) / count) * 100},${cy + p * amp}`).join(" L");
+  return `M0,${cy} L${top} L100,${cy} L${bot} Z`;
+}
+
+const WAVEFORM_SEEDS = [42, 137, 256, 891];
+
 // Nav items
 const NAV_ICONS = [SplitIcon, FilesIcon, StatsIcon, GamesIcon];
 
 const STEMS = [
-  { label: "VOCALS", color: stemColors.vocals, w: 78 },
-  { label: "DRUMS", color: stemColors.drums, w: 95 },
-  { label: "BASS", color: stemColors.bass, w: 58 },
-  { label: "OTHER", color: stemColors.other, w: 85 },
+  { label: "VOCALS", color: stemColors.vocals },
+  { label: "DRUMS", color: stemColors.drums },
+  { label: "BASS", color: stemColors.bass },
+  { label: "OTHER", color: stemColors.other },
 ];
 
 const MOCK_FILES = [
-  { name: "Rafael, Mita Gami - What Is Luv (Extended Mix) [Maccabi House].mp3", time: "1h ago", stems: 4, bpm: "125", key: "1A", dur: "5m 26s", fmt: "WAV / MP3" },
-  { name: "SpotiDownloader.com - Put the Needle on It - Radio Version - Dannii Minogue...", time: "1 week ago", stems: 4, bpm: "120", key: "3A", dur: "3m 24s", fmt: "WAV / MP3" },
-  { name: "SpotiDownloader.com - Lisa - The Glimmers.mp3", time: "1 week ago", stems: 4, bpm: "127", key: "2A", dur: "4m 00s", fmt: "WAV / MP3" },
+  { name: "Daft Punk - Get Lucky.wav", time: "2h ago", stems: 4, bpm: "116", key: "5B", dur: "6m 09s", fmt: "WAV / MP3" },
+  { name: "Billie Eilish - Bad Guy.mp3", time: "5h ago", stems: 4, bpm: "135", key: "7A", dur: "3m 14s", fmt: "WAV / MP3" },
+  { name: "Michael Jackson - Billie Jean.wav", time: "1 day ago", stems: 4, bpm: "117", key: "11B", dur: "4m 54s", fmt: "WAV / MP3" },
 ];
 
 // ─── Main component ─────────────────────────────────────────
@@ -186,7 +211,7 @@ export function HeroDemo() {
           {/* Logo — just the 4 bars, centered (app line 593-594) */}
           <div style={{
             height: 52, display: "flex", alignItems: "center", justifyContent: "center",
-            padding: "0 14px", cursor: "pointer",
+            padding: "0 14px", cursor: "default",
           }}>
             <svg height="14" viewBox="0 0 24 21" fill="none" overflow="visible" style={{ flexShrink: 0 }}>
               <rect x="0" y="0" width="24" height="3" fill={D.text}/>
@@ -218,7 +243,7 @@ export function HeroDemo() {
                   onClick={() => { setActiveNav(i); setView(i === 1 ? "files" : "split"); }}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    padding: "9px 0", marginBottom: 2, cursor: "pointer",
+                    padding: "9px 0", marginBottom: 2, cursor: "default",
                     backgroundColor: isActive ? D.navActive : "transparent",
                   }}
                 >
@@ -358,7 +383,7 @@ function SplitView() {
             <div key={f.name} style={{
               display: "flex", alignItems: "center", padding: "14px 16px",
               borderBottom: i < MOCK_FILES.length - 1 ? `1px solid ${D.text}08` : undefined,
-              cursor: "pointer",
+              cursor: "default",
             }}>
               <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
                 <div style={{ width: 36, height: 36, backgroundColor: D.bgHover, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -402,8 +427,8 @@ function ResultsView() {
             <WaveformIcon color={D.textSec} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: D.text }}>Rafael, Mita Gami - What Is Luv.mp3</div>
-            <div style={{ fontSize: 13, color: D.textMuted, marginTop: 3 }}>125 BPM · 1A · WAV · 4 stems</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: D.text }}>Daft Punk - Get Lucky.wav</div>
+            <div style={{ fontSize: 13, color: D.textMuted, marginTop: 3 }}>116 BPM · 5B · WAV · 4 stems</div>
           </div>
           <span style={{ fontSize: 11, fontWeight: 600, color: "#00CC66", letterSpacing: "0.04em" }}>COMPLETE</span>
         </div>
@@ -428,13 +453,11 @@ function ResultsView() {
             }}>
               {s.label}
             </span>
-            <div style={{ flex: 1, height: 28, backgroundColor: D.bgHover, overflow: "hidden" }}>
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${s.w}%` }}
-                transition={{ duration: 0.8, delay: 0.2 + i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-                style={{ height: "100%", backgroundColor: s.color, opacity: 0.7 }}
-              />
+            <div style={{ flex: 1, height: 36, backgroundColor: D.bgHover, overflow: "hidden", position: "relative" }}>
+              <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 1, backgroundColor: s.color, opacity: 0.1 }} />
+              <svg viewBox="0 0 100 36" preserveAspectRatio="none" style={{ width: "100%", height: 36, display: "block" }}>
+                <path d={generateWaveformPath(WAVEFORM_SEEDS[i])} fill={s.color} opacity={0.85} />
+              </svg>
             </div>
             <span style={{ fontSize: 13, color: D.textMuted, width: 32, textAlign: "right" }}>WAV</span>
             <DownloadIcon color={D.textMuted} />
@@ -446,7 +469,7 @@ function ResultsView() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           padding: "12px 16px", backgroundColor: D.bgSubtle,
         }}>
-          <span style={{ fontSize: 13, color: D.textMuted }}>4 stems · 5m 26s</span>
+          <span style={{ fontSize: 13, color: D.textMuted }}>4 stems · 6m 09s</span>
           <div style={{
             display: "flex", alignItems: "center", gap: 6,
             backgroundColor: D.accent, padding: "8px 16px",
@@ -488,7 +511,7 @@ function FilesView() {
           <div key={f.name} style={{
             display: "flex", alignItems: "center", padding: "14px 16px",
             borderBottom: i < MOCK_FILES.length - 1 ? `1px solid ${D.text}08` : undefined,
-            cursor: "pointer",
+            cursor: "default",
           }}>
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
               <div style={{ width: 36, height: 36, backgroundColor: D.bgHover, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>

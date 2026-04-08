@@ -222,7 +222,15 @@ function Hero() {
           transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
           style={{ marginTop: 64 }}
         >
-          <HeroDemo />
+          <div style={{ overflow: "hidden" }}>
+            <div style={{
+              transform: "scale(0.85)",
+              transformOrigin: "top center",
+              marginBottom: -100,
+            }}>
+              <HeroDemo />
+            </div>
+          </div>
         </motion.div>
       </Container>
     </section>
