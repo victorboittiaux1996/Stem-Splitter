@@ -82,10 +82,8 @@ def download_from_url(url: str, output_dir: str) -> str:
     Has a hard 90-second timeout to prevent hanging forever on blocked IPs.
     """
     import yt_dlp
-    import signal
-
-    def _timeout_handler(signum, frame):
-        raise TimeoutError("Download timed out after 90 seconds — YouTube may be blocking this server's IP")
+    import threading
+    import ctypes
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -105,19 +103,40 @@ def download_from_url(url: str, output_dir: str) -> str:
         },
     }
 
-    # Hard timeout: 90 seconds max for the entire download
-    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(90)
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(url, download=True)
-            for f in os.listdir(output_dir):
-                if f.startswith('audio.') and not f.endswith('.part'):
-                    return os.path.join(output_dir, f)
+    result = [None]  # [path or exception]
+
+    def _download():
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(url, download=True)
+                for f in os.listdir(output_dir):
+                    if f.startswith('audio.') and not f.endswith('.part'):
+                        result[0] = os.path.join(output_dir, f)
+                        return
+            result[0] = Exception(f"No audio file found after download from {url}")
+        except Exception as e:
+            result[0] = e
+
+    thread = threading.Thread(target=_download)
+    thread.start()
+    thread.join(timeout=90)
+
+    if thread.is_alive():
+        # Thread is still running after 90s — force kill via ctypes
+        try:
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_ulong(thread.ident),
+                ctypes.py_object(SystemExit)
+            )
+        except Exception:
+            pass
+        raise TimeoutError("Download timed out after 90 seconds — the source may be blocking this server")
+
+    if isinstance(result[0], Exception):
+        raise result[0]
+    if result[0] is None:
         raise Exception(f"Failed to download audio from {url}")
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+    return result[0]
 
 
 def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
