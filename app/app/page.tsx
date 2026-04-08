@@ -1069,7 +1069,7 @@ export default function AbletonDashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-[10px]">
-                        <span style={{ fontSize: 15, color: C.textMuted }}>0 / 10,000 credits</span>
+                        <span style={{ fontSize: 15, color: C.textMuted }}>{remainingFormatted} / {minutesIncluded} min</span>
                         <button onClick={handleSplit} disabled={!canSplit}
                           className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                           style={{ backgroundColor: canSplit ? C.accent : C.textMuted, color: C.accentText, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
@@ -1586,7 +1586,7 @@ export default function AbletonDashboard() {
 
           {/* ═══ SETTINGS ═══ */}
           {view === "settings" && (
-            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} onUpgrade={handleUpgrade} />
+            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} onUpgrade={handleUpgrade} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} />
           )}
         </div>
       </div>

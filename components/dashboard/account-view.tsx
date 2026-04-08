@@ -25,6 +25,10 @@ interface AccountViewProps {
   usagePercent?: number;
   daysUntilReset?: number;
   onUpgrade?: (plan: "pro" | "studio") => void;
+  displayName?: string;
+  email?: string;
+  initials?: string;
+  avatarUrl?: string | null;
 }
 
 // Mock usage history data
@@ -90,7 +94,7 @@ function Toggle({ on, C }: { on: boolean; C: C }) {
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl }: AccountViewProps) {
   const [showAll, setShowAll] = React.useState(false);
   const visibleRows = showAll ? USAGE_HISTORY : USAGE_HISTORY.slice(0, 10);
 
@@ -136,19 +140,19 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               <div className="flex items-center gap-[16px]" style={{ marginBottom: 20 }}>
                 <div className="shrink-0 flex items-center justify-center"
                   style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #1B10FD 0%, #7C3AED 100%)" }}>
-                  <span style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>V</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{initials}</span>
                 </div>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Victor Boittiaux</div>
-                  <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>victorboittiaux@gmail.com</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{displayName}</div>
+                  <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>{email}</div>
                 </div>
               </div>
 
               <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, marginBottom: 16 }} />
 
               <SectionHeading C={C}>Personal Information</SectionHeading>
-              <InfoRow label="Full name" value="Victor Boittiaux" C={C} />
-              <InfoRow label="Email address" value="victorboittiaux@gmail.com" C={C} />
+              <InfoRow label="Full name" value={displayName} C={C} />
+              <InfoRow label="Email address" value={email} C={C} />
               <InfoRow label="Member since" value="March 2026" C={C} last />
             </div>
 
@@ -165,7 +169,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                   </svg>
                   <div>
                     <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>Google</div>
-                    <div style={{ fontSize: 12, color: C.textMuted }}>victorboittiaux@gmail.com</div>
+                    <div style={{ fontSize: 12, color: C.textMuted }}>{email}</div>
                   </div>
                 </div>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.textMuted }}>CONNECTED</span>
