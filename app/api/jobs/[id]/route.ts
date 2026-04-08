@@ -41,9 +41,11 @@ export async function PATCH(
 
     // Track minutes when job completes with a duration
     if (updates.status === "completed" && typeof merged.duration === "number" && merged.userId) {
-      trackMinutesUsed(merged.userId, merged.duration).catch((err) =>
-        console.error("Failed to track usage:", err)
-      );
+      try {
+        await trackMinutesUsed(merged.userId, merged.duration);
+      } catch (err) {
+        console.error("Failed to track usage:", err);
+      }
     }
 
     return NextResponse.json({ ok: true });
