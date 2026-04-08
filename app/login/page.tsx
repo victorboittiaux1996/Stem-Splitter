@@ -27,6 +27,9 @@ function LoginContent() {
   const [hovering, setHovering] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [emailError, setEmailError] = useState("");
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -152,43 +155,96 @@ function LoginContent() {
         </button>
 
         {/* Email/password login */}
-        <button
-          onClick={async () => {
-            setEmailLoading(true);
-            const supabase = createClient();
-            const { error: err } = await supabase.auth.signInWithPassword({
-              email: "boittiauxvictor@gmail.com",
-              password: "vboittiaux",
-            });
-            if (err) {
-              alert("Login failed: " + err.message);
-              setEmailLoading(false);
-            } else {
-              window.location.href = "/app";
-            }
-          }}
-          data-testid="qa-email-login"
-          style={{
-            width: "100%",
-            height: 46,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            backgroundColor: C.bgHover,
-            color: C.textSec,
-            fontSize: 13,
-            fontWeight: 700,
-            fontFamily: F,
-            letterSpacing: "0.03em",
-            border: `1px solid ${C.textMuted}`,
-            cursor: "pointer",
-            transition: "background-color 0.15s",
-            textTransform: "uppercase",
-          }}
-        >
-          {emailLoading ? "SIGNING IN..." : "SIGN IN WITH EMAIL"}
-        </button>
+        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setEmailError(""); }}
+            style={{
+              width: "100%",
+              height: 46,
+              padding: "0 14px",
+              backgroundColor: C.bgSubtle,
+              color: C.text,
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: F,
+              letterSpacing: "0.02em",
+              border: `1px solid ${C.textMuted}`,
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setEmailError(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") document.getElementById("email-login-btn")?.click(); }}
+            style={{
+              width: "100%",
+              height: 46,
+              padding: "0 14px",
+              backgroundColor: C.bgSubtle,
+              color: C.text,
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: F,
+              letterSpacing: "0.02em",
+              border: `1px solid ${C.textMuted}`,
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+          {emailError && (
+            <div style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#FF3366",
+              letterSpacing: "0.02em",
+            }}>
+              {emailError}
+            </div>
+          )}
+          <button
+            id="email-login-btn"
+            onClick={async () => {
+              if (!email || !password) { setEmailError("EMAIL AND PASSWORD REQUIRED"); return; }
+              setEmailLoading(true);
+              setEmailError("");
+              const supabase = createClient();
+              const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+              if (err) {
+                setEmailError(err.message.toUpperCase());
+                setEmailLoading(false);
+              } else {
+                window.location.href = "/app";
+              }
+            }}
+            data-testid="qa-email-login"
+            style={{
+              width: "100%",
+              height: 46,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              backgroundColor: C.bgHover,
+              color: C.textSec,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: F,
+              letterSpacing: "0.03em",
+              border: `1px solid ${C.textMuted}`,
+              cursor: "pointer",
+              transition: "background-color 0.15s",
+              textTransform: "uppercase",
+            }}
+          >
+            {emailLoading ? "SIGNING IN..." : "SIGN IN WITH EMAIL"}
+          </button>
+        </div>
 
         {/* Divider */}
         <div style={{ width: "100%", height: 1, backgroundColor: C.bgHover }} />
