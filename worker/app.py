@@ -103,40 +103,36 @@ def download_from_url(url: str, output_dir: str) -> str:
         },
     }
 
-    result = [None]  # [path or exception]
+    # Use subprocess with hard timeout instead of Python yt-dlp API
+    # This allows os-level kill if the process hangs
+    import subprocess
+    output_template = os.path.join(output_dir, 'audio.%(ext)s')
 
-    def _download():
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(url, download=True)
-                for f in os.listdir(output_dir):
-                    if f.startswith('audio.') and not f.endswith('.part'):
-                        result[0] = os.path.join(output_dir, f)
-                        return
-            result[0] = Exception(f"No audio file found after download from {url}")
-        except Exception as e:
-            result[0] = e
+    cmd = [
+        'yt-dlp',
+        '--format', 'bestaudio/best',
+        '-o', output_template,
+        '--no-warnings', '--quiet',
+        '--socket-timeout', '30',
+        '--retries', '1',
+        '--fragment-retries', '1',
+        '--extractor-args', 'youtube:player_client=web,android',
+        '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        url,
+    ]
 
-    thread = threading.Thread(target=_download)
-    thread.start()
-    thread.join(timeout=90)
+    try:
+        subprocess.run(cmd, timeout=90, check=True, capture_output=True)
+    except subprocess.TimeoutExpired:
+        raise TimeoutError("Download timed out after 90 seconds — the source may be blocking this server's IP")
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode('utf-8', errors='replace')[:500] if e.stderr else ''
+        raise Exception(f"Download failed: {stderr}")
 
-    if thread.is_alive():
-        # Thread is still running after 90s — force kill via ctypes
-        try:
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                ctypes.c_ulong(thread.ident),
-                ctypes.py_object(SystemExit)
-            )
-        except Exception:
-            pass
-        raise TimeoutError("Download timed out after 90 seconds — the source may be blocking this server")
-
-    if isinstance(result[0], Exception):
-        raise result[0]
-    if result[0] is None:
-        raise Exception(f"Failed to download audio from {url}")
-    return result[0]
+    for f in os.listdir(output_dir):
+        if f.startswith('audio.') and not f.endswith('.part'):
+            return os.path.join(output_dir, f)
+    raise Exception(f"No audio file found after download from {url}")
 
 
 def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
