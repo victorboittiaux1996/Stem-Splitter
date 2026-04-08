@@ -16,7 +16,10 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           supabaseResponse = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              domain: process.env.NODE_ENV === "production" ? ".44stems.com" : undefined,
+            })
           );
         },
       },
@@ -29,7 +32,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Public routes that don't require auth
-  const publicPaths = ["/", "/login", "/auth/callback", "/website-", "/v5-", "/v6", "/v7"];
+  const publicPaths = ["/", "/login", "/auth/callback", "/website-", "/v5-", "/v6", "/v7", "/speed-compare"];
   const isPublic = publicPaths.some((p) =>
     p === "/" ? request.nextUrl.pathname === "/" : request.nextUrl.pathname.startsWith(p)
   );

@@ -24,8 +24,11 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}${next}`);
       }
     }
+    // Show exact error in URL for debugging
+    const errMsg = encodeURIComponent(error?.message || "unknown");
+    return NextResponse.redirect(`${origin}/login?error=auth&detail=${errMsg}`);
   }
 
-  // Auth error — redirect to login with error
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+  // No code received
+  return NextResponse.redirect(`${origin}/login?error=auth&detail=no_code`);
 }

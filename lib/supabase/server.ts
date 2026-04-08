@@ -16,7 +16,10 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, {
+                ...options,
+                domain: process.env.NODE_ENV === "production" ? ".44stems.com" : undefined,
+              })
             );
           } catch {
             // Called from a Server Component — safe to ignore with middleware refreshing sessions
