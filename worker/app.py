@@ -354,6 +354,28 @@ def separate(request: dict):
                               key=analysis["key"], key_raw=analysis["key_raw"],
                               duration=analysis["duration"], peaks=stem_peaks,
                               workspace_id=workspace_id)
+
+            # Notify Next.js to track usage minutes
+            if callback_url:
+                import urllib.request
+                try:
+                    secret = os.environ.get("MODAL_CALLBACK_SECRET", "")
+                    payload = json.dumps({
+                        "status": "completed",
+                        "duration": analysis["duration"],
+                        "stems": stem_names,
+                        "bpm": analysis["bpm"],
+                        "key": analysis["key"],
+                        "workspaceId": workspace_id,
+                    }).encode("utf-8")
+                    req = urllib.request.Request(callback_url, data=payload, method="PATCH")
+                    req.add_header("Content-Type", "application/json")
+                    req.add_header("x-modal-secret", secret)
+                    urllib.request.urlopen(req, timeout=10)
+                    print(f"Callback sent to {callback_url}")
+                except Exception as e:
+                    print(f"Callback failed (usage may not be tracked): {e}")
+
             return {"status": "completed", "stems": stem_names}
 
         # Compute peaks for direct mode too

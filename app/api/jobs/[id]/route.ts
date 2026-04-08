@@ -40,7 +40,7 @@ export async function PATCH(
     await writeJsonToR2(key, merged);
 
     // Track minutes when job completes with a duration
-    if (updates.status === "complete" && typeof merged.duration === "number" && merged.userId) {
+    if (updates.status === "completed" && typeof merged.duration === "number" && merged.userId) {
       trackMinutesUsed(merged.userId, merged.duration).catch((err) =>
         console.error("Failed to track usage:", err)
       );
