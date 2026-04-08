@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { stemColors } from "./theme";
+import { PLANS } from "@/lib/plans";
 
 const F = "'Futura PT', 'futura-pt', sans-serif";
 
@@ -22,32 +23,33 @@ interface PricingProps {
   onUpgrade?: (plan: "pro" | "studio") => void;
 }
 
+// Prices from central config, marketing features kept here (different tone than technical limits)
 const tiers = [
   {
-    id: "free",
+    id: "free" as const,
     name: "Free",
-    price: "$0",
+    price: `$${PLANS.free.priceUSD}`,
     period: "forever",
     highlighted: false,
     badge: null,
     cta: "Get started",
     features: [
-      "10 tracks/month",
+      `${PLANS.free.minutesIncluded} min/month`,
       "MP3 output",
       "2 & 4 stems",
       "Standard queue",
     ],
   },
   {
-    id: "pro",
+    id: "pro" as const,
     name: "Pro",
-    price: "$9.99",
+    price: `$${PLANS.pro.priceUSD}`,
     period: "/month",
     highlighted: true,
     badge: "Popular",
     cta: "Start free trial",
     features: [
-      "Unlimited tracks",
+      `${PLANS.pro.minutesIncluded} min/month`,
       "WAV 24-bit + MP3 320kbps",
       "2 / 4 / 6 stems",
       "Priority queue",
@@ -56,23 +58,23 @@ const tiers = [
     ],
   },
   {
-    id: "studio",
+    id: "studio" as const,
     name: "Studio",
-    price: "$29.99",
+    price: `$${PLANS.studio.priceUSD}`,
     period: "/month",
     highlighted: false,
     badge: null,
-    cta: "Contact sales",
+    cta: "Get Studio",
     features: [
+      `${PLANS.studio.minutesIncluded} min/month`,
       "Everything in Pro",
       "API access",
       "Team seats (up to 5)",
-      "Custom processing priority",
       "Dedicated support",
       "Early access to new models",
     ],
   },
-] as const;
+];
 
 const barColors = [
   stemColors.vocals,

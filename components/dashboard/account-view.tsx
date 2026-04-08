@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { PLANS } from "@/lib/plans";
 
 export type SettingsSection = "profile" | "subscription" | "usage" | "defaults";
 
@@ -42,31 +43,10 @@ const USAGE_HISTORY = [
   { date: "Mar 20, 2026", details: "Daily Free Credits",          type: "Credit", time: "+5:00",  positive: true  },
 ];
 
-const FREE_FEATURES = [
-  "10 minutes / month",
-  "Up to 6-stem separation",
-  "WAV export only",
-  "Standard processing",
-  "1 file at a time",
-];
-
-const PRO_FEATURES = [
-  "90 minutes / month",
-  "Up to 6-stem separation",
-  "MP3 + WAV export",
-  "Fast queue",
-  "Batch processing",
-];
-
-const STUDIO_FEATURES = [
-  "250 minutes / month",
-  "Up to 6-stem separation",
-  "MP3 + WAV export",
-  "Fast queue",
-  "Batch processing",
-  "VST plugin",
-  "API access",
-];
+// Features derived from central plan config
+const FREE_FEATURES = PLANS.free.features;
+const PRO_FEATURES = PLANS.pro.features;
+const STUDIO_FEATURES = PLANS.studio.features;
 
 const TABS: { id: SettingsSection; label: string }[] = [
   { id: "profile",       label: "ACCOUNT SETTINGS" },
@@ -396,7 +376,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               {/* Pro */}
               <div style={{ backgroundColor: C.bgCard, padding: 20, borderLeft: `2px solid ${C.accent}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 4 }}>PRO</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>$9.99<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>${PLANS.pro.priceUSD}<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
                 {PRO_FEATURES.map((f, i) => (
                   <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
                     <span style={{ fontSize: 12, color: C.accent, marginTop: 1 }}>✓</span>
@@ -412,7 +392,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               {/* Studio */}
               <div style={{ backgroundColor: C.bgCard, padding: 20, borderLeft: `2px solid ${C.accent}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 4 }}>STUDIO</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>$29.99<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>${PLANS.studio.priceUSD}<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
                 {STUDIO_FEATURES.map((f, i) => (
                   <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
                     <span style={{ fontSize: 12, color: C.accent, marginTop: 1 }}>✓</span>
