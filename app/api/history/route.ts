@@ -46,13 +46,27 @@ export async function GET(request: Request) {
     const wsId = new URL(request.url).searchParams.get("workspaceId") ||
       (request.headers as Headers).get("x-workspace-id") || null;
     const prefix = wsId ? `workspaces/${wsId}/jobs/` : "jobs/";
-    const list = await s3.send(
-      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix })
-    );
 
-    const keys = (list.Contents ?? [])
-      .map((o) => o.Key!)
-      .filter((k) => k.endsWith(".json"));
+    // Paginate through R2 to collect all job keys (max 200 per page)
+    let allKeys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const list = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: BUCKET,
+          Prefix: prefix,
+          MaxKeys: 200,
+          ContinuationToken: continuationToken,
+        })
+      );
+      const keys = (list.Contents ?? [])
+        .map((o) => o.Key!)
+        .filter((k) => k.endsWith(".json"));
+      allKeys.push(...keys);
+      continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    const keys = allKeys;
 
     const jobs = (
       await Promise.all(

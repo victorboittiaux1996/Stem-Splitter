@@ -163,8 +163,16 @@ def separate(request: dict):
         # Get input file
         if download_url:
             print(f"Downloading audio from URL: {download_url}")
-            input_path = download_from_url(download_url, tmpdir)
-            print(f"Downloaded: {input_path}")
+            from storage import update_job_status
+            update_job_status(job_id, "processing", progress=5, stage="Downloading audio", workspace_id=workspace_id)
+            try:
+                input_path = download_from_url(download_url, tmpdir)
+                print(f"Downloaded: {input_path}")
+            except Exception as e:
+                error_msg = f"Failed to download audio: {e}"
+                print(f"ERROR: {error_msg}")
+                update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg, workspace_id=workspace_id)
+                return {"error": error_msg}
         elif audio_b64:
             filename = request.get("filename", "input.mp3")
             ext = os.path.splitext(filename)[1] or ".mp3"

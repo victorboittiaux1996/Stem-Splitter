@@ -276,6 +276,15 @@ export default function AbletonDashboard() {
 
   const profileRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Auto-collapse sidebar on mobile
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    if (mq.matches) setSidebarCollapsed(true);
+    const handler = (e: MediaQueryListEvent) => setSidebarCollapsed(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const WORKSPACE_ID = "ws-1";
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
