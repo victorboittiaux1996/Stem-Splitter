@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 
-const ACCEPTED = /\.(mp3|wav|flac|ogg|m4a|aac|webm)$/i;
+const ACCEPTED = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
 const MAX_SIZE = 50 * 1024 * 1024;
 
 interface UploadZoneProps {
@@ -21,7 +21,7 @@ export function UploadZone({ file, onFileSelect, onFileClear }: UploadZoneProps)
   const { isRecording, elapsedSeconds, start, stop } = useAudioRecorder();
 
   const handleFile = useCallback((f: File) => {
-    if (!ACCEPTED.test(f.name)) { toast.error("Unsupported format", { description: "Upload MP3, WAV, FLAC, OGG, or M4A." }); return; }
+    if (!ACCEPTED.test(f.name)) { toast.error("Unsupported format", { description: "Upload MP3, WAV, FLAC, OGG, M4A, or AIFF." }); return; }
     if (f.size > MAX_SIZE) { toast.error("File too large", { description: "Maximum size is 50MB." }); return; }
     onFileSelect(f);
   }, [onFileSelect]);
@@ -62,7 +62,7 @@ export function UploadZone({ file, onFileSelect, onFileClear }: UploadZoneProps)
       }}
       className="relative w-full transition-colors duration-150"
     >
-      <input ref={inputRef} type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.webm"
+      <input ref={inputRef} type="file" className="hidden" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.aif,.aiff,.webm"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
 
       <div className="flex flex-col items-center justify-center gap-[14px] px-[32px] py-[64px]">

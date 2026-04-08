@@ -61,7 +61,7 @@ export function StemCard({ name, url, index }: StemCardProps) {
     >
       <audio
         ref={audioRef}
-        src={url}
+        src={`${url}${url.includes('?') ? '&' : '?'}format=mp3`}
         preload="metadata"
         onLoadedMetadata={() => {
           if (audioRef.current) setDuration(audioRef.current.duration);

@@ -1,13 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jobKey } from "@/lib/r2";
+import { getAuthUser, getUserPlan, checkUsage } from "@/lib/supabase/auth-helpers";
 
 const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB
-const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|webm)$/i;
+const MAX_SIZE_FREE = 200 * 1024 * 1024; // 200 MB for free plan
+const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
 
 export async function POST(request: NextRequest) {
   try {
+    // Auth + quota enforcement
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    const plan = await getUserPlan(user.id);
+    const { allowed } = await checkUsage(user.id, plan);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Monthly limit reached. Upgrade your plan for more processing time." },
+        { status: 429 }
+      );
+    }
+
+    const maxFileSize = plan === "free" ? MAX_SIZE_FREE : MAX_SIZE;
+
     const appUrl =
       process.env.APP_URL ??
       `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
@@ -28,7 +47,7 @@ export async function POST(request: NextRequest) {
 
       await writeJsonToR2(key, {
         id: jobId, status: "processing", mode, progress: 5,
-        stage: "Downloading audio...", createdAt: Date.now(), fileName: url, workspaceId: wsId,
+        stage: "Downloading audio...", createdAt: Date.now(), fileName: url, workspaceId: wsId, userId: user.id,
       });
 
       fetch(MODAL_WEBHOOK_URL, {
@@ -59,8 +78,9 @@ export async function POST(request: NextRequest) {
     if (!ALLOWED_EXTENSIONS.test(filename)) {
       return NextResponse.json({ error: "Unsupported format" }, { status: 400 });
     }
-    if (typeof size === "number" && size > MAX_SIZE) {
-      return NextResponse.json({ error: "File too large (2 GB max)" }, { status: 400 });
+    if (typeof size === "number" && size > maxFileSize) {
+      const limit = plan === "free" ? "200 MB" : "2 GB";
+      return NextResponse.json({ error: `File too large (${limit} max)` }, { status: 400 });
     }
 
     const jobId = nanoid(12);
@@ -71,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     await writeJsonToR2(key, {
       id: jobId, status: "uploading", mode, progress: 0,
-      stage: "Uploading...", createdAt: Date.now(), fileName: filename, inputKey, overlap, workspaceId: wsId,
+      stage: "Uploading...", createdAt: Date.now(), fileName: filename, inputKey, overlap, workspaceId: wsId, userId: user.id,
     });
 
     // Presigned PUT URL — valid 2 hours (large files on slow connections)
@@ -87,6 +107,11 @@ export async function POST(request: NextRequest) {
 // Step 3: called after browser finishes uploading to R2 — triggers Modal worker
 export async function PUT(request: NextRequest) {
   try {
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
     const appUrl =
       process.env.APP_URL ??
       `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;

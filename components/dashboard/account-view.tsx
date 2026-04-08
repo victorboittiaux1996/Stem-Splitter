@@ -16,6 +16,14 @@ interface AccountViewProps {
   C: C;
   section: SettingsSection;
   onSectionChange: (s: SettingsSection) => void;
+  planLabel?: string;
+  isPro?: boolean;
+  minutesUsed?: number;
+  minutesIncluded?: number;
+  remainingFormatted?: string;
+  usagePercent?: number;
+  daysUntilReset?: number;
+  onUpgrade?: (plan: "pro" | "studio") => void;
 }
 
 // Mock usage history data
@@ -35,7 +43,7 @@ const USAGE_HISTORY = [
 ];
 
 const FREE_FEATURES = [
-  "15 minutes / month",
+  "10 minutes / month",
   "Up to 6-stem separation",
   "WAV export only",
   "Standard processing",
@@ -43,11 +51,21 @@ const FREE_FEATURES = [
 ];
 
 const PRO_FEATURES = [
-  "500 minutes / month",
-  "Up to 10-stem separation",
-  "MP3 + WAV + FLAC export",
-  "High-quality processing",
-  "Batch processing (10 files)",
+  "90 minutes / month",
+  "Up to 6-stem separation",
+  "MP3 + WAV export",
+  "Fast queue",
+  "Batch processing",
+];
+
+const STUDIO_FEATURES = [
+  "250 minutes / month",
+  "Up to 6-stem separation",
+  "MP3 + WAV export",
+  "Fast queue",
+  "Batch processing",
+  "VST plugin",
+  "API access",
 ];
 
 const TABS: { id: SettingsSection; label: string }[] = [
@@ -92,7 +110,7 @@ function Toggle({ on, C }: { on: boolean; C: C }) {
   );
 }
 
-export function AccountView({ C, section, onSectionChange }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade }: AccountViewProps) {
   const [showAll, setShowAll] = React.useState(false);
   const visibleRows = showAll ? USAGE_HISTORY : USAGE_HISTORY.slice(0, 10);
 
@@ -198,9 +216,9 @@ export function AccountView({ C, section, onSectionChange }: AccountViewProps) {
               <SectionHeading C={C}>Current Plan</SectionHeading>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-[10px]">
-                  <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>Free</span>
+                  <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{isPro ? (planLabel?.replace(" Plan", "") ?? "Pro") : "Free"}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 7px" }}>
-                    FREE PLAN
+                    {planLabel?.toUpperCase() ?? "FREE PLAN"}
                   </span>
                 </div>
                 <button
@@ -238,33 +256,38 @@ export function AccountView({ C, section, onSectionChange }: AccountViewProps) {
                 <div>
                   <SectionHeading C={C}>Remaining this month</SectionHeading>
                   <div className="flex items-baseline gap-[6px]">
-                    <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>8:27</span>
-                    <span style={{ fontSize: 14, color: C.textMuted }}>min</span>
+                    <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>{remainingFormatted}</span>
+                    <span style={{ fontSize: 14, color: C.textMuted }}>{"min left"}</span>
                   </div>
                 </div>
-                <div style={{ backgroundColor: "#FF6B0015", padding: "4px 10px" }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#FF6B00" }}>LOW BALANCE</span>
-                </div>
+                {usagePercent > 80 && (
+                  <div style={{ backgroundColor: "#FF6B0015", padding: "4px 10px" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#FF6B00" }}>LOW BALANCE</span>
+                  </div>
+                )}
               </div>
 
               <div style={{ marginBottom: 10 }}>
                 <div style={{ height: 4, backgroundColor: C.bgHover }}>
-                  <div style={{ height: "100%", width: "15.5%", backgroundColor: C.accent }} />
+                  <div style={{ height: "100%", width: `${isPro ? 100 : usagePercent}%`, backgroundColor: C.accent }} />
                 </div>
               </div>
 
               <div className="flex items-center justify-between">
-                <span style={{ fontSize: 12, color: C.textMuted }}>15.5% of 15 min used</span>
-                <span style={{ fontSize: 12, color: C.textMuted }}>Resets in 18 days · March 31, 2026</span>
+                <span style={{ fontSize: 12, color: C.textMuted }}>{`${minutesUsed.toFixed(1)} of ${minutesIncluded} min used`}</span>
+                <span style={{ fontSize: 12, color: C.textMuted }}>Resets in {daysUntilReset} days</span>
               </div>
 
               <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "16px 0" }} />
 
-              <button
-                style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
-              >
-                UPGRADE FOR MORE MINUTES
-              </button>
+              {!isPro && (
+                <button
+                  onClick={() => onUpgrade?.("pro")}
+                  style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
+                >
+                  UPGRADE FOR MORE MINUTES
+                </button>
+              )}
             </div>
 
             {/* Payment method card */}
@@ -338,26 +361,31 @@ export function AccountView({ C, section, onSectionChange }: AccountViewProps) {
                 <div>
                   <SectionHeading C={C}>Current Plan</SectionHeading>
                   <div className="flex items-center gap-[10px]" style={{ marginTop: 4 }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Free</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{isPro ? (planLabel?.replace(" Plan", "") ?? "Pro") : "Free"}</span>
                     <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.badgeText, backgroundColor: C.badgeBg, padding: "3px 8px" }}>
-                      FREE PLAN
+                      {planLabel?.toUpperCase() ?? "FREE PLAN"}
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>15 minutes / month · Resets monthly</div>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{minutesIncluded} min / month · Resets monthly</div>
                 </div>
               </div>
-              <button
-                style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
-              >
-                UPGRADE TO PRO
-              </button>
+              {!isPro && (
+                <button
+                  onClick={() => onUpgrade?.("pro")}
+                  style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
+                >
+                  UPGRADE TO PRO
+                </button>
+              )}
             </div>
 
-            {/* Plan comparison */}
+            {/* Plan comparison — 3 columns */}
             <SectionHeading C={C}>Compare Plans</SectionHeading>
-            <div className="grid grid-cols-2 gap-[16px]" style={{ marginBottom: 32, marginTop: 8 }}>
+            <div className="grid grid-cols-3 gap-[12px]" style={{ marginBottom: 32, marginTop: 8 }}>
+              {/* Free */}
               <div style={{ backgroundColor: C.bgCard, padding: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, marginBottom: 16 }}>FREE</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, marginBottom: 4 }}>FREE</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>$0</div>
                 {FREE_FEATURES.map((f, i) => (
                   <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
                     <span style={{ fontSize: 12, color: C.textMuted, marginTop: 1 }}>✓</span>
@@ -365,14 +393,37 @@ export function AccountView({ C, section, onSectionChange }: AccountViewProps) {
                   </div>
                 ))}
               </div>
+              {/* Pro */}
               <div style={{ backgroundColor: C.bgCard, padding: 20, borderLeft: `2px solid ${C.accent}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 16 }}>PRO — $9/month</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 4 }}>PRO</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>$9.99<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
                 {PRO_FEATURES.map((f, i) => (
                   <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
                     <span style={{ fontSize: 12, color: C.accent, marginTop: 1 }}>✓</span>
                     <span style={{ fontSize: 13, color: C.text }}>{f}</span>
                   </div>
                 ))}
+                {!isPro && (
+                  <button onClick={() => onUpgrade?.("pro")} style={{ width: "100%", padding: "8px 0", marginTop: 12, backgroundColor: C.accent, color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
+                    UPGRADE TO PRO
+                  </button>
+                )}
+              </div>
+              {/* Studio */}
+              <div style={{ backgroundColor: C.bgCard, padding: 20, borderLeft: `2px solid ${C.accent}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 4 }}>STUDIO</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>$29.99<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
+                {STUDIO_FEATURES.map((f, i) => (
+                  <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, color: C.accent, marginTop: 1 }}>✓</span>
+                    <span style={{ fontSize: 13, color: C.text }}>{f}</span>
+                  </div>
+                ))}
+                {planLabel !== "Studio Plan" && (
+                  <button onClick={() => onUpgrade?.("studio")} style={{ width: "100%", padding: "8px 0", marginTop: 12, backgroundColor: C.accent, color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
+                    UPGRADE TO STUDIO
+                  </button>
+                )}
               </div>
             </div>
 

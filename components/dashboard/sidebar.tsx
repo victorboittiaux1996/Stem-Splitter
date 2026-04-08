@@ -32,6 +32,9 @@ interface SidebarProps {
   theme: SidebarTheme;
   fontStyle?: "aeonik" | "inter";
   onFontChange?: (font: "aeonik" | "inter") => void;
+  planLabel?: string;
+  isPro?: boolean;
+  onUpgrade?: () => void;
 }
 
 const PINNED_ITEMS: { id: SidebarView; icon: LucideIcon; label: string }[] = [
@@ -42,7 +45,7 @@ const PINNED_ITEMS: { id: SidebarView; icon: LucideIcon; label: string }[] = [
   { id: "settings", icon: Settings2, label: "Settings" },
 ];
 
-export function Sidebar({ activeView, onViewChange, theme: t, fontStyle, onFontChange }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, theme: t, fontStyle, onFontChange, planLabel, isPro, onUpgrade }: SidebarProps) {
   return (
     <aside className="flex h-full w-[240px] shrink-0 flex-col" style={{ borderRight: `1px solid ${t.sidebarBorder}`, backgroundColor: t.sidebarBg }}>
       {/* Logo */}
@@ -80,7 +83,15 @@ export function Sidebar({ activeView, onViewChange, theme: t, fontStyle, onFontC
             <span style={{ color: t.sidebarText }}>{fontStyle === "aeonik" ? "Aeonik" : "Inter"}</span>
           </button>
         )}
-        <NavItem icon={Sparkles} label="Upgrade" active={false} onClick={() => {}} theme={t} />
+        {!isPro && (
+          <NavItem icon={Sparkles} label="Upgrade" active={false} onClick={() => onUpgrade?.()} theme={t} />
+        )}
+        {isPro && planLabel && (
+          <div className="flex items-center gap-[10px] px-[12px] py-[10px]">
+            <Sparkles className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} style={{ color: t.sidebarText }} />
+            <span className="text-[13px]" style={{ color: t.sidebarText }}>{planLabel}</span>
+          </div>
+        )}
       </div>
     </aside>
   );

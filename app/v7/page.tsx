@@ -6,6 +6,7 @@ import { Logo } from "@/components/website/logo";
 import { Footer } from "@/components/website/footer";
 import { FAQ } from "@/components/website/faq";
 import { fonts, stemColors } from "@/components/website/theme";
+import { HeroDemo } from "@/components/website/hero-demo";
 import {
   RiEqualizerFill,
   RiCpuFill,
@@ -69,6 +70,8 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
+// (AppPreview removed — now using HeroDemo from components/website/hero-demo.tsx)
+
 // ─── Header ─────────────────────────────────────────────────
 function Header() {
   const [scrolled, setScrolled] = useState(false);
@@ -114,7 +117,7 @@ function Header() {
           <a
             href="/signin"
             style={{
-              fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.textLight,
+              fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.text,
               textDecoration: "none", padding: "0 12px", height: 36,
               display: "inline-flex", alignItems: "center",
             }}
@@ -171,7 +174,6 @@ function Hero() {
   return (
     <section style={{ backgroundColor: C.bg, padding: "100px 0 0" }}>
       <Container>
-        {/* Top row: headline left, description right — ElevenLabs pattern */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end" }}>
           <div>
             <motion.h1
@@ -179,8 +181,8 @@ function Hero() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
               style={{
-                fontFamily: fonts.heading, fontSize: 64, fontWeight: 700,
-                lineHeight: 1.04, letterSpacing: "-0.03em", color: C.text, margin: 0,
+                fontFamily: fonts.heading, fontSize: 56, fontWeight: 700,
+                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text, margin: 0,
               }}
             >
               Split any track.
@@ -193,8 +195,8 @@ function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
             style={{
-              fontFamily: fonts.body, fontSize: 18, fontWeight: 400, lineHeight: 1.6,
-              color: C.textLight, margin: 0,
+              fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.6,
+              color: C.text, margin: 0,
             }}
           >
             Studio-grade AI separation for producers. Vocals, drums, bass, guitar,
@@ -213,72 +215,14 @@ function Hero() {
           <HeroCTA label="See Pricing" variant="secondary" href="#pricing" />
         </motion.div>
 
-        {/* Product preview block — big gray square like ElevenLabs */}
+        {/* Product preview — pixel-perfect coded UI mock */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          style={{
-            marginTop: 64,
-            backgroundColor: C.bgAlt,
-            padding: "48px 56px",
-            minHeight: 420,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-          }}
+          style={{ marginTop: 64 }}
         >
-          {/* Stem visualization inside the product block */}
-          <div style={{ maxWidth: 640 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <span style={{ fontFamily: fonts.body, fontSize: 12, color: C.textMuted, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                track_master.wav
-              </span>
-              <span style={{ fontFamily: fonts.body, fontSize: 11, color: C.textMuted, letterSpacing: "0.02em" }}>
-                6 stems · WAV 24-bit
-              </span>
-            </div>
-
-            {[
-              { label: "Vocals", color: stemColors.vocals, w: 78 },
-              { label: "Drums", color: stemColors.drums, w: 92 },
-              { label: "Bass", color: stemColors.bass, w: 60 },
-              { label: "Guitar", color: stemColors.guitar, w: 52 },
-              { label: "Piano", color: stemColors.piano, w: 45 },
-              { label: "Other", color: stemColors.other, w: 88 },
-            ].map((s, i) => (
-              <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-                <span style={{
-                  fontFamily: fonts.body, fontSize: 12, fontWeight: 500, color: C.textMuted,
-                  width: 56, textAlign: "right", flexShrink: 0, textTransform: "uppercase",
-                }}>
-                  {s.label}
-                </span>
-                <div style={{ flex: 1, height: 24, backgroundColor: C.bg, overflow: "hidden" }}>
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${s.w}%` }}
-                    transition={{ duration: 0.8, delay: 0.5 + i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-                    style={{ height: "100%", backgroundColor: s.color, opacity: 0.85 }}
-                  />
-                </div>
-              </div>
-            ))}
-
-            {/* Stats row */}
-            <div style={{ display: "flex", marginTop: 24, paddingTop: 20, borderTop: `1px solid #E0E0E0` }}>
-              {[
-                { val: "6", lbl: "Stems", color: stemColors.vocals },
-                { val: "<40s", lbl: "Processing", color: stemColors.drums },
-                { val: "24-bit", lbl: "WAV output", color: stemColors.bass },
-              ].map((s) => (
-                <div key={s.lbl} style={{ flex: 1, paddingLeft: 16, borderLeft: `2px solid ${s.color}` }}>
-                  <div style={{ fontFamily: fonts.heading, fontSize: 24, fontWeight: 700, color: C.text }}>{s.val}</div>
-                  <div style={{ fontFamily: fonts.body, fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 2 }}>{s.lbl}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <HeroDemo />
         </motion.div>
       </Container>
     </section>
@@ -309,32 +253,43 @@ function HeroCTA({ label, variant, href }: { label: string; variant: "primary" |
 
 // ─── Trust Bar ──────────────────────────────────────────────
 const DAWS = [
-  { name: "Ableton", file: "ableton" },
-  { name: "FL Studio", file: "flstudio" },
-  { name: "Logic Pro", file: "logicpro" },
-  { name: "Pro Tools", file: "protools" },
-  { name: "Cubase", file: "cubase" },
-  { name: "Studio One", file: "studioone" },
-  { name: "Reaper", file: "reaper" },
-  { name: "Bitwig", file: "bitwig" },
+  { name: "Ableton", src: "/logos/ableton.svg", h: 18 },
+  { name: "FL Studio", src: "/logos/flstudio.webp", h: 80 },
+  { name: "Logic Pro X", src: "/logos/logicpro.jpg", h: 22 },
+  { name: "Pro Tools", src: "/logos/protools.svg", h: 24 },
+  { name: "Cubase", src: "/logos/cubase.svg", h: 22 },
+  { name: "Studio One", src: "/logos/studioone.jpeg", h: 26 },
+  { name: "Reaper", src: "/logos/reaper.svg", h: 18 },
+  { name: "Bitwig", src: "/logos/bitwig.png", h: 40 },
 ];
 
 function TrustBar() {
   return (
-    <section style={{ backgroundColor: C.bg, padding: "48px 0" }}>
+    <section style={{ backgroundColor: C.bg, padding: "56px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ marginBottom: 20 }}>
-            <SectionLabel>Built for producers using</SectionLabel>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <p style={{
+            fontFamily: fonts.body, fontSize: 14, fontWeight: 400, color: C.textMuted,
+            textAlign: "center", margin: "0 0 24px",
+          }}>
+            Built for producers using
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 2 }}>
             {DAWS.map((d) => (
-              <img
-                key={d.file}
-                src={`/logos/${d.file}.svg`}
-                alt={d.name}
-                style={{ height: 18, width: "auto", opacity: 0.3 }}
-              />
+              <div
+                key={d.name}
+                style={{
+                  backgroundColor: C.bgAlt,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  padding: "20px 16px", minHeight: 100,
+                }}
+              >
+                <img
+                  src={d.src}
+                  alt={d.name}
+                  style={{ height: d.h, maxWidth: "100%", objectFit: "contain", opacity: 0.6, filter: "grayscale(1)", mixBlendMode: "multiply" as const }}
+                />
+              </div>
             ))}
           </div>
         </FadeIn>
@@ -395,7 +350,7 @@ function FeatureCard({ feature, index }: { feature: typeof FEATURES[number]; ind
         </motion.h3>
 
         <motion.p
-          animate={{ color: hovered ? "rgba(255,255,255,0.85)" : C.textLight }}
+          animate={{ color: hovered ? "#FFFFFF" : C.textLight }}
           transition={{ duration: 0.3 }}
           style={{
             fontFamily: fonts.body, fontSize: 14, fontWeight: 400, lineHeight: 1.6, margin: 0,
@@ -413,20 +368,16 @@ function Features() {
     <section id="features" style={{ backgroundColor: C.bg, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Features</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Built for producers.
-                <br />
-                Not for everyone.
-              </h2>
-            </div>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Features</SectionLabel>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: "16px 0 0",
+            }}>
+              Built for producers. Not for everyone.
+            </h2>
+            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
               State-of-the-art AI models running on H100 GPUs. Six isolated stems,
               studio-quality output, and the fastest processing in the industry.
             </p>
@@ -444,17 +395,10 @@ function Features() {
 }
 
 // ─── How It Works ───────────────────────────────────────────
-// Exact Ableton palette colors — extracted from ableton.com/fr/live/
-const STEP_COLORS = {
-  upload: "#333333",    // medium charcoal — softer than black, contrasts against #F3F3F3
-  process: "#333333",
-  download: "#333333",
-} as const;
-
 const STEPS = [
-  { num: "01", color: STEP_COLORS.upload, title: "Upload", desc: "Drag and drop a file, select a folder, or paste a URL. MP3, WAV, FLAC — up to 200 MB." },
-  { num: "02", color: STEP_COLORS.process, title: "Process", desc: "H100 GPU runs MelBand RoFormer and BS-RoFormer simultaneously. Two best models. One pass." },
-  { num: "03", color: STEP_COLORS.download, title: "Download", desc: "Clean isolated stems in WAV 24-bit or MP3 320kbps. Download individually or as ZIP." },
+  { num: "01", title: "Upload", desc: "Drag and drop a file, select a folder, or paste a URL. MP3, WAV, FLAC — up to 200 MB.", color: stemColors.vocals },
+  { num: "02", title: "Process", desc: "H100 GPU runs MelBand RoFormer and BS-RoFormer simultaneously. Two best models. One pass.", color: stemColors.drums },
+  { num: "03", title: "Download", desc: "Clean isolated stems in WAV 24-bit or MP3 320kbps. Download individually or as ZIP.", color: stemColors.bass },
 ];
 
 function HowItWorks() {
@@ -462,20 +406,16 @@ function HowItWorks() {
     <section style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Process</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Three steps.
-                <br />
-                Zero friction.
-              </h2>
-            </div>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Process</SectionLabel>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: "16px 0 0",
+            }}>
+              Three steps. Zero friction.
+            </h2>
+            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
               Upload, pick your stem count, download. No account required to try.
               Start separating in under a minute.
             </p>
@@ -500,44 +440,37 @@ function StepCard({ step, index }: { step: typeof STEPS[number]; index: number }
       <motion.div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        animate={{
-          backgroundColor: step.color,
-        }}
+        animate={{ backgroundColor: hovered ? step.color : "#FFFFFF" }}
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-        style={{
-          padding: "40px 36px",
-          cursor: "default",
-          minHeight: 280,
-          display: "flex",
-          flexDirection: "column",
-        }}
+        style={{ padding: "40px 36px", cursor: "default", minHeight: 280, display: "flex", flexDirection: "column" }}
       >
-        <span
+        <motion.span
+          animate={{ color: hovered ? "#FFFFFF" : step.color }}
+          transition={{ duration: 0.3 }}
           style={{
             fontFamily: fonts.heading, fontSize: 80, fontWeight: 700,
-            lineHeight: 1, display: "block", color: "rgba(255,255,255,0.7)",
-            marginBottom: 32,
+            lineHeight: 1, display: "block", marginBottom: 32,
           }}
         >
           {step.num}
-        </span>
-
-        <h3
+        </motion.span>
+        <motion.h3
+          animate={{ color: hovered ? "#FFFFFF" : C.text }}
+          transition={{ duration: 0.3 }}
           style={{
             fontFamily: fonts.heading, fontSize: 16, fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: "0.06em",
-            margin: "0 0 12px", color: "#FFFFFF",
+            textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 12px",
           }}
         >
           {step.title}
-        </h3>
-
-        <p style={{
-          fontFamily: fonts.body, fontSize: 14, fontWeight: 400, margin: 0,
-          lineHeight: 1.6, color: "#FFFFFF",
-        }}>
+        </motion.h3>
+        <motion.p
+          animate={{ color: hovered ? "#FFFFFF" : C.textLight }}
+          transition={{ duration: 0.3 }}
+          style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 400, margin: 0, lineHeight: 1.6 }}
+        >
           {step.desc}
-        </p>
+        </motion.p>
       </motion.div>
     </FadeIn>
   );
@@ -549,80 +482,290 @@ function Processing() {
     <section style={{ backgroundColor: C.bg, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Speed</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Fast enough to
-                <br />
-                not think about it.
-              </h2>
-            </div>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Speed</SectionLabel>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: "16px 0 0",
+            }}>
+              Fast enough to not think about it.
+            </h2>
+            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
               LALAL.AI takes ~58s. Moises takes ~75s. We run on H100 GPUs and finish
               in under 40 seconds. The benchmark is real.
             </p>
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "58fr 42fr", gap: 2 }}>
+        {/* Big number + specs row — Cursor-style clean */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+          {/* Left: big hero stat */}
           <FadeIn delay={0.1}>
-            <div style={{ backgroundColor: C.bgCard, padding: "36px 32px", display: "flex", flexDirection: "column", gap: 24 }}>
-              {[
-                { label: "Upload", pct: 100, color: stemColors.bass },
-                { label: "Processing", pct: 72, color: C.accent },
-                { label: "Download ready", pct: 0, color: C.textMuted },
-              ].map((step) => (
-                <div key={step.label}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ fontFamily: fonts.body, fontSize: 14, color: C.textLight }}>{step.label}</span>
-                    {step.pct > 0 && (
-                      <span style={{ fontFamily: fonts.body, fontSize: 13, fontWeight: 600, color: step.color }}>{step.pct}%</span>
-                    )}
-                  </div>
-                  <div style={{ height: 3, backgroundColor: C.bgAlt }}>
-                    {step.pct > 0 && <div style={{ height: 3, width: `${step.pct}%`, backgroundColor: step.color }} />}
-                  </div>
-                </div>
-              ))}
-
-              <div style={{ marginTop: 4, backgroundColor: C.bg, padding: "12px 16px" }}>
-                <span style={{ fontFamily: fonts.body, fontSize: 14, color: C.textLight }}>
-                  Average time: <strong style={{ color: C.text, fontWeight: 600 }}>38 seconds</strong>
-                </span>
-              </div>
+            <div style={{ backgroundColor: "#FFFFFF", padding: "56px 40px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <motion.span
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                style={{ fontFamily: fonts.heading, fontSize: 96, fontWeight: 700, lineHeight: 1, color: C.text }}
+              >
+                &lt;40s
+              </motion.span>
+              <span style={{ fontFamily: fonts.body, fontSize: 14, color: "#999999", marginTop: 12 }}>
+                Average separation time for a full track
+              </span>
             </div>
           </FadeIn>
 
+          {/* Right: clean spec list */}
           <FadeIn delay={0.2}>
-            <div style={{ backgroundColor: C.bgCard, padding: "36px 32px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <SectionLabel>Infrastructure</SectionLabel>
-              <div style={{ marginTop: 20 }}>
-                {[
-                  { label: "GPU model", value: "H100 80GB" },
-                  { label: "Avg. separation", value: "< 40s" },
-                  { label: "Input formats", value: "MP3, WAV, FLAC, AAC" },
-                  { label: "Max file size", value: "200 MB" },
-                  { label: "Output quality", value: "WAV 24-bit / MP3 320" },
-                ].map((row) => (
-                  <div key={row.label} style={{
-                    display: "flex", justifyContent: "space-between", padding: "13px 0",
-                    borderBottom: "1px solid #F0F0F0",
-                  }}>
-                    <span style={{ fontFamily: fonts.body, fontSize: 13, color: C.textLight }}>{row.label}</span>
-                    <span style={{ fontFamily: fonts.body, fontSize: 13, fontWeight: 600, color: C.text }}>{row.value}</span>
-                  </div>
-                ))}
-              </div>
+            <div style={{ backgroundColor: "#FFFFFF", padding: "40px 40px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              {[
+                { label: "GPU", value: "NVIDIA H100 80GB" },
+                { label: "Stems", value: "Up to 6" },
+                { label: "Input", value: "MP3, WAV, FLAC, AAC" },
+                { label: "Output", value: "WAV 24-bit / MP3 320" },
+                { label: "Max size", value: "200 MB" },
+              ].map((row, i) => (
+                <div key={row.label} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "14px 0",
+                  borderBottom: i < 4 ? "1px solid #F0F0F0" : "none",
+                }}>
+                  <span style={{ fontFamily: fonts.body, fontSize: 14, color: "#999999" }}>{row.label}</span>
+                  <span style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.text }}>{row.value}</span>
+                </div>
+              ))}
             </div>
           </FadeIn>
         </div>
       </Container>
     </section>
+  );
+}
+
+// ── Speed A (unused)
+function _SpeedA() {
+  const stats = [
+    { value: "<40s", label: "Separation time", sub: "Full track, 6 stems", color: stemColors.vocals },
+    { value: "H100", label: "NVIDIA GPU", sub: "80GB VRAM dedicated", color: stemColors.drums },
+    { value: "24-bit", label: "Output quality", sub: "WAV lossless or MP3 320", color: stemColors.bass },
+  ];
+  const specs = [
+    { value: "6", label: "Max stems", color: stemColors.guitar },
+    { value: "200 MB", label: "Max file size", color: stemColors.piano },
+    { value: "MP3 · WAV · FLAC · AAC", label: "Input formats", color: stemColors.other },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Top row: 3 big colored blocks */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+        {stats.map((s, i) => {
+          const [hovered, setHovered] = useState(false);
+          return (
+            <FadeIn key={s.label} delay={i * 0.08}>
+              <motion.div
+                onMouseEnter={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
+                animate={{ backgroundColor: hovered ? C.text : s.color }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                style={{ padding: "44px 36px", cursor: "default", minHeight: 220, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+              >
+                <span style={{ fontFamily: fonts.heading, fontSize: 64, fontWeight: 700, lineHeight: 1, color: "#FFFFFF", marginBottom: 16 }}>
+                  {s.value}
+                </span>
+                <span style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 700, color: "#FFFFFF", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  {s.label}
+                </span>
+                <span style={{ fontFamily: fonts.body, fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 4 }}>
+                  {s.sub}
+                </span>
+              </motion.div>
+            </FadeIn>
+          );
+        })}
+      </div>
+      {/* Bottom row: 3 white spec blocks */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+        {specs.map((s, i) => {
+          const [hovered, setHovered] = useState(false);
+          return (
+            <FadeIn key={s.label} delay={0.3 + i * 0.06}>
+              <motion.div
+                onMouseEnter={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
+                animate={{ backgroundColor: hovered ? s.color : "#FFFFFF" }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                style={{ padding: "32px 36px", cursor: "default" }}
+              >
+                <motion.span
+                  animate={{ color: hovered ? "#FFFFFF" : s.color }}
+                  transition={{ duration: 0.3 }}
+                  style={{ fontFamily: fonts.heading, fontSize: 28, fontWeight: 700, lineHeight: 1, display: "block", marginBottom: 8 }}
+                >
+                  {s.value}
+                </motion.span>
+                <motion.span
+                  animate={{ color: hovered ? "rgba(255,255,255,0.8)" : C.textMuted }}
+                  transition={{ duration: 0.3 }}
+                  style={{ fontFamily: fonts.body, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}
+                >
+                  {s.label}
+                </motion.span>
+              </motion.div>
+            </FadeIn>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Speed B: Animated comparison bars + horizontal spec row
+function SpeedB() {
+  const competitors = [
+    { name: "Moises", time: 75, color: "#D0D0D0" },
+    { name: "LALAL.AI", time: 58, color: "#D0D0D0" },
+    { name: "44Stems", time: 38, color: stemColors.vocals, highlight: true },
+  ];
+  const specs = [
+    { label: "GPU", value: "H100 80GB" },
+    { label: "Stems", value: "Up to 6" },
+    { label: "Formats", value: "MP3 · WAV · FLAC" },
+    { label: "Quality", value: "24-bit / 320kbps" },
+    { label: "Max size", value: "200 MB" },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Comparison bars */}
+      <FadeIn>
+        <div style={{ backgroundColor: "#FFFFFF", padding: "48px 40px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {competitors.map((c, i) => (
+              <div key={c.name}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+                  <span style={{
+                    fontFamily: fonts.heading, fontSize: c.highlight ? 18 : 15,
+                    fontWeight: c.highlight ? 700 : 400, color: C.text,
+                  }}>
+                    {c.name}
+                  </span>
+                  <span style={{
+                    fontFamily: fonts.heading, fontSize: c.highlight ? 32 : 20,
+                    fontWeight: 700, color: c.highlight ? c.color : C.textMuted,
+                  }}>
+                    {c.time}s
+                  </span>
+                </div>
+                <div style={{ height: c.highlight ? 10 : 6, backgroundColor: C.bgAlt, overflow: "hidden" }}>
+                  <motion.div
+                    initial={{ width: 0 }}
+                    whileInView={{ width: `${(c.time / 80) * 100}%` }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 1.2, delay: 0.2 + i * 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    style={{ height: "100%", backgroundColor: c.color }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </FadeIn>
+
+      {/* Horizontal spec strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 2 }}>
+        {specs.map((s, i) => (
+          <FadeIn key={s.label} delay={0.4 + i * 0.05}>
+            <div style={{ backgroundColor: "#FFFFFF", padding: "24px 20px" }}>
+              <div style={{ fontFamily: fonts.body, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
+                {s.label}
+              </div>
+              <div style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 700, color: C.text }}>
+                {s.value}
+              </div>
+            </div>
+          </FadeIn>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Speed C: Dark premium block with big centered number + white spec grid
+function SpeedC() {
+  const specs = [
+    { label: "GPU", value: "H100 80GB", color: stemColors.vocals },
+    { label: "Stems", value: "Up to 6", color: stemColors.drums },
+    { label: "Input", value: "MP3 · WAV · FLAC · AAC", color: stemColors.bass },
+    { label: "Output", value: "WAV 24-bit / MP3 320", color: stemColors.guitar },
+    { label: "Max size", value: "200 MB", color: stemColors.piano },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Big dark hero block */}
+      <FadeIn>
+        <div style={{
+          backgroundColor: "#1A1A1A", padding: "72px 40px", textAlign: "center",
+          display: "flex", flexDirection: "column", alignItems: "center",
+        }}>
+          <motion.span
+            initial={{ opacity: 0, scale: 0.9 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+            style={{ fontFamily: fonts.heading, fontSize: 96, fontWeight: 700, color: "#FFFFFF", lineHeight: 1 }}
+          >
+            &lt;40s
+          </motion.span>
+          <span style={{ fontFamily: fonts.body, fontSize: 14, color: "rgba(255,255,255,0.5)", marginTop: 16, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            Average separation time · H100 GPU
+          </span>
+          {/* Competitor comparison line */}
+          <div style={{ display: "flex", gap: 32, marginTop: 24 }}>
+            <span style={{ fontFamily: fonts.body, fontSize: 13, color: "rgba(255,255,255,0.35)" }}>
+              LALAL.AI ~58s
+            </span>
+            <span style={{ fontFamily: fonts.body, fontSize: 13, color: "rgba(255,255,255,0.35)" }}>
+              Moises ~75s
+            </span>
+          </div>
+        </div>
+      </FadeIn>
+
+      {/* Spec grid below */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 2 }}>
+        {specs.map((s, i) => {
+          const [hovered, setHovered] = useState(false);
+          return (
+            <FadeIn key={s.label} delay={0.3 + i * 0.06}>
+              <motion.div
+                onMouseEnter={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
+                animate={{ backgroundColor: hovered ? s.color : "#FFFFFF" }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                style={{ padding: "28px 20px", cursor: "default" }}
+              >
+                <motion.span
+                  animate={{ color: hovered ? "rgba(255,255,255,0.7)" : C.textMuted }}
+                  transition={{ duration: 0.3 }}
+                  style={{ fontFamily: fonts.body, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", display: "block", marginBottom: 6 }}
+                >
+                  {s.label}
+                </motion.span>
+                <motion.span
+                  animate={{ color: hovered ? "#FFFFFF" : C.text }}
+                  transition={{ duration: 0.3 }}
+                  style={{ fontFamily: fonts.heading, fontSize: 15, fontWeight: 700 }}
+                >
+                  {s.value}
+                </motion.span>
+              </motion.div>
+            </FadeIn>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -670,13 +813,6 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
         cursor: "default",
       }}
     >
-      {/* Top colored bar — appears on hover */}
-      <motion.div
-        animate={{ height: hovered ? 4 : 0 }}
-        transition={{ duration: 0.3 }}
-        style={{ backgroundColor: isDark ? "rgba(255,255,255,0.3)" : C.accent, flexShrink: 0 }}
-      />
-
       <div style={{ padding: "36px 32px 40px", display: "flex", flexDirection: "column", flex: 1 }}>
         {/* Badge */}
         {"badge" in tier && tier.badge && (
@@ -714,7 +850,7 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
           <motion.span
             animate={{ color: hovered ? hText : C.text }}
             transition={{ duration: 0.3 }}
-            style={{ fontFamily: fonts.heading, fontSize: 44, fontWeight: 400, lineHeight: 1 }}
+            style={{ fontFamily: fonts.heading, fontSize: 44, fontWeight: 700, lineHeight: 1 }}
           >
             {tier.price}
           </motion.span>
@@ -788,20 +924,16 @@ function PricingSection() {
     <section id="pricing" style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end", marginBottom: 64 }}>
-            <div>
-              <SectionLabel>Pricing</SectionLabel>
-              <h2 style={{
-                fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-                margin: "16px 0 0",
-              }}>
-                Simple, transparent
-                <br />
-                pricing.
-              </h2>
-            </div>
-            <p style={{ fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.65, color: C.textLight, margin: 0 }}>
+          <div style={{ marginBottom: 64 }}>
+            <SectionLabel>Pricing</SectionLabel>
+            <h2 style={{
+              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
+              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
+              margin: "16px 0 0",
+            }}>
+              Simple, transparent pricing.
+            </h2>
+            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
               Start for free. Upgrade when you need more stems, better quality,
               or batch processing. No hidden fees.
             </p>
@@ -823,19 +955,23 @@ function PricingSection() {
 // ─── CTA Banner (light theme) ───────────────────────────────
 function CTABanner() {
   return (
-    <section style={{ backgroundColor: C.bg, padding: "120px 0", textAlign: "center" }}>
+    <section style={{
+      background: `linear-gradient(135deg, ${C.accent} 0%, #3D2DFF 100%)`,
+      padding: "64px 0",
+      textAlign: "center",
+    }}>
       <Container>
         <FadeIn>
           <h2 style={{
-            fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-            lineHeight: 1.1, letterSpacing: "-0.02em", color: C.text,
-            margin: "0 0 16px",
+            fontFamily: fonts.heading, fontSize: 40, fontWeight: 700,
+            lineHeight: 1.15, letterSpacing: "-0.02em", color: "#FFFFFF",
+            margin: "0 0 12px",
           }}>
             Ready to split your first track?
           </h2>
           <p style={{
-            fontFamily: fonts.body, fontSize: 17, fontWeight: 400,
-            color: C.textLight, maxWidth: 400, margin: "0 auto 40px", lineHeight: 1.6,
+            fontFamily: fonts.body, fontSize: 15, fontWeight: 400,
+            color: "rgba(255,255,255,0.9)", margin: "0 0 32px", lineHeight: 1.5,
           }}>
             Start for free. No credit card required.
           </p>
@@ -855,7 +991,7 @@ function CTABannerButton() {
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 15, fontWeight: 600,
-        color: "#FFFFFF", backgroundColor: hovered ? C.accentHover : C.accent,
+        color: C.text, backgroundColor: hovered ? "#E8E8E8" : "#FFFFFF",
         textDecoration: "none", padding: "0 36px", height: 52,
         display: "inline-flex", alignItems: "center",
         transition: "background-color 0.15s",

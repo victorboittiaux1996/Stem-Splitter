@@ -19,6 +19,7 @@ type PricingVariant = "minimal" | "pop" | "structured";
 
 interface PricingProps {
   variant: PricingVariant;
+  onUpgrade?: (plan: "pro" | "studio") => void;
 }
 
 const tiers = [
@@ -83,10 +84,12 @@ const barColors = [
 function CTAButton({
   label,
   highlighted,
+  onClick,
 }: {
   label: string;
   highlighted: boolean;
   variant: PricingVariant;
+  onClick?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -107,6 +110,7 @@ function CTAButton({
   if (highlighted) {
     return (
       <button
+        onClick={onClick}
         style={{
           ...base,
           backgroundColor: hovered ? "#0E08D8" : "#1B10FD",
@@ -122,6 +126,7 @@ function CTAButton({
 
   return (
     <button
+      onClick={onClick}
       style={{
         ...base,
         backgroundColor: "transparent",
@@ -137,7 +142,7 @@ function CTAButton({
   );
 }
 
-function PricingCard({ tier, variant }: { tier: typeof tiers[number]; variant: PricingVariant }) {
+function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number]; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio") => void }) {
   const [hovered, setHovered] = useState(false);
   const isHighlighted = tier.highlighted;
 
@@ -279,13 +284,13 @@ function PricingCard({ tier, variant }: { tier: typeof tiers[number]; variant: P
         </ul>
 
         {/* CTA */}
-        <CTAButton label={tier.cta} highlighted={isHighlighted} variant={variant} />
+        <CTAButton label={tier.cta} highlighted={isHighlighted} variant={variant} onClick={tier.id !== "free" ? () => onUpgrade?.(tier.id as "pro" | "studio") : undefined} />
       </div>
     </div>
   );
 }
 
-export function Pricing({ variant }: PricingProps) {
+export function Pricing({ variant, onUpgrade }: PricingProps) {
   return (
     <section
       style={{
@@ -361,7 +366,7 @@ export function Pricing({ variant }: PricingProps) {
           }}
         >
           {tiers.map((tier) => (
-            <PricingCard key={tier.id} tier={tier} variant={variant} />
+            <PricingCard key={tier.id} tier={tier} variant={variant} onUpgrade={onUpgrade} />
           ))}
         </div>
       </div>

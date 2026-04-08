@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJobForWorkspace, writeJsonToR2, jobKey } from "@/lib/r2";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(
   request: NextRequest,
@@ -17,6 +18,15 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Verify caller is the Modal worker via shared secret (opt-in: only enforced if env var is set)
+  const expectedSecret = process.env.MODAL_CALLBACK_SECRET;
+  if (expectedSecret) {
+    const secret = request.headers.get("x-modal-secret");
+    if (secret !== expectedSecret) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   const { id } = await params;
 
   try {
@@ -25,9 +35,37 @@ export async function PATCH(
     const existing = await getJobForWorkspace(wsId, id);
     if (!existing) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     const key = jobKey(existing.workspaceId ?? wsId, id);
-    await writeJsonToR2(key, { ...existing, ...updates });
+    const merged = { ...existing, ...updates };
+    await writeJsonToR2(key, merged);
+
+    // Track minutes when job completes with a duration
+    if (updates.status === "complete" && typeof merged.duration === "number" && merged.userId) {
+      trackMinutesUsed(merged.userId, merged.duration).catch((err) =>
+        console.error("Failed to track usage:", err)
+      );
+    }
+
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+}
+
+/**
+ * Add audio duration to user's monthly minutes.
+ * Uses admin client (no cookies — called from Modal worker callback).
+ * Atomic via PostgreSQL function — no read-then-write race condition.
+ */
+async function trackMinutesUsed(userId: string, durationSeconds: number) {
+  if (durationSeconds <= 0) return; // guard against spoofed/zero durations
+  const month = new Date().toISOString().slice(0, 7);
+  const minutesToAdd = durationSeconds / 60;
+
+  const { error } = await supabaseAdmin.rpc("increment_usage", {
+    p_user_id: userId,
+    p_month: month,
+    p_minutes: minutesToAdd,
+  });
+
+  if (error) throw error;
 }

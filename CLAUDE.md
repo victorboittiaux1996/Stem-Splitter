@@ -2,58 +2,72 @@
 
 ## What This Is
 AI stem separation SaaS — by producers, for producers.
-Web app deployed at 44stems.com. Landing page not yet built.
+Deployed at 44stems.com. Core pipeline works end-to-end.
 
 ## Stack
 Next.js 16, React 19, Tailwind 4, shadcn (base-nova), framer-motion 12
 
-## Design References
-- Ableton Live — geometric, sober, no rounded corners
-- ElevenLabs — hero layout, typography, spacing
-- LALAL.AI — competitor, pricing reference
-
-## Design System
-Source of truth: components/website/theme.ts
-Never hardcode colors — always reference theme tokens.
-Border-radius: 0 everywhere. No rounded corners.
-
-## Tech Rules
-- Use shadcn components. Never build custom UI from scratch.
-- Use framer-motion for animations. Never raw CSS or IntersectionObserver.
-- Use Tailwind spacing scale. Never arbitrary values like py-[73px].
-- Max-w-7xl mx-auto px-6 for section widths.
-- Each section = its own component in components/website/. Max 500 lines/file.
-
 ## Commands
 npm run dev       # localhost:3000
-npm run build     # Production build
+npm run build     # Production build — MUST pass after every change
 
-## Verification (mandatory after every visual change)
-npx playwright screenshot --full-page http://localhost:3000 /tmp/review.png
-Then READ the screenshot and compare against reference images.
+## Design System (MUST READ before ANY visual change)
+Source of truth: components/website/theme.ts + classicThemes in app/page.tsx
+Ableton geometric (0 border-radius, sober) + ElevenLabs layout (airy spacing).
+Never hardcode colors — always reference theme tokens.
 
-## Common Mistakes (from v1-v6 failures)
-- Don't claim "it's done" without taking and reading a screenshot first
-- Don't use Inter or globals.css theme — use theme.ts Classic theme only
-- Don't build 1000+ line page files — split into components
+IMPORTANT: Before creating or modifying ANY visual component, page, or UI element:
+1. Read memory file feedback_design_charter.md — it has the COMPLETE visual charter
+2. Read the existing app theme (classicThemes in app/page.tsx lines 37-52) to match exact colors
+3. Every new page/component MUST look like it belongs in the existing app — same font, colors, spacing, geometry
+4. Zero border-radius. Futura PT only. No Inter. No rounded corners. No gradients on text.
+
+## Tech Rules
+- shadcn components only. Never build custom UI from scratch.
+- framer-motion for animations. Never raw CSS or IntersectionObserver.
+- Tailwind spacing scale. Never arbitrary values like py-[73px].
+- Max-w-7xl mx-auto px-6 for section widths.
+- Each section = own component in components/website/. Max 500 lines/file.
+
+## Things That Will Bite You
+- page.tsx is 800+ lines — search carefully before modifying, don't duplicate logic
+- Workspace ID must be in URL query params (&ws=), not just headers — audio tags can't send headers
+- Audio preview uses &format=mp3, download uses &format=wav — don't mix them up
+- R2 presigned URLs expire in 1h (downloads) / 2h (uploads) — don't cache them
+- Worker overlap=8 hardcoded — don't expose to UI without Victor's approval
+- Settings/Account UI is entirely mock — don't assume any data is real
+- No auth, no DB, no Stripe yet — all API endpoints are public
+
+## Verification Protocol (MANDATORY)
+
+Based on Anthropic's own recommendation: "Give Claude a way to verify its work — highest-leverage thing you can do."
+
+After every change:
+1. `npm run build` — zero errors required
+2. If visual: screenshot with Playwright → READ it and compare
+3. If functional: browse/gstack to test the actual flow
+
+Before claiming done:
+4. Launch code-reviewer agent on the diff (Writer/Reviewer separation — a fresh agent reviews what you wrote)
+5. Fix what the reviewer flags
+6. Evidence in the conversation (screenshot, build output, or test result)
+
+IMPORTANT: Never say "c'est fait" without proof. Victor hates false confirmations.
+
+## Common Mistakes (from v1-v7)
+- Don't use Inter or globals.css — use theme.ts Classic theme only
+- Don't build 1000+ line files — split into components
 - Don't hardcode colors — use the C/themes object
 
-## Skill routing
-
-When the user's request matches an available skill, ALWAYS invoke it using the Skill
-tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
-The skill has specialized workflows that produce better results than ad-hoc answers.
-
-Key routing rules:
-- Product ideas, "is this worth building", brainstorming → invoke office-hours
-- Bugs, errors, "why is this broken", 500 errors → invoke investigate
-- Ship, deploy, push, create PR → invoke ship
-- QA, test the site, find bugs → invoke qa
-- Code review, check my diff → invoke review
-- Update docs after shipping → invoke document-release
-- Weekly retro → invoke retro
-- Design system, brand → invoke design-consultation
-- Visual audit, design polish → invoke design-review
-- Architecture review → invoke plan-eng-review
-- Save progress, checkpoint, resume → invoke checkpoint
-- Code quality, health check → invoke health
+## Skill Routing
+When the user's request matches a skill, invoke it FIRST via Skill tool:
+- Bugs/errors → investigate
+- Ship/deploy/PR → ship
+- QA/test → qa
+- Code review → review
+- Design system → design-consultation
+- Visual audit → design-review
+- Architecture → plan-eng-review
+- Brainstorming → office-hours
+- Checkpoint → checkpoint
+- Health check → health

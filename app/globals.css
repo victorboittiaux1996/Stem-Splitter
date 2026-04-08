@@ -127,8 +127,15 @@
 
 @font-face {
   font-family: "Futura PT";
+  src: url("/fonts/futura-pt-book.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Futura PT";
   src: url("/fonts/futura-pt-medium.ttf") format("truetype");
-  font-weight: 100 900;
+  font-weight: 500 700;
   font-display: swap;
 }
 

@@ -7,7 +7,7 @@ import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { useUpload } from "@/hooks/use-upload";
 import { toast } from "sonner";
 
-const ACCEPTED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac)$/i;
+const ACCEPTED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff)$/i;
 const MAX_SIZE = 50 * 1024 * 1024; // 50MB
 
 type SplitMode = "2stem" | "4stem";
@@ -22,7 +22,7 @@ export function UploadSection() {
   const handleFile = useCallback((f: File) => {
     if (!ACCEPTED_EXTENSIONS.test(f.name)) {
       toast.error("Unsupported format", {
-        description: "Please upload MP3, WAV, FLAC, OGG, or M4A files.",
+        description: "Please upload MP3, WAV, FLAC, OGG, M4A, or AIFF files.",
       });
       return;
     }
@@ -86,7 +86,7 @@ export function UploadSection() {
           ref={inputRef}
           type="file"
           className="hidden"
-          accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
+          accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.aif,.aiff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) handleFile(f);

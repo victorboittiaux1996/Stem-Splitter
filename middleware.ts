@@ -1,9 +1,55 @@
-import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
 
-export function middleware(_request: NextRequest) {
-  return NextResponse.next();
+export async function middleware(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          );
+        },
+      },
+    }
+  );
+
+  // Refresh session — MUST be called to keep auth cookies fresh
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Public routes that don't require auth
+  const publicPaths = ["/", "/login", "/auth/callback", "/website-", "/v5-", "/v6", "/v7"];
+  const isPublic = publicPaths.some((p) =>
+    p === "/" ? request.nextUrl.pathname === "/" : request.nextUrl.pathname.startsWith(p)
+  );
+
+  // Allow webhook callbacks (Modal worker + Polar payment webhooks)
+  const isWebhook =
+    (request.nextUrl.pathname.startsWith("/api/jobs/") && request.method === "PATCH") ||
+    (request.nextUrl.pathname.startsWith("/api/webhooks/") && request.method === "POST");
+
+  if (!user && !isPublic && !isWebhook) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  return supabaseResponse;
 }
 
 export const config = {
-  matcher: "/api/((?!upload).*)",
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|ttf|woff2?|otf)$).*)",
+  ],
 };
