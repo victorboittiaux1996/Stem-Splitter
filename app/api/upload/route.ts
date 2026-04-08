@@ -39,6 +39,15 @@ export async function POST(request: NextRequest) {
       if (typeof url !== "string") {
         return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
       }
+      // Validate URL — only allow http/https protocols to prevent SSRF
+      try {
+        const parsed = new URL(url);
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+          return NextResponse.json({ error: "Invalid URL protocol" }, { status: 400 });
+        }
+      } catch {
+        return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+      }
 
       const jobId = nanoid(12);
       const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
@@ -74,7 +83,12 @@ export async function POST(request: NextRequest) {
     if (!filename || typeof filename !== "string") {
       return NextResponse.json({ error: "filename required" }, { status: 400 });
     }
-    if (!ALLOWED_EXTENSIONS.test(filename)) {
+    // Sanitize filename — strip HTML tags and control characters
+    const sanitizedFilename = filename.replace(/<[^>]*>/g, "").replace(/[<>"'&]/g, "").trim();
+    if (!sanitizedFilename) {
+      return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
+    }
+    if (!ALLOWED_EXTENSIONS.test(sanitizedFilename)) {
       return NextResponse.json({ error: "Unsupported format" }, { status: 400 });
     }
     if (typeof size === "number" && size > maxFileSize) {
@@ -91,7 +105,7 @@ export async function POST(request: NextRequest) {
 
     await writeJsonToR2(key, {
       id: jobId, status: "uploading", mode, progress: 0,
-      stage: "Uploading...", createdAt: Date.now(), fileName: filename, inputKey, overlap, workspaceId: wsId, userId: user.id,
+      stage: "Uploading...", createdAt: Date.now(), fileName: sanitizedFilename, inputKey, overlap, workspaceId: wsId, userId: user.id,
     });
 
     // Presigned PUT URL — valid 2 hours (large files on slow connections)

@@ -36,6 +36,13 @@ function relativeDate(ts: number): string {
 
 export async function GET(request: Request) {
   try {
+    // Auth check — only authenticated users can view history
+    const { getAuthUser } = await import("@/lib/supabase/auth-helpers");
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
     const wsId = new URL(request.url).searchParams.get("workspaceId") ||
       (request.headers as Headers).get("x-workspace-id") || null;
     const prefix = wsId ? `workspaces/${wsId}/jobs/` : "jobs/";

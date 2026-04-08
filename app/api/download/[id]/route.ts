@@ -5,6 +5,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth check — only authenticated users can download stems
+  const { getAuthUser } = await import("@/lib/supabase/auth-helpers");
+  const user = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   const { id } = await params;
   const stem = request.nextUrl.searchParams.get("stem");
   const wsId = request.headers.get("x-workspace-id") || null;
