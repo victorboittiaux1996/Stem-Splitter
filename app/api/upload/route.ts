@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
         if (result.error) {
           await writeJsonToR2(key, {
             id: jobId, status: "failed", mode, progress: 0,
-            stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId,
+            stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
           });
         }
       }).catch(() => {});
@@ -152,7 +152,7 @@ export async function PUT(request: NextRequest) {
     await writeJsonToR2(finalKey, {
       id: job.id, status: "processing", mode: job.mode, progress: 5,
       stage: "Sending to GPU...", createdAt: job.createdAt, fileName: job.fileName,
-      inputKey: job.inputKey, workspaceId: resolvedWsId,
+      inputKey: job.inputKey, workspaceId: resolvedWsId, userId: user.id,
     });
 
     fetch(MODAL_WEBHOOK_URL, {
@@ -164,7 +164,7 @@ export async function PUT(request: NextRequest) {
       if (result.error) {
         await writeJsonToR2(finalKey, {
           id: job.id, status: "failed", mode: job.mode, progress: 0,
-          stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId,
+          stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
         });
       }
     }).catch(() => {});

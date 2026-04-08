@@ -64,6 +64,7 @@ def update_job_status(
     duration: float | None = None,
     peaks: dict | None = None,
     workspace_id: str | None = None,
+    user_id: str | None = None,
 ):
     """Update the job status JSON in R2."""
     s3 = get_s3_client()
@@ -106,6 +107,8 @@ def update_job_status(
         job["peaks"] = peaks
     if workspace_id is not None:
         job["workspaceId"] = workspace_id
+    if user_id is not None:
+        job["userId"] = user_id
     if status == "completed":
         import time
         job["completedAt"] = int(time.time() * 1000)
