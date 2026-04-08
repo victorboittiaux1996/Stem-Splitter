@@ -35,9 +35,11 @@ interface StemModalProps {
   /** Pre-computed peaks from server — avoids audio decode delay */
   cachedPeaks?: Record<string, number[]>;
   outputFormat?: "wav" | "mp3";
+  /** Workspace ID for scoped API calls */
+  workspaceId?: string;
 }
 
-export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks, outputFormat = "wav" }: StemModalProps) {
+export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks, outputFormat = "wav", workspaceId }: StemModalProps) {
   const fmt = outputFormat;
   const fmtExt = fmt === "mp3" ? ".mp3" : ".wav";
   const currentItem = items.find(h => h.id === expandedFile);
@@ -65,7 +67,9 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
     }
 
     setStemUrls({});
-    fetch(`/api/download/${expandedFile}`)
+    fetch(`/api/download/${expandedFile}`, {
+      headers: workspaceId ? { "x-workspace-id": workspaceId } : {},
+    })
       .then(r => r.json())
       .then(d => {
         if (d.stems) {

@@ -7,7 +7,7 @@ const POLL_INTERVAL = 1000;
 const MAX_PCT_PER_SEC = 1;     // 1%/s — toujours 1 par 1, jamais de saut
 const FINISH_PCT_PER_SEC = 10; // accélération finale quand completed (~2-3s pour finir)
 
-export function useJobStatus(jobId: string | null) {
+export function useJobStatus(jobId: string | null, workspaceId?: string) {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [displayProgress, setDisplayProgress] = useState(0);
@@ -20,7 +20,9 @@ export function useJobStatus(jobId: string | null) {
   const fetchStatus = useCallback(async () => {
     if (!jobId) return;
     try {
-      const res = await fetch(`/api/jobs/${jobId}`);
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        headers: workspaceId ? { "x-workspace-id": workspaceId } : {},
+      });
       if (!res.ok) {
         if (res.status === 404) { setError("Job not found"); return; }
         throw new Error(`Status ${res.status}`);
@@ -41,7 +43,7 @@ export function useJobStatus(jobId: string | null) {
       console.error("Failed to fetch job status:", err);
       setError("Failed to fetch status");
     }
-  }, [jobId]);
+  }, [jobId, workspaceId]);
 
   // Polling
   useEffect(() => {

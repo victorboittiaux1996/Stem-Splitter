@@ -284,7 +284,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           // Fetch stem download URLs
           let stemDownloads: StemDownload[] = [];
           try {
-            const dlRes = await fetch(`/api/download/${jobId}`);
+            const dlRes = await fetch(`/api/download/${jobId}`, {
+              headers: { "x-workspace-id": workspaceIdRef.current },
+            });
             if (dlRes.ok) {
               const dlData = await dlRes.json();
               stemDownloads = dlData.stems || [];
@@ -314,7 +316,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           }, ...prev]);
 
           // Refresh history
-          fetch("/api/history").catch(() => {});
+          fetch("/api/history", {
+            headers: { "x-workspace-id": workspaceIdRef.current },
+          }).catch(() => {});
 
           setActiveItemId(null);
         } else if (job.status === "failed") {

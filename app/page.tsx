@@ -1100,7 +1100,7 @@ export default function AbletonDashboard() {
 
                     {/* Stem detail modal — Recent splits */}
                     <AnimatePresence>
-                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} />}
+                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} />}
                     </AnimatePresence>
                   </>
                 )}
@@ -1155,6 +1155,7 @@ export default function AbletonDashboard() {
                     jobId={jobId || undefined}
                     stemUrls={stemUrls}
                     trackDuration={currentJob?.duration}
+                    precomputedPeaks={currentJob?.peaks}
                     outputFormat={outputFormat}
                   />
                 ) : (
@@ -1402,7 +1403,7 @@ export default function AbletonDashboard() {
 
               {/* Stem detail modal — Files */}
               <AnimatePresence>
-                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} />}
+                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} />}
               </AnimatePresence>
             </>
           )}

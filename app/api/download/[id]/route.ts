@@ -13,7 +13,8 @@ export async function GET(
     if (stem) {
       const format = request.nextUrl.searchParams.get("format") || "wav";
       const ext = format === "mp3" ? ".mp3" : ".wav";
-      const key = stemKey(wsId, id, stem, ext);
+      const resolvedWsId = wsId || request.nextUrl.searchParams.get("ws") || null;
+      const key = stemKey(resolvedWsId, id, stem, ext);
       const url = await getPresignedUrl(key, 3600);
       return NextResponse.redirect(url);
     }
@@ -26,9 +27,10 @@ export async function GET(
     const resolvedWsId = job.workspaceId ?? wsId;
     const keys = await listStemsForWorkspace(resolvedWsId ?? null, id);
     const stemsPrefix = resolvedWsId ? `workspaces/${resolvedWsId}/stems/${id}/` : `stems/${id}/`;
+    const wsParam = resolvedWsId ? `&ws=${resolvedWsId}` : "";
     const stems = keys.map((key) => {
       const name = key.replace(stemsPrefix, "").replace(".wav", "");
-      return { name, url: `/api/download/${id}?stem=${name}` };
+      return { name, url: `/api/download/${id}?stem=${name}${wsParam}` };
     });
 
     return NextResponse.json({ stems });
