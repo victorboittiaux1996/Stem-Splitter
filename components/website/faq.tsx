@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { fonts, themes } from "./theme";
+import { fonts } from "./theme";
 
-const T = themes.light;
+const T = {
+  bg: "#FFFFFF",
+  text: "#000000",
+  textSecondary: "#555555",
+  textMuted: "#8C8C8C",
+  border: "#E5E5E5",
+};
 
 const faqItems = [
   {
@@ -118,7 +124,7 @@ export function FAQ() {
                   transition: "color 0.2s ease",
                 }}
                 onMouseEnter={(e) => {
-                  (e.currentTarget).style.color = T.text;
+                  (e.currentTarget).style.color = "#000000";
                 }}
                 onMouseLeave={(e) => {
                   (e.currentTarget).style.color = T.text;
