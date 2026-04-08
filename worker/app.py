@@ -77,17 +77,24 @@ def convert_to_mp3(wav_path: str, mp3_path: str):
 
 
 def download_from_url(url: str, output_dir: str) -> str:
-    """Download audio from URL (YouTube/SoundCloud/Deezer) at best available quality."""
+    """Download audio from URL (YouTube/SoundCloud/Deezer) at best available quality.
+
+    Has a hard 90-second timeout to prevent hanging forever on blocked IPs.
+    """
     import yt_dlp
+    import signal
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError("Download timed out after 90 seconds — YouTube may be blocking this server's IP")
 
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_dir, 'audio.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 60,
-        'retries': 3,
-        'fragment_retries': 3,
+        'socket_timeout': 30,
+        'retries': 1,
+        'fragment_retries': 1,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
@@ -97,12 +104,20 @@ def download_from_url(url: str, output_dir: str) -> str:
             },
         },
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.extract_info(url, download=True)
-        for f in os.listdir(output_dir):
-            if f.startswith('audio.') and not f.endswith('.part'):
-                return os.path.join(output_dir, f)
-    raise Exception(f"Failed to download audio from {url}")
+
+    # Hard timeout: 90 seconds max for the entire download
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(90)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(url, download=True)
+            for f in os.listdir(output_dir):
+                if f.startswith('audio.') and not f.endswith('.part'):
+                    return os.path.join(output_dir, f)
+        raise Exception(f"Failed to download audio from {url}")
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
