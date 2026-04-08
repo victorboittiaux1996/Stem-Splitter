@@ -50,6 +50,7 @@ export function useAuth() {
     initials,
     avatarUrl,
     email: state.user?.email ?? "",
+    createdAt: state.user?.created_at ?? "",
     signOut,
   };
 }

@@ -156,7 +156,7 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 
 // ─── Component ──────────────────────────────────────────────
 export default function AbletonDashboard() {
-  const { user, displayName, initials, email, signOut, avatarUrl } = useAuth();
+  const { user, displayName, initials, email, signOut, avatarUrl, createdAt } = useAuth();
   const { planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, daysUntilReset, loading: subLoading } = useSubscription(user?.id);
 
   // Handle checkout success redirect from Polar
@@ -1586,7 +1586,13 @@ export default function AbletonDashboard() {
 
           {/* ═══ SETTINGS ═══ */}
           {view === "settings" && (
-            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} onUpgrade={handleUpgrade} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} />
+            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} onUpgrade={handleUpgrade} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} createdAt={createdAt} usageHistory={history.map(h => ({
+              date: new Date(h.completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+              details: h.name,
+              type: `${h.stems}-stem`,
+              time: `−${h.duration ?? "0:00"}`,
+              positive: false,
+            }))} />
           )}
         </div>
       </div>

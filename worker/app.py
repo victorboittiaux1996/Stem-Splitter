@@ -85,7 +85,17 @@ def download_from_url(url: str, output_dir: str) -> str:
         'outtmpl': os.path.join(output_dir, 'audio.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 30,
+        'socket_timeout': 60,
+        'retries': 3,
+        'fragment_retries': 3,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'android'],
+            },
+        },
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.extract_info(url, download=True)
@@ -123,7 +133,7 @@ def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
     return patched, _orig
 
 
-@app.function(image=image, gpu="H100", timeout=600, secrets=[modal.Secret.from_name("r2-credentials")])
+@app.function(image=image, gpu="H100", timeout=600, keep_warm=1, secrets=[modal.Secret.from_name("r2-credentials")])
 @modal.web_endpoint(method="POST")
 def separate(request: dict):
     """Process a stem separation job.

@@ -29,6 +29,8 @@ interface AccountViewProps {
   email?: string;
   initials?: string;
   avatarUrl?: string | null;
+  createdAt?: string;
+  usageHistory?: { date: string; details: string; type: string; time: string; positive: boolean }[];
 }
 
 // Mock usage history data
@@ -94,17 +96,47 @@ function Toggle({ on, C }: { on: boolean; C: C }) {
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory }: AccountViewProps) {
+  const memberSince = createdAt
+    ? new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : "—";
   const [showAll, setShowAll] = React.useState(false);
-  const visibleRows = showAll ? USAGE_HISTORY : USAGE_HISTORY.slice(0, 10);
+  const historyData = usageHistory ?? USAGE_HISTORY;
+  const visibleRows = showAll ? historyData : historyData.slice(0, 10);
 
-  // Mock local state for preferences (will be replaced with real data)
+  // Preferences persisted in localStorage
   const [notifSplitComplete, setNotifSplitComplete] = React.useState(true);
   const [notifProductUpdates, setNotifProductUpdates] = React.useState(true);
   const [notifMarketing, setNotifMarketing] = React.useState(false);
   const [defaultStems, setDefaultStems] = React.useState<2 | 4 | 6>(4);
   const [defaultFormat, setDefaultFormat] = React.useState<"wav" | "mp3">("wav");
   const [defaultQuality, setDefaultQuality] = React.useState<"fast" | "balanced" | "high">("fast");
+
+  // Load preferences from localStorage on mount
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem("44stems-preferences");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p.stems) setDefaultStems(p.stems);
+        if (p.format) setDefaultFormat(p.format);
+        if (p.quality) setDefaultQuality(p.quality);
+        if (typeof p.notifSplit === "boolean") setNotifSplitComplete(p.notifSplit);
+        if (typeof p.notifUpdates === "boolean") setNotifProductUpdates(p.notifUpdates);
+        if (typeof p.notifMarketing === "boolean") setNotifMarketing(p.notifMarketing);
+      }
+    } catch {}
+  }, []);
+
+  // Save preferences to localStorage on change
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("44stems-preferences", JSON.stringify({
+        stems: defaultStems, format: defaultFormat, quality: defaultQuality,
+        notifSplit: notifSplitComplete, notifUpdates: notifProductUpdates, notifMarketing,
+      }));
+    } catch {}
+  }, [defaultStems, defaultFormat, defaultQuality, notifSplitComplete, notifProductUpdates, notifMarketing]);
 
   return (
     <div className="px-[24px] pt-[24px] pb-[40px]">
@@ -153,7 +185,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               <SectionHeading C={C}>Personal Information</SectionHeading>
               <InfoRow label="Full name" value={displayName} C={C} />
               <InfoRow label="Email address" value={email} C={C} />
-              <InfoRow label="Member since" value="March 2026" C={C} last />
+              <InfoRow label="Member since" value={memberSince} C={C} last />
             </div>
 
             {/* Connected accounts card */}
