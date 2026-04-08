@@ -130,7 +130,7 @@ const TrashIcon = ({ color }: { color: string }) => (
   </svg>
 );
 
-// ─── Seeded waveform generator (DAW-style mirrored SVG) ─────
+// ─── Realistic waveform generator for Get Lucky stems ────────
 function mulberry32(seed: number) {
   return () => {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
@@ -140,20 +140,72 @@ function mulberry32(seed: number) {
   };
 }
 
-function generateWaveformPath(seed: number, count = 100): string {
+type StemType = "vocals" | "drums" | "bass" | "guitar" | "piano" | "other";
+
+function generateStemWaveform(type: StemType, seed: number, count = 200): string {
   const rng = mulberry32(seed);
-  const cy = 18, amp = 14; // viewBox 0 0 100 36
+  const cy = 18, maxAmp = 15;
   const peaks: number[] = [];
   for (let i = 0; i < count; i++) {
-    const env = Math.sin((i / count) * Math.PI) * 0.6 + 0.4;
-    peaks.push(env * (rng() * 0.7 + 0.3));
+    const x = i / count;
+    const r = rng();
+    let val: number;
+    switch (type) {
+      case "vocals": {
+        const phrase = Math.sin(x * Math.PI * 8) * 0.5 + 0.5;
+        const section = x < 0.15 ? 0.3 : x < 0.35 ? 0.85 : x < 0.5 ? 0.95 : x < 0.65 ? 0.4 : x < 0.8 ? 0.9 : 0.7;
+        const gap = (Math.sin(x * Math.PI * 24) > 0.7) ? 0.15 : 1;
+        val = section * phrase * gap * (r * 0.3 + 0.7);
+        break;
+      }
+      case "drums": {
+        const beat = (x * count) % 12;
+        const isKick = beat < 2;
+        const isSnare = beat > 5 && beat < 7;
+        const hihat = Math.abs(Math.sin(x * Math.PI * 48)) * 0.35;
+        val = isKick ? (0.85 + r * 0.15) : isSnare ? (0.7 + r * 0.15) : (hihat + r * 0.15);
+        val *= (x < 0.05 ? x / 0.05 : x > 0.95 ? (1 - x) / 0.05 : 1);
+        break;
+      }
+      case "bass": {
+        const groove = Math.sin(x * Math.PI * 32) * 0.3 + 0.7;
+        const pulse = Math.abs(Math.sin(x * Math.PI * 16));
+        val = groove * pulse * 0.7 * (r * 0.2 + 0.8);
+        val *= (x < 0.08 ? x / 0.08 : 1);
+        break;
+      }
+      case "guitar": {
+        const chop = Math.abs(Math.sin(x * Math.PI * 32));
+        const accent = ((x * count) % 8 < 3) ? 0.9 : 0.5;
+        val = chop * accent * (r * 0.3 + 0.6);
+        val *= (x < 0.1 ? x / 0.1 : 1);
+        break;
+      }
+      case "piano": {
+        const chord = Math.sin(x * Math.PI * 4) * 0.2 + 0.6;
+        val = chord * 0.45 * (r * 0.15 + 0.85);
+        break;
+      }
+      case "other": {
+        val = 0.25 * (r * 0.5 + 0.3);
+        val *= Math.sin(x * Math.PI) * 0.6 + 0.4;
+        break;
+      }
+    }
+    peaks.push(Math.max(0.02, Math.min(1, val)));
   }
-  const top = peaks.map((p, i) => `${(i / count) * 100},${cy - p * amp}`).join(" L");
-  const bot = [...peaks].reverse().map((p, i) => `${((count - 1 - i) / count) * 100},${cy + p * amp}`).join(" L");
+  for (let pass = 0; pass < 2; pass++) {
+    for (let j = 1; j < peaks.length - 1; j++) {
+      peaks[j] = peaks[j] * 0.5 + (peaks[j - 1] + peaks[j + 1]) * 0.25;
+    }
+  }
+  const top = peaks.map((p, i) => `${(i / count) * 100},${cy - p * maxAmp}`).join(" L");
+  const bot = [...peaks].reverse().map((p, i) => `${((count - 1 - i) / count) * 100},${cy + p * maxAmp}`).join(" L");
   return `M0,${cy} L${top} L100,${cy} L${bot} Z`;
 }
 
-const WAVEFORM_SEEDS = [42, 137, 256, 891];
+const STEM_TYPES: StemType[] = ["vocals", "drums", "bass", "guitar", "piano", "other"];
+const STEM_SEEDS = [42, 137, 256, 891, 314, 529];
 
 // Nav items
 const NAV_ICONS = [SplitIcon, FilesIcon, StatsIcon, GamesIcon];
@@ -162,13 +214,19 @@ const STEMS = [
   { label: "VOCALS", color: stemColors.vocals },
   { label: "DRUMS", color: stemColors.drums },
   { label: "BASS", color: stemColors.bass },
+  { label: "GUITAR", color: stemColors.guitar },
+  { label: "PIANO", color: stemColors.piano },
   { label: "OTHER", color: stemColors.other },
 ];
 
 const MOCK_FILES = [
-  { name: "Daft Punk - Get Lucky.wav", time: "2h ago", stems: 4, bpm: "116", key: "5B", dur: "6m 09s", fmt: "WAV / MP3" },
-  { name: "Billie Eilish - Bad Guy.mp3", time: "5h ago", stems: 4, bpm: "135", key: "7A", dur: "3m 14s", fmt: "WAV / MP3" },
-  { name: "Michael Jackson - Billie Jean.wav", time: "1 day ago", stems: 4, bpm: "117", key: "11B", dur: "4m 54s", fmt: "WAV / MP3" },
+  { name: "Daft Punk - Get Lucky (feat. Pharrell Williams).wav", time: "2h ago", stems: 6, bpm: "116", key: "5B", dur: "6m 09s", fmt: "WAV / MP3" },
+  { name: "Stardust - Music Sounds Better With You.wav", time: "3h ago", stems: 4, bpm: "124", key: "3B", dur: "6m 43s", fmt: "WAV / MP3" },
+  { name: "Prospa - This Rhythm (feat. RAHH) (Extended Mix).wav", time: "6h ago", stems: 4, bpm: "127", key: "6A", dur: "4m 19s", fmt: "WAV / MP3" },
+  { name: "Billie Eilish - bad guy.mp3", time: "12h ago", stems: 4, bpm: "135", key: "9B", dur: "3m 14s", fmt: "WAV / MP3" },
+  { name: "Michael Jackson - Billie Jean.wav", time: "1 day ago", stems: 4, bpm: "117", key: "10A", dur: "4m 54s", fmt: "WAV / MP3" },
+  { name: "Fred again.. - Delilah (pull me out of this).mp3", time: "2 days ago", stems: 6, bpm: "134", key: "11B", dur: "4m 10s", fmt: "WAV / MP3" },
+  { name: "Flume - Say It (feat. Tove Lo).wav", time: "3 days ago", stems: 4, bpm: "77", key: "1A", dur: "4m 43s", fmt: "WAV / MP3" },
 ];
 
 // ─── Main component ─────────────────────────────────────────
@@ -193,12 +251,13 @@ export function HeroDemo() {
   }, []);
 
   return (
-    <div style={{ backgroundColor: "#F3F3F3", padding: "32px 48px" }}>
+    <div style={{ backgroundColor: "#F3F3F3", padding: "48px 40px", pointerEvents: "none" }}>
       <div style={{
         display: "flex", overflow: "hidden",
         backgroundColor: D.bg,
         aspectRatio: "16 / 9",
-        boxShadow: "0 8px 40px rgba(0,0,0,0.12)",
+        maxWidth: 880, margin: "0 auto",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.15)",
       }}>
         {/* ── Sidebar COLLAPSED (52px) — exact from app with sidebarCollapsed=true ── */}
         <div style={{
@@ -211,8 +270,7 @@ export function HeroDemo() {
           {/* Logo — just the 4 bars, centered (app line 593-594) */}
           <div style={{
             height: 52, display: "flex", alignItems: "center", justifyContent: "center",
-            padding: "0 14px", cursor: "default",
-          }}>
+            padding: "0 14px",          }}>
             <svg height="14" viewBox="0 0 24 21" fill="none" overflow="visible" style={{ flexShrink: 0 }}>
               <rect x="0" y="0" width="24" height="3" fill={D.text}/>
               <rect x="0" y="6" width="24" height="3" fill={D.text}/>
@@ -240,10 +298,9 @@ export function HeroDemo() {
               return (
                 <div
                   key={i}
-                  onClick={() => { setActiveNav(i); setView(i === 1 ? "files" : "split"); }}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    padding: "9px 0", marginBottom: 2, cursor: "default",
+                    padding: "9px 0", marginBottom: 2,
                     backgroundColor: isActive ? D.navActive : "transparent",
                   }}
                 >
@@ -268,8 +325,11 @@ export function HeroDemo() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "9px 0", color: D.textSec }}>
               <SunIcon />
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "9px 0", color: D.textSec }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "9px 0", color: D.textSec, position: "relative" }}>
               <ActivityIcon />
+              <div style={{ position: "absolute", top: 6, right: 6, minWidth: 14, height: 14, backgroundColor: D.accent, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", fontFamily: F }}>1</span>
+              </div>
             </div>
           </div>
         </div>
@@ -383,8 +443,7 @@ function SplitView() {
             <div key={f.name} style={{
               display: "flex", alignItems: "center", padding: "14px 16px",
               borderBottom: i < MOCK_FILES.length - 1 ? `1px solid ${D.text}08` : undefined,
-              cursor: "default",
-            }}>
+                         }}>
               <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
                 <div style={{ width: 36, height: 36, backgroundColor: D.bgHover, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <WaveformIcon color={D.textMuted} />
@@ -427,8 +486,8 @@ function ResultsView() {
             <WaveformIcon color={D.textSec} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: D.text }}>Daft Punk - Get Lucky.wav</div>
-            <div style={{ fontSize: 13, color: D.textMuted, marginTop: 3 }}>116 BPM · 5B · WAV · 4 stems</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: D.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Daft Punk - Get Lucky (feat. Pharrell Williams).wav</div>
+            <div style={{ fontSize: 13, color: D.textMuted, marginTop: 3 }}>116 BPM · 5B · WAV · 6 stems</div>
           </div>
           <span style={{ fontSize: 11, fontWeight: 600, color: "#00CC66", letterSpacing: "0.04em" }}>COMPLETE</span>
         </div>
@@ -453,10 +512,9 @@ function ResultsView() {
             }}>
               {s.label}
             </span>
-            <div style={{ flex: 1, height: 36, backgroundColor: D.bgHover, overflow: "hidden", position: "relative" }}>
-              <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 1, backgroundColor: s.color, opacity: 0.1 }} />
+            <div style={{ flex: 1, height: 36, backgroundColor: `${D.text}06`, overflow: "hidden" }}>
               <svg viewBox="0 0 100 36" preserveAspectRatio="none" style={{ width: "100%", height: 36, display: "block" }}>
-                <path d={generateWaveformPath(WAVEFORM_SEEDS[i])} fill={s.color} opacity={0.85} />
+                <path d={generateStemWaveform(STEM_TYPES[i], STEM_SEEDS[i])} fill={s.color} opacity={0.8} />
               </svg>
             </div>
             <span style={{ fontSize: 13, color: D.textMuted, width: 32, textAlign: "right" }}>WAV</span>
@@ -469,7 +527,7 @@ function ResultsView() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           padding: "12px 16px", backgroundColor: D.bgSubtle,
         }}>
-          <span style={{ fontSize: 13, color: D.textMuted }}>4 stems · 6m 09s</span>
+          <span style={{ fontSize: 13, color: D.textMuted }}>6 stems · 6m 09s</span>
           <div style={{
             display: "flex", alignItems: "center", gap: 6,
             backgroundColor: D.accent, padding: "8px 16px",
@@ -511,8 +569,7 @@ function FilesView() {
           <div key={f.name} style={{
             display: "flex", alignItems: "center", padding: "14px 16px",
             borderBottom: i < MOCK_FILES.length - 1 ? `1px solid ${D.text}08` : undefined,
-            cursor: "default",
-          }}>
+                     }}>
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
               <div style={{ width: 36, height: 36, backgroundColor: D.bgHover, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <WaveformIcon color={D.textMuted} />
