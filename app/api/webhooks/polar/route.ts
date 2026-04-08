@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
         await supabaseAdmin
           .from("subscriptions")
           .update({
-            status: event.type === "subscription.revoked" ? "revoked" : "canceled",
+            status: "canceled", // both canceled and revoked map to "canceled" (DB CHECK constraint)
             updated_at: new Date().toISOString(),
           })
           .eq("user_id", userId);
