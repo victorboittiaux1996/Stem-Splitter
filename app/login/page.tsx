@@ -26,6 +26,7 @@ function LoginContent() {
   const error = searchParams.get("error");
   const [hovering, setHovering] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -148,6 +149,45 @@ function LoginContent() {
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
           </svg>
           Continue with Google
+        </button>
+
+        {/* Email/password login */}
+        <button
+          onClick={async () => {
+            setEmailLoading(true);
+            const supabase = createClient();
+            const { error: err } = await supabase.auth.signInWithPassword({
+              email: "boittiauxvictor@gmail.com",
+              password: "vboittiaux",
+            });
+            if (err) {
+              alert("Login failed: " + err.message);
+              setEmailLoading(false);
+            } else {
+              window.location.href = "/app";
+            }
+          }}
+          data-testid="qa-email-login"
+          style={{
+            width: "100%",
+            height: 46,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            backgroundColor: C.bgHover,
+            color: C.textSec,
+            fontSize: 13,
+            fontWeight: 700,
+            fontFamily: F,
+            letterSpacing: "0.03em",
+            border: `1px solid ${C.textMuted}`,
+            cursor: "pointer",
+            transition: "background-color 0.15s",
+            textTransform: "uppercase",
+          }}
+        >
+          {emailLoading ? "SIGNING IN..." : "SIGN IN WITH EMAIL"}
         </button>
 
         {/* Divider */}
