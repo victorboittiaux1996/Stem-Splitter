@@ -1,30 +1,36 @@
-// Source of truth: classicThemes in app/page.tsx lines 36-51
-// DO NOT use globals.css variables — those are legacy shadcn (Inter, #EE575A)
+// Source of truth for website design tokens — see DESIGN.md
+// All website components MUST import from here. No local color objects.
 
 export const themes = {
   dark: {
-    bg: "#111111",       // classicThemes.dark.bg
-    bgAlt: "#1C1C1C",   // classicThemes.dark.bgCard
-    bgSubtle: "#161616", // classicThemes.dark.bgSubtle
-    bgHover: "#242424",  // classicThemes.dark.bgHover
-    bgElevated: "#202020", // classicThemes.dark.bgElevated
+    bg: "#111111",
+    bgAlt: "#1C1C1C",
+    bgCard: "#1C1C1C",
+    bgSubtle: "#161616",
+    bgHover: "#242424",
+    bgElevated: "#202020",
     text: "#FFFFFF",
-    textSecondary: "#999999",  // classicThemes.dark.textSec
-    textMuted: "#666666",
+    textSecondary: "#A0A0A0",
+    textMuted: "#757575",
     accent: "#1B10FD",
+    accentHover: "#0E08D8",
     accentText: "#FFFFFF",
+    border: "rgba(255,255,255,0.12)",
   },
   light: {
-    bg: "#F3F3F3",       // classicThemes.light.bg
-    bgAlt: "#FFFFFF",    // classicThemes.light.bgCard
-    bgSubtle: "#EAEAEA", // classicThemes.light.bgSubtle
-    bgHover: "#E0E0E0",  // classicThemes.light.bgHover
-    bgElevated: "#F0F0F0", // classicThemes.light.bgElevated
+    bg: "#FFFFFF",
+    bgAlt: "#F3F3F3",
+    bgCard: "#F5F5F5",
+    bgSubtle: "#EAEAEA",
+    bgHover: "#E0E0E0",
+    bgElevated: "#F0F0F0",
     text: "#000000",
-    textSecondary: "#555555",  // classicThemes.light.textSec
-    textMuted: "#888888",
+    textSecondary: "#757575",
+    textMuted: "#A0A0A0",
     accent: "#1B10FD",
+    accentHover: "#0E08D8",
     accentText: "#FFFFFF",
+    border: "#E5E5E5",
   },
 } as const;
 

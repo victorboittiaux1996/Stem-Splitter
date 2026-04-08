@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { Logo } from "./logo";
-import { fonts } from "./theme";
+import { fonts, themes } from "./theme";
+
+const C = themes.light;
 
 const NAV_ITEMS = ["Product", "Resources", "Pricing", "Enterprise"];
 
@@ -24,10 +26,10 @@ export function Header() {
         height: "64px",
         display: "flex",
         alignItems: "center",
-        backgroundColor: scrolled ? "rgba(255,255,255,0.92)" : "#FFFFFF",
+        backgroundColor: scrolled ? "rgba(255,255,255,0.92)" : C.bg,
         backdropFilter: scrolled ? "blur(20px)" : "none",
         WebkitBackdropFilter: scrolled ? "blur(20px)" : "none",
-        borderBottom: scrolled ? "1px solid #E8E8E8" : "1px solid transparent",
+        borderBottom: scrolled ? `1px solid ${C.border}` : "1px solid transparent",
         transition: "border-color 0.25s ease, background-color 0.25s ease",
       }}
     >
@@ -45,7 +47,7 @@ export function Header() {
       >
         {/* Logo — left */}
         <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
-          <Logo size="md" color="#000000" />
+          <Logo size="md" color={C.text} />
         </a>
 
         {/* Nav — left, after logo */}
@@ -81,7 +83,7 @@ function NavLink({ label }: { label: string }) {
         fontFamily: fonts.body,
         fontSize: "14px",
         fontWeight: 400,
-        color: hovered ? "#000000" : "#222222",
+        color: hovered ? C.text : C.textSecondary,
         textDecoration: "none",
         transition: "color 0.15s ease",
         cursor: "pointer",
@@ -104,7 +106,7 @@ function LogInButton() {
         fontFamily: fonts.body,
         fontSize: "14px",
         fontWeight: 400,
-        color: hovered ? "#000000" : "#222222",
+        color: hovered ? C.text : C.textSecondary,
         textDecoration: "none",
         padding: "0 12px",
         height: "36px",
@@ -133,8 +135,8 @@ function GetStartedButton() {
         fontFamily: fonts.body,
         fontSize: "14px",
         fontWeight: 500,
-        color: "#FFFFFF",
-        backgroundColor: hovered ? "#0E08D8" : "#1B10FD",
+        color: C.accentText,
+        backgroundColor: hovered ? C.accentHover : C.accent,
         textDecoration: "none",
         padding: "0 16px",
         height: "36px",

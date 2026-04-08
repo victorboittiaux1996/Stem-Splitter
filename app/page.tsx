@@ -5,7 +5,7 @@ import { motion, useInView } from "framer-motion";
 import { Logo } from "@/components/website/logo";
 import { Footer } from "@/components/website/footer";
 import { FAQ } from "@/components/website/faq";
-import { fonts, stemColors } from "@/components/website/theme";
+import { fonts, stemColors, themes } from "@/components/website/theme";
 import { HeroDemo } from "@/components/website/hero-demo";
 import {
   RiEqualizerFill,
@@ -16,17 +16,8 @@ import {
   RiSoundModuleFill,
 } from "@remixicon/react";
 
-// ─── Design tokens ──────────────────────────────────────────
-const C = {
-  bg: "#FFFFFF",          // main background = white
-  bgAlt: "#F3F3F3",       // neutral light gray — clean alternation
-  bgCard: "#F5F5F5",      // cards on white bg
-  text: "#000000",
-  textLight: "#333333",   // body text — dark, not gray (charter)
-  textMuted: "#666666",   // labels, metadata (charter)
-  accent: "#1B10FD",      // 44Stems brand blue (original)
-  accentHover: "#0E08D8",
-} as const;
+// ─── Design tokens (from theme.ts — see DESIGN.md) ─────────
+const C = themes.light;
 
 // ─── Shared ─────────────────────────────────────────────────
 function Container({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -140,7 +131,7 @@ function NavLink({ label, href }: { label: string; href: string }) {
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
-        color: hovered ? C.text : C.textLight,
+        color: hovered ? C.text : C.textSecondary,
         textDecoration: "none", transition: "color 0.15s",
       }}
     >
@@ -350,7 +341,7 @@ function FeatureCard({ feature, index }: { feature: typeof FEATURES[number]; ind
         </motion.h3>
 
         <motion.p
-          animate={{ color: hovered ? "#FFFFFF" : C.textLight }}
+          animate={{ color: hovered ? "#FFFFFF" : C.textSecondary }}
           transition={{ duration: 0.3 }}
           style={{
             fontFamily: fonts.body, fontSize: 14, fontWeight: 400, lineHeight: 1.6, margin: 0,
@@ -465,7 +456,7 @@ function StepCard({ step, index }: { step: typeof STEPS[number]; index: number }
           {step.title}
         </motion.h3>
         <motion.p
-          animate={{ color: hovered ? "#FFFFFF" : C.textLight }}
+          animate={{ color: hovered ? "#FFFFFF" : C.textSecondary }}
           transition={{ duration: 0.3 }}
           style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 400, margin: 0, lineHeight: 1.6 }}
         >
@@ -794,7 +785,7 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
 
   const hText = isDark ? "#FFFFFF" : C.text;
   const hTextMuted = isDark ? "rgba(255,255,255,0.7)" : C.textMuted;
-  const hTextSec = isDark ? "rgba(255,255,255,0.85)" : C.textLight;
+  const hTextSec = isDark ? "rgba(255,255,255,0.85)" : C.textSecondary;
   const hTextFaint = isDark ? "rgba(255,255,255,0.4)" : C.textMuted;
 
   return (
@@ -867,7 +858,7 @@ function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
           {tier.features.map((f) => (
             <motion.li
               key={f}
-              animate={{ color: hovered ? hTextSec : C.textLight }}
+              animate={{ color: hovered ? hTextSec : C.textSecondary }}
               transition={{ duration: 0.3 }}
               style={{
                 fontFamily: fonts.body, fontSize: 14, fontWeight: 400,

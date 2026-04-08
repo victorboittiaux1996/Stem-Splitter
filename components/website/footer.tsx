@@ -1,15 +1,9 @@
 "use client";
 
 import { Logo } from "./logo";
-import { fonts } from "./theme";
+import { fonts, themes } from "./theme";
 
-const T = {
-  bg: "#FFFFFF",
-  text: "#000000",
-  textSecondary: "#555555",
-  textMuted: "#8C8C8C",
-  border: "#E5E5E5",
-};
+const T = themes.light;
 
 export function Footer() {
   const sections = [

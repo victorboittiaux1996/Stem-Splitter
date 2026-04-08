@@ -1,20 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { stemColors } from "./theme";
+import { fonts, stemColors, themes } from "./theme";
 import { PLANS } from "@/lib/plans";
 
-const F = "'Futura PT', 'futura-pt', sans-serif";
-
-const T = {
-  bg: "#FFFFFF",
-  bgCard: "#F5F5F5",
-  text: "#000000",
-  textSecondary: "#555555",
-  textMuted: "#8C8C8C",
-  border: "#E5E5E5",
-  accent: "#1B10FD",
-};
+const T = themes.light;
 
 type PricingVariant = "minimal" | "pop" | "structured";
 
@@ -98,7 +88,7 @@ function CTAButton({
   const base: React.CSSProperties = {
     width: "100%",
     padding: "12px 24px",
-    fontFamily: F,
+    fontFamily: fonts.body,
     fontSize: "14px",
     fontWeight: 500,
     borderRadius: 0,
@@ -115,8 +105,8 @@ function CTAButton({
         onClick={onClick}
         style={{
           ...base,
-          backgroundColor: hovered ? "#0E08D8" : "#1B10FD",
-          color: "#FFFFFF",
+          backgroundColor: hovered ? T.accentHover : T.accent,
+          color: T.accentText,
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -184,7 +174,7 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
           <div style={{ marginBottom: "12px" }}>
             <span
               style={{
-                fontFamily: F,
+                fontFamily: fonts.body,
                 fontSize: "11px",
                 fontWeight: 600,
                 textTransform: "uppercase",
@@ -203,12 +193,12 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
         {/* Tier name */}
         <h3
           style={{
-            fontFamily: F,
+            fontFamily: fonts.body,
             fontSize: "13px",
             fontWeight: 600,
             textTransform: "uppercase",
             letterSpacing: "0.06em",
-            color: isHighlighted ? "#1B10FD" : T.textMuted,
+            color: isHighlighted ? T.accent : T.textMuted,
             margin: "0 0 16px 0",
           }}
         >
@@ -226,10 +216,10 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
         >
           <span
             style={{
-              fontFamily: F,
+              fontFamily: fonts.body,
               fontSize: "40px",
               fontWeight: 300,
-              color: isHighlighted ? "#1B10FD" : T.text,
+              color: isHighlighted ? T.accent : T.text,
               lineHeight: 1,
             }}
           >
@@ -237,7 +227,7 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
           </span>
           <span
             style={{
-              fontFamily: F,
+              fontFamily: fonts.body,
               fontSize: "14px",
               fontWeight: 300,
               color: isHighlighted ? "#1B10FD88" : T.textMuted,
@@ -260,7 +250,7 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
             <li
               key={feature}
               style={{
-                fontFamily: F,
+                fontFamily: fonts.body,
                 fontSize: "14px",
                 fontWeight: 300,
                 color: isHighlighted ? "#111111" : T.textSecondary,
@@ -319,7 +309,7 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
           <div style={{ flex: "0 0 42%" }}>
             <p
               style={{
-                fontFamily: F,
+                fontFamily: fonts.body,
                 fontSize: "13px",
                 fontWeight: 500,
                 color: T.textMuted,
@@ -331,7 +321,7 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
             </p>
             <h2
               style={{
-                fontFamily: F,
+                fontFamily: fonts.body,
                 fontSize: "48px",
                 fontWeight: 300,
                 color: T.text,
@@ -346,7 +336,7 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
           <div style={{ flex: 1, paddingTop: "6px" }}>
             <p
               style={{
-                fontFamily: F,
+                fontFamily: fonts.body,
                 fontSize: "16px",
                 fontWeight: 300,
                 color: T.textSecondary,
