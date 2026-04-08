@@ -215,24 +215,17 @@ function Hero() {
           <HeroCTA label="See Pricing" variant="secondary" href="#pricing" />
         </motion.div>
 
-        {/* Product preview — pixel-perfect coded UI mock */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          style={{ marginTop: 64 }}
-        >
-          <div style={{ overflow: "hidden" }}>
-            <div style={{
-              transform: "scale(0.85)",
-              transformOrigin: "top center",
-              marginBottom: -100,
-            }}>
-              <HeroDemo />
-            </div>
-          </div>
-        </motion.div>
       </Container>
+
+      {/* Product preview — full-width gray container, app centered inside */}
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        style={{ marginTop: 64 }}
+      >
+        <HeroDemo />
+      </motion.div>
     </section>
   );
 }

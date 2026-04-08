@@ -97,8 +97,16 @@ async function findUserByEmail(email: string): Promise<string | null> {
 
   if (data?.id) return data.id;
 
-  // Fallback: list auth users (admin API)
-  const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
-  const user = authData?.users?.find((u) => u.email === email);
-  return user?.id ?? null;
+  // Fallback: paginate through auth users (only hit if profiles table miss)
+  let page = 1;
+  const perPage = 50;
+  while (true) {
+    const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+    const users = authData?.users ?? [];
+    const match = users.find((u) => u.email === email);
+    if (match) return match.id;
+    if (users.length < perPage) break;
+    page++;
+  }
+  return null;
 }

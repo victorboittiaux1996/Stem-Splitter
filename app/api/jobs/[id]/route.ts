@@ -18,13 +18,14 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Verify caller is the Modal worker via shared secret (opt-in: only enforced if env var is set)
+  // Verify caller is the Modal worker via shared secret
   const expectedSecret = process.env.MODAL_CALLBACK_SECRET;
-  if (expectedSecret) {
-    const secret = request.headers.get("x-modal-secret");
-    if (secret !== expectedSecret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!expectedSecret) {
+    console.warn("MODAL_CALLBACK_SECRET not set — PATCH /api/jobs is unprotected");
+  }
+  const secret = request.headers.get("x-modal-secret");
+  if (expectedSecret && secret !== expectedSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
