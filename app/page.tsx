@@ -106,7 +106,7 @@ function Header() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <a
-            href="/signin"
+            href="/login"
             style={{
               fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.text,
               textDecoration: "none", padding: "0 12px", height: 36,

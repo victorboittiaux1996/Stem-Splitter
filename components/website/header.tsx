@@ -101,7 +101,7 @@ function LogInButton() {
   const [hovered, setHovered] = useState(false);
   return (
     <a
-      href="/signin"
+      href="/login"
       style={{
         fontFamily: fonts.body,
         fontSize: "14px",
