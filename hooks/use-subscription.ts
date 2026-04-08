@@ -36,13 +36,13 @@ export function useSubscription(userId: string | undefined) {
         .from("subscriptions")
         .select("plan, status")
         .eq("user_id", userId)
-        .single(),
+        .maybeSingle(),
       supabase
         .from("usage")
         .select("tracks_used")
         .eq("user_id", userId)
         .eq("month", month)
-        .single(),
+        .maybeSingle(),
     ]).then(([subResult, usageResult]) => {
       const plan: PlanId =
         subResult.data?.status === "active"
