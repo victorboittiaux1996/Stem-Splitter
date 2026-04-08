@@ -478,6 +478,11 @@ function StepCard({ step, index }: { step: typeof STEPS[number]; index: number }
 
 // ─── Speed / Processing ─────────────────────────────────────
 function Processing() {
+  const steps = [
+    { label: "Upload", pct: 100, color: stemColors.vocals },
+    { label: "Processing", pct: 68, color: C.accent },
+    { label: "Ready", pct: 0, color: stemColors.bass },
+  ];
   return (
     <section style={{ backgroundColor: C.bg, padding: "120px 0" }}>
       <Container>
@@ -491,55 +496,50 @@ function Processing() {
             }}>
               Fast enough to not think about it.
             </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
-              LALAL.AI takes ~58s. Moises takes ~75s. We run on H100 GPUs and finish
-              in under 40 seconds. The benchmark is real.
-            </p>
           </div>
         </FadeIn>
 
-        {/* Big number + specs row — Cursor-style clean */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
-          {/* Left: big hero stat */}
-          <FadeIn delay={0.1}>
-            <div style={{ backgroundColor: "#FFFFFF", padding: "56px 40px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <motion.span
-                initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-                style={{ fontFamily: fonts.heading, fontSize: 96, fontWeight: 700, lineHeight: 1, color: C.text }}
-              >
-                &lt;40s
-              </motion.span>
-              <span style={{ fontFamily: fonts.body, fontSize: 14, color: "#999999", marginTop: 12 }}>
-                Average separation time for a full track
-              </span>
-            </div>
-          </FadeIn>
-
-          {/* Right: clean spec list */}
-          <FadeIn delay={0.2}>
-            <div style={{ backgroundColor: "#FFFFFF", padding: "40px 40px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              {[
-                { label: "GPU", value: "NVIDIA H100 80GB" },
-                { label: "Stems", value: "Up to 6" },
-                { label: "Input", value: "MP3, WAV, FLAC, AAC" },
-                { label: "Output", value: "WAV 24-bit / MP3 320" },
-                { label: "Max size", value: "200 MB" },
-              ].map((row, i) => (
-                <div key={row.label} style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "14px 0",
-                  borderBottom: i < 4 ? "1px solid #F0F0F0" : "none",
-                }}>
-                  <span style={{ fontFamily: fonts.body, fontSize: 14, color: "#999999" }}>{row.label}</span>
-                  <span style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.text }}>{row.value}</span>
+        <FadeIn delay={0.1}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+            {/* Left: pipeline */}
+            <div style={{ backgroundColor: C.bgAlt, padding: "32px 32px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 18 }}>
+              {steps.map((s, i) => (
+                <div key={s.label}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                    <span style={{ fontFamily: fonts.body, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</span>
+                    {s.pct > 0 && <span style={{ fontFamily: fonts.body, fontSize: 11, fontWeight: 600, color: s.color }}>{s.pct}%</span>}
+                  </div>
+                  <div style={{ height: 4, backgroundColor: "#E4E4E4", overflow: "hidden" }}>
+                    <motion.div
+                      initial={{ width: 0 }}
+                      whileInView={{ width: `${s.pct}%` }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 1, delay: 0.2 + i * 0.25, ease: [0.22, 1, 0.36, 1] }}
+                      style={{ height: "100%", backgroundColor: s.color }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
-          </FadeIn>
-        </div>
+            {/* Right: key specs */}
+            <div style={{ backgroundColor: C.bgAlt, padding: "32px 32px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              {[
+                { label: "Avg. time", value: "< 40 seconds" },
+                { label: "GPU", value: "NVIDIA H100 80GB" },
+                { label: "Output", value: "WAV 24-bit / MP3 320" },
+                { label: "Max stems", value: "6" },
+              ].map((row, i) => (
+                <div key={row.label} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "10px 0", borderBottom: i < 3 ? "1px solid #E4E4E4" : "none",
+                }}>
+                  <span style={{ fontFamily: fonts.body, fontSize: 12, color: C.textMuted }}>{row.label}</span>
+                  <span style={{ fontFamily: fonts.heading, fontSize: 13, fontWeight: 600, color: C.text }}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </FadeIn>
       </Container>
     </section>
   );
@@ -625,8 +625,8 @@ function _SpeedA() {
 // ── Speed B: Animated comparison bars + horizontal spec row
 function SpeedB() {
   const competitors = [
-    { name: "Moises", time: 75, color: "#D0D0D0" },
-    { name: "LALAL.AI", time: 58, color: "#D0D0D0" },
+    { name: "Competitor A", time: 75, color: "#D0D0D0" },
+    { name: "Competitor B", time: 58, color: "#D0D0D0" },
     { name: "44Stems", time: 38, color: stemColors.vocals, highlight: true },
   ];
   const specs = [
