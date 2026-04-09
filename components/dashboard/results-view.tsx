@@ -53,7 +53,7 @@ export function ResultsView({
 
   const c = {
     text: isDark ? "#E8E8E8" : "#0F0F10",
-    textMuted: isDark ? "#7A7A82" : "#949494",
+    textMuted: isDark ? "#9E9E9E" : "#555555",
     textSec: isDark ? "#A6A6AF" : "#6B6B73",
     border: isDark ? "rgba(255,255,255,0.12)" : "#E5E5E8",
     borderSoft: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",

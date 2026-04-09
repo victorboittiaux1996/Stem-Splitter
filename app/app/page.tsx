@@ -38,14 +38,14 @@ if (typeof window !== "undefined") {
 const classicThemes = {
   dark: {
     bg: "#111111", bgCard: "#1C1C1C", bgSubtle: "#161616", bgHover: "#242424", bgElevated: "#202020",
-    text: "#FFFFFF", textSec: "#999999", textMuted: "#666666",
+    text: "#FFFFFF", textSec: "#999999", textMuted: "#9E9E9E",
     accent: "#1B10FD", accentText: "#FFFFFF",
     sidebarBg: "#161616", navActive: "#222222",
     badgeBg: "#2A2A2A", badgeText: "#999999", dropZoneBg: "#1C1C1C",
   },
   light: {
     bg: "#F3F3F3", bgCard: "#FFFFFF", bgSubtle: "#EAEAEA", bgHover: "#E0E0E0", bgElevated: "#F0F0F0",
-    text: "#000000", textSec: "#555555", textMuted: "#888888",
+    text: "#000000", textSec: "#555555", textMuted: "#555555",
     accent: "#1B10FD", accentText: "#FFFFFF",
     sidebarBg: "#EAEAEA", navActive: "#DCDCDC",
     badgeBg: "#E0E0E0", badgeText: "#555555", dropZoneBg: "#FFFFFF",
@@ -1190,8 +1190,8 @@ export default function AbletonDashboard() {
                               : ""}
                         </span>
                         <button onClick={handleSplit} disabled={!canSplit}
-                          className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-25 disabled:cursor-not-allowed"
-                          style={{ backgroundColor: canSplit ? C.accent : C.textMuted, color: C.accentText, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
+                          className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:cursor-not-allowed"
+                          style={{ backgroundColor: canSplit ? C.accent : (isDark ? "#242424" : "#E0E0E0"), color: canSplit ? C.accentText : C.textMuted, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
                           SPLIT
                         </button>
                       </div>
@@ -1715,6 +1715,7 @@ export default function AbletonDashboard() {
           )}
         </div>
       </div>
+
     </div>
   );
 }

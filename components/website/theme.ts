@@ -10,7 +10,7 @@ export const themes = {
     bgElevated: "#202020", // classicThemes.dark.bgElevated
     text: "#FFFFFF",
     textSecondary: "#999999",  // classicThemes.dark.textSec
-    textMuted: "#666666",
+    textMuted: "#9E9E9E",
     accent: "#1B10FD",
     accentText: "#FFFFFF",
   },
@@ -22,7 +22,7 @@ export const themes = {
     bgElevated: "#F0F0F0", // classicThemes.light.bgElevated
     text: "#000000",
     textSecondary: "#555555",  // classicThemes.light.textSec
-    textMuted: "#888888",
+    textMuted: "#555555",
     accent: "#1B10FD",
     accentText: "#FFFFFF",
   },
