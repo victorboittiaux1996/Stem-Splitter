@@ -42,7 +42,10 @@ export async function middleware(request: NextRequest) {
     (request.nextUrl.pathname.startsWith("/api/jobs/") && request.method === "PATCH") ||
     (request.nextUrl.pathname.startsWith("/api/webhooks/") && request.method === "POST");
 
-  if (!user && !isPublic && !isWebhook) {
+  // Dev bypass — skip auth on localhost
+  const isDev = request.nextUrl.hostname === "localhost" || request.nextUrl.hostname === "127.0.0.1";
+
+  if (!user && !isPublic && !isWebhook && !isDev) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

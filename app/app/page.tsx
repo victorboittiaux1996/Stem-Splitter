@@ -246,6 +246,7 @@ export default function AbletonDashboard() {
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [totalDurationSec, setTotalDurationSec] = useState<number | null>(null);
   const [stemCount, setStemCount] = useState<StemCount>(4);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("wav");
   const [stemsOpen, setStemsOpen] = useState(false);
@@ -307,6 +308,29 @@ export default function AbletonDashboard() {
   ] as const;
   const detectedPlatform = PLATFORMS.find(p => p.pattern.test(urlInput.trim()))?.name || null;
   const isValidUrl = detectedPlatform !== null;
+  const [urlDurationLoading, setUrlDurationLoading] = useState(false);
+
+  // Fetch duration when a valid URL is entered
+  useEffect(() => {
+    if (!isValidUrl || inputMode !== "url") { setTotalDurationSec(null); return; }
+    const trimmed = urlInput.trim();
+    let cancelled = false;
+    setUrlDurationLoading(true);
+    setTotalDurationSec(null);
+
+    const timeout = setTimeout(() => {
+      fetch(`/api/url-info?url=${encodeURIComponent(trimmed)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (cancelled) return;
+          if (data.duration > 0) setTotalDurationSec(data.duration);
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setUrlDurationLoading(false); });
+    }, 500);
+
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, [urlInput, isValidUrl, inputMode]);
   const [validStyle, setValidStyle] = useState<1 | 2 | 3 | 4>(1);
   // Files view state
   const [sortBy, setSortBy] = useState<"name" | "date" | "duration" | "format" | "bpm" | "key">("date");
@@ -448,6 +472,77 @@ export default function AbletonDashboard() {
     }
   }, []);
 
+  // Compute total audio duration when files change
+  useEffect(() => {
+    const allFiles = file ? [file] : pendingFiles;
+    if (allFiles.length === 0) { setTotalDurationSec(null); return; }
+
+    let cancelled = false;
+
+    async function getDuration(f: File): Promise<number> {
+      // Try HTML Audio first (works for mp3, wav, ogg, m4a)
+      const url = URL.createObjectURL(f);
+      try {
+        const dur = await new Promise<number>((resolve, reject) => {
+          const audio = new Audio();
+          audio.preload = "metadata";
+          audio.onloadedmetadata = () => resolve(audio.duration);
+          audio.onerror = () => reject();
+          audio.src = url;
+        });
+        if (dur && isFinite(dur)) return dur;
+      } catch { /* fallback below */ } finally { URL.revokeObjectURL(url); }
+
+      // Fallback: parse AIFF/WAV headers for duration (no full decode needed)
+      try {
+        const header = await f.slice(0, 64).arrayBuffer();
+        const view = new DataView(header);
+        const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+
+        if (magic === "FORM") {
+          // AIFF: parse COMM chunk for numFrames + sampleRate
+          const chunk = await f.slice(0, 512).arrayBuffer();
+          const cv = new DataView(chunk);
+          for (let i = 12; i < cv.byteLength - 26; i++) {
+            const id = String.fromCharCode(cv.getUint8(i), cv.getUint8(i + 1), cv.getUint8(i + 2), cv.getUint8(i + 3));
+            if (id === "COMM") {
+              // COMM data: +8 numChannels(2), +10 numFrames(4), +14 sampleSize(2), +16 sampleRate(10 = 80-bit float)
+              const numFrames = cv.getUint32(i + 10);
+              const exp = cv.getUint16(i + 16) & 0x7FFF;
+              const mantissa = cv.getUint32(i + 18);
+              const sampleRate = mantissa * Math.pow(2, exp - 16383 - 31);
+              if (sampleRate > 0) return numFrames / sampleRate;
+              break;
+            }
+          }
+        } else if (magic === "RIFF") {
+          // WAV: fileSize / (sampleRate * channels * bitsPerSample/8)
+          const sampleRate = view.getUint32(24, true);
+          const byteRate = view.getUint32(28, true);
+          if (byteRate > 0) return (f.size - 44) / byteRate;
+        }
+      } catch { /* ignore */ }
+
+      // Last resort: full decode via AudioContext
+      try {
+        const buf = await f.arrayBuffer();
+        const ctx = new AudioContext();
+        const decoded = await ctx.decodeAudioData(buf);
+        const dur = decoded.duration;
+        await ctx.close();
+        return dur;
+      } catch { return 0; }
+    }
+
+    Promise.all(allFiles.map(getDuration)).then((durs) => {
+      if (cancelled) return;
+      const total = durs.reduce((a, b) => a + b, 0);
+      setTotalDurationSec(total > 0 ? total : null);
+    });
+
+    return () => { cancelled = true; };
+  }, [file, pendingFiles]);
+
   const { isRecording, elapsedSeconds, start: startRecording, stop: stopRecording } = useAudioRecorder();
 
   const handleStartRecording = useCallback(async () => {
@@ -466,8 +561,17 @@ export default function AbletonDashboard() {
 
   const canSplit = file !== null || pendingFiles.length > 0 || isValidUrl;
 
+  const remainingSeconds = (minutesIncluded - minutesUsed) * 60;
+
   const handleSplit = useCallback(() => {
     if (!file && pendingFiles.length === 0 && !isValidUrl) return;
+
+    // Check if user has enough credits
+    if (totalDurationSec != null && totalDurationSec > remainingSeconds) {
+      setUploadError(`Not enough minutes — this requires ${Math.ceil(totalDurationSec / 60)} min but you have ${Math.floor(remainingSeconds / 60)}:${String(Math.floor(remainingSeconds % 60)).padStart(2, "0")} left. Upgrade your plan for more.`);
+      return;
+    }
+
     const mode: SplitMode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
 
     if (isValidUrl && inputMode === "url") {
@@ -484,7 +588,7 @@ export default function AbletonDashboard() {
     setPendingFiles([]);
     setAppState("processing");
     setUploadError(null);
-  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, enqueue, enqueueUrl]);
+  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, enqueue, enqueueUrl, totalDurationSec, remainingSeconds]);
 
   const handleNewSplit = useCallback(() => {
     setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
@@ -1078,7 +1182,13 @@ export default function AbletonDashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-[10px]">
-                        <span style={{ fontSize: 15, color: C.textMuted }}>{remainingFormatted} / {minutesIncluded} min</span>
+                        <span style={{ fontSize: 13, color: C.textMuted }}>
+                          {urlDurationLoading
+                            ? "..."
+                            : totalDurationSec != null
+                              ? `${Math.floor(totalDurationSec / 60)}:${String(Math.floor(totalDurationSec % 60)).padStart(2, "0")} of credits will be used`
+                              : ""}
+                        </span>
                         <button onClick={handleSplit} disabled={!canSplit}
                           className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                           style={{ backgroundColor: canSplit ? C.accent : C.textMuted, color: C.accentText, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
