@@ -46,3 +46,15 @@ __pycache__/
 *.pyc
 .gstack/
 .env*.local
+
+# claude / mcp (contains tokens, session data)
+.claude/
+.mcp.json
+.playwright-mcp/
+
+# screenshots (may contain sensitive info)
+*.png
+!public/**/*.png
+
+# handoff files (may contain tokens)
+HANDOFF.md
