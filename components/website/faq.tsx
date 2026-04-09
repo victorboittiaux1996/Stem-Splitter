@@ -15,7 +15,7 @@ const faqItems = [
   {
     question: "What audio formats are supported?",
     answer:
-      "MP3, WAV, FLAC, OGG, M4A, AAC, and WebM. Files up to 50MB. You can also paste a YouTube or SoundCloud URL.",
+      "MP3, WAV, FLAC, AIFF, OGG, M4A, and AAC. Free plan supports files up to 200 MB, paid plans up to 2 GB. Pro and Studio users can also paste a YouTube, SoundCloud, or Spotify URL.",
   },
   {
     question: "How long does separation take?",
@@ -33,6 +33,16 @@ const faqItems = [
       "Yes. All uploaded files and generated stems are automatically deleted after 24 hours. We don't use your audio for training or any other purpose.",
   },
   {
+    question: "Does input audio quality affect the results?",
+    answer:
+      "At 320 kbps MP3 and above, the difference with lossless (WAV, FLAC) is negligible. Below 192 kbps, compression artifacts start degrading separation quality — the models can interpret MP3 ringing and quantization noise as instrument signal. For best results, upload the highest quality source you have.",
+  },
+  {
+    question: "Is there a file size or duration limit?",
+    answer:
+      "Free plan: 200 MB per file. Pro and Studio: 2 GB per file. There's no hard duration limit — the file size is the only constraint. Longer files simply use more minutes from your balance.",
+  },
+  {
     question: "Can I use the stems commercially?",
     answer:
       "That depends on your rights to the original audio. 44Stems is a tool — you're responsible for ensuring you have the rights to use the source material and its derivatives.",
@@ -40,7 +50,7 @@ const faqItems = [
   {
     question: "What's the difference between 2, 4, and 6 stems?",
     answer:
-      "2 stems: vocals + instrumental. 4 stems: vocals, drums, bass, other. 6 stems: vocals, drums, bass, guitar, piano, other. More stems = more creative control.",
+      "2 stems: vocals + instrumental. 4 stems: vocals, drums, bass, other. 6 stems: vocals, drums, bass, guitar, piano, other. The free plan includes 2 and 4 stems. 6-stem separation is available on Pro and Studio.",
   },
 ];
 
@@ -65,22 +75,6 @@ export function FAQ() {
           marginRight: "auto",
         }}
       >
-        {/* Section label */}
-        <div
-          style={{
-            fontFamily: fonts.heading,
-            fontSize: "11px",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: T.textMuted,
-            textAlign: "center",
-            marginBottom: "16px",
-          }}
-        >
-          Help
-        </div>
-
         {/* Section title */}
         <h2
           style={{
@@ -135,7 +129,7 @@ export function FAQ() {
                 <span
                   style={{
                     fontSize: "20px",
-                    color: T.textMuted,
+                    color: "#1B10FD",
                     minWidth: "20px",
                     display: "flex",
                     alignItems: "center",

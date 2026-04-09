@@ -6,6 +6,7 @@ import { Logo } from "@/components/website/logo";
 import { Footer } from "@/components/website/footer";
 import { FAQ } from "@/components/website/faq";
 import { fonts, stemColors } from "@/components/website/theme";
+import { PLANS, ANNUAL_DISCOUNT_PERCENT } from "@/lib/plans";
 import { HeroDemo } from "@/components/website/hero-demo";
 import {
   RiEqualizerFill,
@@ -14,6 +15,7 @@ import {
   RiStackFill,
   RiLinkM,
   RiSoundModuleFill,
+  RiCheckLine,
 } from "@remixicon/react";
 
 // ─── Design tokens ──────────────────────────────────────────
@@ -98,32 +100,33 @@ function Header() {
         transition: "all 0.25s ease",
       }}
     >
-      <Container style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 48 }}>
+      <Container style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", width: "100%" }}>
+        {/* Logo — left */}
+        <div style={{ display: "flex", alignItems: "center" }}>
           <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
-            <Logo size="xl" color={C.text} monochrome />
+            <Logo size="md" color={C.text} monochrome />
           </a>
-          <nav style={{ display: "flex", alignItems: "center", gap: 28 }}>
-            {[
-              { label: "Product", href: "#features" },
-              { label: "Pricing", href: "#pricing" },
-              { label: "API", href: "#" },
-            ].map(({ label, href }) => (
-              <NavLink key={label} label={label} href={href} />
-            ))}
-          </nav>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <a
-            href="/login"
-            style={{
-              fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.text,
-              textDecoration: "none", padding: "0 12px", height: 36,
-              display: "inline-flex", alignItems: "center",
-            }}
-          >
-            Log in
-          </a>
+        {/* Nav — center */}
+        <nav style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <NavLink label="Product" href="#features" />
+          <NavLink label="Pricing" href="/pricing" />
+          <NavLink label="API" href="#" />
+          <NavDropdown
+            label="Resources"
+            items={[
+              { label: "Docs", href: "#" },
+              { label: "Blog", href: "#" },
+              { label: "Changelog", href: "#" },
+              { label: "Community", href: "#" },
+              { label: "Help", href: "#" },
+              { label: "Tutorials", href: "#" },
+            ]}
+          />
+        </nav>
+        {/* CTAs — right */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+          <LoginButton />
           <HeaderCTA />
         </div>
       </Container>
@@ -140,11 +143,100 @@ function NavLink({ label, href }: { label: string; href: string }) {
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
-        color: hovered ? C.text : C.textLight,
-        textDecoration: "none", transition: "color 0.15s",
+        color: C.text,
+        opacity: hovered ? 0.6 : 1,
+        textDecoration: "none", padding: "6px 15px",
+        transition: "opacity 0.15s",
       }}
     >
       {label}
+    </a>
+  );
+}
+
+function NavDropdown({ label, items }: { label: string; items: { label: string; href: string }[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      style={{ position: "relative" }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        style={{
+          fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+          color: C.text, opacity: open ? 0.6 : 1, background: "transparent",
+          border: "none", cursor: "pointer",
+          padding: "6px 15px", display: "inline-flex", alignItems: "center",
+          transition: "opacity 0.15s",
+        }}
+      >
+        {label}
+      </button>
+      {/* Invisible bridge so mouse doesn't lose hover */}
+      <div style={{
+        position: "absolute", top: "100%", left: 0, right: 0, height: 8,
+        pointerEvents: open ? "auto" : "none",
+      }} />
+      <motion.div
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: open ? 1 : 0, y: open ? 0 : -4 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        style={{
+          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+          padding: "12px 8px",
+          backgroundColor: C.bg, border: `1px solid ${C.bgCard}`,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+          minWidth: 300,
+          display: "grid", gridTemplateColumns: "1fr 1fr",
+          pointerEvents: open ? "auto" : "none",
+        }}
+      >
+        {items.map(({ label: l, href }) => (
+          <DropdownLink key={l} label={l} href={href} />
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+
+function DropdownLink({ label, href }: { label: string; href: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href={href}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 400,
+        color: C.text,
+        textDecoration: "none",
+        padding: "8px 12px",
+        backgroundColor: hovered ? "rgba(0,0,0,0.04)" : "transparent",
+        transition: "background-color 0.15s",
+      }}
+    >
+      {label}
+    </a>
+  );
+}
+
+function LoginButton() {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href="/login"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+        color: C.text, opacity: hovered ? 0.6 : 1,
+        textDecoration: "none", padding: "6px 15px",
+        display: "inline-flex", alignItems: "center",
+        transition: "opacity 0.15s",
+      }}
+    >
+      Log in
     </a>
   );
 }
@@ -174,45 +266,51 @@ function Hero() {
   return (
     <section style={{ backgroundColor: C.bg, padding: "100px 0 0" }}>
       <Container>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "end" }}>
-          <div>
-            <motion.h1
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-              style={{
-                fontFamily: fonts.heading, fontSize: 56, fontWeight: 700,
-                lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text, margin: 0,
-              }}
-            >
-              Split any track.
-              <br />
-              Hear every stem.
-            </motion.h1>
-          </div>
-          <motion.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              fontFamily: fonts.body, fontSize: 16, fontWeight: 400, lineHeight: 1.6,
-              color: C.text, margin: 0,
-            }}
-          >
-            Studio-grade AI separation for producers. Vocals, drums, bass, guitar,
-            piano — isolated in seconds.
-          </motion.p>
-        </div>
+        <motion.h1
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            fontFamily: fonts.heading, fontSize: 56, fontWeight: 500,
+            lineHeight: 1.08, letterSpacing: "-0.025em", color: C.text, margin: 0,
+            maxWidth: 900,
+          }}
+        >
+          Studio-grade stem separation, in your browser.
+        </motion.h1>
 
-        {/* CTAs */}
+        {/* Subtitle */}
+        <motion.p
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            fontFamily: fonts.body, fontSize: 18, fontWeight: 400, lineHeight: 1.5,
+            color: "#666666", margin: "20px 0 0", maxWidth: 560,
+          }}
+        >
+          Drop any track and get clean vocals, drums, bass, and instruments back in seconds. Ready for your next session.
+        </motion.p>
+
+        {/* CTAs row + right badge */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          style={{ marginTop: 40, display: "flex", gap: 12 }}
+          style={{ marginTop: 40, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}
         >
-          <HeroCTA label="Get Started Free" variant="primary" href="/app" />
-          <HeroCTA label="See Pricing" variant="secondary" href="#pricing" />
+          <div style={{ display: "flex", gap: 12 }}>
+            <HeroCTA label="Try it free" variant="primary" href="/app" />
+            <HeroCTA label="See pricing" variant="secondary" href="/pricing" />
+          </div>
+          <span
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+            }}
+          >
+            <span><span style={{ color: C.textMuted }}>Built by producers, </span><span style={{ color: C.text }}>for producers.</span></span>
+          </span>
         </motion.div>
 
         {/* Product preview */}
@@ -254,43 +352,45 @@ function HeroCTA({ label, variant, href }: { label: string; variant: "primary" |
 // ─── Trust Bar ──────────────────────────────────────────────
 const DAWS = [
   { name: "Ableton", src: "/logos/ableton.svg", h: 18 },
-  { name: "FL Studio", src: "/logos/flstudio.webp", h: 80 },
+  { name: "FL Studio", src: "/logos/flstudio.webp", h: 56 },
   { name: "Logic Pro X", src: "/logos/logicpro.jpg", h: 22 },
-  { name: "Pro Tools", src: "/logos/protools.svg", h: 24 },
-  { name: "Cubase", src: "/logos/cubase.svg", h: 22 },
-  { name: "Studio One", src: "/logos/studioone.jpeg", h: 26 },
+  { name: "Pro Tools", src: "/logos/protools.svg", h: 22 },
+  { name: "Cubase", src: "/logos/cubase.svg", h: 20 },
+  { name: "Studio One", src: "/logos/studioone.jpeg", h: 20 },
   { name: "Reaper", src: "/logos/reaper.svg", h: 18 },
-  { name: "Bitwig", src: "/logos/bitwig.png", h: 40 },
+  { name: "Bitwig", src: "/logos/bitwig.png", h: 34 },
 ];
 
 function TrustBar() {
   return (
-    <section style={{ backgroundColor: C.bg, padding: "56px 0" }}>
+    <section style={{ backgroundColor: C.bg, padding: "48px 0" }}>
       <Container>
         <FadeIn>
-          <p style={{
-            fontFamily: fonts.body, fontSize: 14, fontWeight: 400, color: C.textMuted,
-            textAlign: "center", margin: "0 0 24px",
-          }}>
-            Built for producers using
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 2 }}>
-            {DAWS.map((d) => (
-              <div
-                key={d.name}
-                style={{
-                  backgroundColor: C.bgAlt,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  padding: "20px 16px", minHeight: 100,
-                }}
+          <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
+            {/* Fixed label on the left */}
+            <p style={{
+              fontFamily: fonts.body, fontSize: 13, fontWeight: 400, color: "#BBBBBB",
+              margin: 0, whiteSpace: "nowrap", flexShrink: 0,
+            }}>
+              Built for producers using
+            </p>
+            {/* Marquee container */}
+            <div style={{ overflow: "hidden", flex: 1, maskImage: "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)" }}>
+              <motion.div
+                animate={{ x: ["0%", "-50%"] }}
+                transition={{ duration: 25, ease: "linear", repeat: Infinity }}
+                style={{ display: "flex", alignItems: "center", gap: 56, width: "max-content" }}
               >
-                <img
-                  src={d.src}
-                  alt={d.name}
-                  style={{ height: d.h, maxWidth: "100%", objectFit: "contain", opacity: 0.6, filter: "grayscale(1)", mixBlendMode: "multiply" as const }}
-                />
-              </div>
-            ))}
+                {[...DAWS, ...DAWS].map((d, i) => (
+                  <img
+                    key={`${d.name}-${i}`}
+                    src={d.src}
+                    alt={d.name}
+                    style={{ height: d.h, width: "auto", objectFit: "contain", opacity: 0.4, filter: "grayscale(1)", mixBlendMode: "multiply" as const, flexShrink: 0 }}
+                  />
+                ))}
+              </motion.div>
+            </div>
           </div>
         </FadeIn>
       </Container>
@@ -301,8 +401,8 @@ function TrustBar() {
 // ─── Features ───────────────────────────────────────────────
 const FEATURES = [
   { color: stemColors.vocals, title: "6-Stem Separation", desc: "Vocals, drums, bass, guitar, piano, and other. Every element fully isolated at studio quality.", icon: RiEqualizerFill },
-  { color: stemColors.drums, title: "SOTA AI Models", desc: "MelBand RoFormer + BS-RoFormer. The highest-rated open-source separation models, running on our cloud.", icon: RiCpuFill },
-  { color: stemColors.bass, title: "H100 GPU Speed", desc: "Full track processed in under 40 seconds. LALAL.AI takes 58s. Moises takes 75s. We're faster.", icon: RiFlashlightFill },
+  { color: stemColors.drums, title: "Studio-Grade AI", desc: "The highest-rated separation models available, running on dedicated infrastructure. Clean stems, no artifacts.", icon: RiCpuFill },
+  { color: stemColors.bass, title: "GPU-Powered Speed", desc: "Full track processed in under 40 seconds. Your session doesn't wait.", icon: RiFlashlightFill },
   { color: stemColors.guitar, title: "Batch Processing", desc: "Upload an entire album. Process multiple tracks simultaneously in the background while you work.", icon: RiStackFill },
   { color: stemColors.piano, title: "URL Import", desc: "Paste a YouTube, SoundCloud, or Spotify URL. No file download needed. We handle the rest.", icon: RiLinkM },
   { color: stemColors.other, title: "WAV 24-Bit Output", desc: "Lossless studio quality output. Every stem at full resolution, ready for mixing in your DAW.", icon: RiSoundModuleFill },
@@ -369,17 +469,16 @@ function Features() {
       <Container>
         <FadeIn>
           <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Features</SectionLabel>
             <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0",
+              fontFamily: fonts.heading, fontSize: 36, fontWeight: 500,
+              lineHeight: 1.17, letterSpacing: "-0.02em", color: C.text,
+              margin: 0,
             }}>
-              Built for producers. Not for everyone.
+              Everything a producer actually needs.
             </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
-              State-of-the-art AI models running on H100 GPUs. Six isolated stems,
-              studio-quality output, and the fastest processing in the industry.
+            <p style={{ fontFamily: fonts.body, fontSize: 18, fontWeight: 400, lineHeight: 1.5, color: "#666666", margin: "16px 0 0", maxWidth: 560 }}>
+              Lossless output, GPU-powered separation, and nothing to install.
+              Just the stems, done right.
             </p>
           </div>
         </FadeIn>
@@ -397,7 +496,7 @@ function Features() {
 // ─── How It Works ───────────────────────────────────────────
 const STEPS = [
   { num: "01", title: "Upload", desc: "Drag and drop a file, select a folder, or paste a URL. MP3, WAV, FLAC — up to 200 MB.", color: stemColors.vocals },
-  { num: "02", title: "Process", desc: "H100 GPU runs MelBand RoFormer and BS-RoFormer simultaneously. Two best models. One pass.", color: stemColors.drums },
+  { num: "02", title: "Process", desc: "GPU-powered separation delivers clean stems in under 40 seconds. Sit back or keep working.", color: stemColors.drums },
   { num: "03", title: "Download", desc: "Clean isolated stems in WAV 24-bit or MP3 320kbps. Download individually or as ZIP.", color: stemColors.bass },
 ];
 
@@ -407,17 +506,15 @@ function HowItWorks() {
       <Container>
         <FadeIn>
           <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Process</SectionLabel>
             <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0",
+              fontFamily: fonts.heading, fontSize: 36, fontWeight: 500,
+              lineHeight: 1.17, letterSpacing: "-0.02em", color: C.text,
+              margin: 0,
             }}>
-              Three steps. Zero friction.
+              From full track to stems in three steps.
             </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
-              Upload, pick your stem count, download. No account required to try.
-              Start separating in under a minute.
+            <p style={{ fontFamily: fonts.body, fontSize: 18, fontWeight: 400, lineHeight: 1.5, color: "#666666", margin: "16px 0 0", maxWidth: 560 }}>
+              Upload, process, download. No accounts to configure, no software to learn.
             </p>
           </div>
         </FadeIn>
@@ -488,14 +585,16 @@ function Processing() {
       <Container>
         <FadeIn>
           <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Speed</SectionLabel>
             <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0",
+              fontFamily: fonts.heading, fontSize: 36, fontWeight: 500,
+              lineHeight: 1.17, letterSpacing: "-0.02em", color: C.text,
+              margin: 0,
             }}>
-              Fast enough to not think about it.
+              The fastest stem separation on the market.
             </h2>
+            <p style={{ fontFamily: fonts.body, fontSize: 18, fontWeight: 400, lineHeight: 1.5, color: "#666666", margin: "16px 0 0", maxWidth: 560 }}>
+              Full songs processed in seconds on dedicated GPU infrastructure. Your session doesn't wait.
+            </p>
           </div>
         </FadeIn>
 
@@ -525,7 +624,7 @@ function Processing() {
             <div style={{ backgroundColor: C.bgAlt, padding: "32px 32px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
               {[
                 { label: "Avg. time", value: "< 40 seconds" },
-                { label: "GPU", value: "NVIDIA H100 80GB" },
+                { label: "GPU", value: "Dedicated GPU" },
                 { label: "Output", value: "WAV 24-bit / MP3 320" },
                 { label: "Max stems", value: "6" },
               ].map((row, i) => (
@@ -549,7 +648,7 @@ function Processing() {
 function _SpeedA() {
   const stats = [
     { value: "<40s", label: "Separation time", sub: "Full track, 6 stems", color: stemColors.vocals },
-    { value: "H100", label: "NVIDIA GPU", sub: "80GB VRAM dedicated", color: stemColors.drums },
+    { value: "GPU", label: "Dedicated GPU", sub: "Cloud infrastructure", color: stemColors.drums },
     { value: "24-bit", label: "Output quality", sub: "WAV lossless or MP3 320", color: stemColors.bass },
   ];
   const specs = [
@@ -630,7 +729,7 @@ function SpeedB() {
     { name: "44Stems", time: 38, color: stemColors.vocals, highlight: true },
   ];
   const specs = [
-    { label: "GPU", value: "H100 80GB" },
+    { label: "GPU", value: "Dedicated GPU" },
     { label: "Stems", value: "Up to 6" },
     { label: "Formats", value: "MP3 · WAV · FLAC" },
     { label: "Quality", value: "24-bit / 320kbps" },
@@ -695,7 +794,7 @@ function SpeedB() {
 // ── Speed C: Dark premium block with big centered number + white spec grid
 function SpeedC() {
   const specs = [
-    { label: "GPU", value: "H100 80GB", color: stemColors.vocals },
+    { label: "GPU", value: "Dedicated GPU", color: stemColors.vocals },
     { label: "Stems", value: "Up to 6", color: stemColors.drums },
     { label: "Input", value: "MP3 · WAV · FLAC · AAC", color: stemColors.bass },
     { label: "Output", value: "WAV 24-bit / MP3 320", color: stemColors.guitar },
@@ -719,15 +818,12 @@ function SpeedC() {
             &lt;40s
           </motion.span>
           <span style={{ fontFamily: fonts.body, fontSize: 14, color: "rgba(255,255,255,0.5)", marginTop: 16, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-            Average separation time · H100 GPU
+            Average separation time · Dedicated GPU
           </span>
           {/* Competitor comparison line */}
           <div style={{ display: "flex", gap: 32, marginTop: 24 }}>
             <span style={{ fontFamily: fonts.body, fontSize: 13, color: "rgba(255,255,255,0.35)" }}>
-              LALAL.AI ~58s
-            </span>
-            <span style={{ fontFamily: fonts.body, fontSize: 13, color: "rgba(255,255,255,0.35)" }}>
-              Moises ~75s
+              Fastest in class
             </span>
           </div>
         </div>
@@ -770,180 +866,214 @@ function SpeedC() {
 }
 
 // ─── Pricing ────────────────────────────────────────────────
-const TIERS = [
-  {
-    name: "Free", price: "$0", period: "forever", accent: "#E8E8E8",
-    cta: "Get started", ctaStyle: "outline" as const,
-    features: ["10 tracks/month", "MP3 output", "2 & 4 stems", "Standard queue"],
-  },
-  {
-    name: "Pro", price: "$9.99", period: "/month", accent: stemColors.vocals,
-    badge: "Popular", cta: "Start free trial", ctaStyle: "filled" as const,
-    features: ["Unlimited tracks", "WAV 24-bit + MP3 320kbps", "2 / 4 / 6 stems", "Priority queue", "Batch processing", "URL import"],
-  },
-  {
-    name: "Studio", price: "$29.99", period: "/month", accent: stemColors.drums,
-    cta: "Contact sales", ctaStyle: "outline" as const,
-    features: ["Everything in Pro", "API access", "Team seats (up to 5)", "Custom processing priority", "Dedicated support", "Early access to new models"],
-  },
-];
+const homePlanAccents: Record<string, string> = {
+  free: "#3A3A3A",
+  pro: stemColors.vocals,
+  studio: stemColors.drums,
+};
 
-function PricingCard({ tier }: { tier: typeof TIERS[number] }) {
+type HomePlanId = "free" | "pro" | "studio";
+
+function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean }) {
   const [hovered, setHovered] = useState(false);
-  const isDark = tier.accent !== "#E8E8E8"; // Free tier is light accent
+  const plan = PLANS[planId];
+  const accent = homePlanAccents[planId];
 
-  const hText = isDark ? "#FFFFFF" : C.text;
-  const hTextMuted = isDark ? "rgba(255,255,255,0.7)" : C.textMuted;
-  const hTextSec = isDark ? "rgba(255,255,255,0.85)" : C.textLight;
-  const hTextFaint = isDark ? "rgba(255,255,255,0.4)" : C.textMuted;
+  const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+  const period = planId === "free" ? "forever" : "/mo";
+
+  const hText = "#FFFFFF";
+  const hTextSec = "rgba(255,255,255,0.95)";
+  const hTextMuted = "rgba(255,255,255,0.75)";
+
+  const dText = C.text;
+  const dTextSec = "#111111";
+  const dTextMuted = "#333333";
 
   return (
-    <motion.div
+    <motion.a
+      href="/app"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      animate={{
-        backgroundColor: hovered ? tier.accent : "#FFFFFF",
-      }}
+      animate={{ backgroundColor: hovered ? accent : "#FFFFFF" }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       style={{
-        padding: 0,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        cursor: "default",
+        padding: 0, display: "flex", flexDirection: "column", overflow: "hidden",
+        cursor: "pointer", height: "100%", textDecoration: "none", color: "inherit",
       }}
     >
       <div style={{ padding: "36px 32px 40px", display: "flex", flexDirection: "column", flex: 1 }}>
-        {/* Badge */}
-        {"badge" in tier && tier.badge && (
-          <div style={{ marginBottom: 12 }}>
-            <motion.span
-              animate={{
-                color: hovered ? hTextMuted : tier.accent,
-                backgroundColor: hovered ? (isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.06)") : tier.accent + "15",
-              }}
-              transition={{ duration: 0.3 }}
-              style={{
-                fontFamily: fonts.body, fontSize: 11, fontWeight: 600,
-                textTransform: "uppercase", letterSpacing: "0.08em",
-                padding: "3px 10px", display: "inline-block",
-              }}
-            >
-              {tier.badge}
-            </motion.span>
-          </div>
-        )}
-
         <motion.h3
-          animate={{ color: hovered ? hTextMuted : C.textMuted }}
+          animate={{ color: hovered ? hText : dText }}
           transition={{ duration: 0.3 }}
           style={{
-            fontFamily: fonts.heading, fontSize: 13, fontWeight: 600,
-            textTransform: "uppercase", letterSpacing: "0.06em",
-            margin: "0 0 16px",
+            fontFamily: fonts.body, fontSize: 24, fontWeight: 600,
+            letterSpacing: "-0.01em", margin: "0 0 4px",
           }}
         >
-          {tier.name}
+          {plan.label}
         </motion.h3>
 
-        <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 32 }}>
-          <motion.span
-            animate={{ color: hovered ? hText : C.text }}
-            transition={{ duration: 0.3 }}
-            style={{ fontFamily: fonts.heading, fontSize: 44, fontWeight: 700, lineHeight: 1 }}
-          >
-            {tier.price}
-          </motion.span>
-          <motion.span
-            animate={{ color: hovered ? hTextMuted : C.textMuted }}
-            transition={{ duration: 0.3 }}
-            style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 400 }}
-          >
-            {tier.period}
-          </motion.span>
+        <motion.p
+          animate={{ color: hovered ? hTextMuted : dTextMuted }}
+          transition={{ duration: 0.3 }}
+          style={{ fontFamily: fonts.body, fontSize: 13, fontWeight: 400, margin: "0 0 20px" }}
+        >
+          {plan.tagline}
+        </motion.p>
+
+        <div style={{ marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <motion.span
+              animate={{ color: hovered ? hText : dText }}
+              transition={{ duration: 0.3 }}
+              style={{ fontFamily: fonts.body, fontSize: 48, fontWeight: 700, lineHeight: 1 }}
+            >
+              {price}
+            </motion.span>
+            <motion.span
+              animate={{ color: hovered ? hTextMuted : dTextMuted }}
+              transition={{ duration: 0.3 }}
+              style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 400 }}
+            >
+              {period}
+            </motion.span>
+          </div>
+          <div style={{ minHeight: annual ? 25 : 0, marginTop: annual ? 6 : 0, display: "flex", alignItems: "center", gap: 8 }}>
+            {annual && planId !== "free" && (
+              <>
+                <motion.span
+                  animate={{ color: hovered ? "#FFFFFF" : "#999999" }}
+                  transition={{ duration: 0.3 }}
+                  style={{ fontFamily: fonts.body, fontSize: 13, textDecoration: "line-through" }}
+                >
+                  ${plan.priceUSD}/mo
+                </motion.span>
+                <motion.span
+                  animate={{ color: hovered ? "#FFFFFF" : C.accent }}
+                  transition={{ duration: 0.3 }}
+                  style={{ fontFamily: fonts.body, fontSize: 13, fontWeight: 600 }}
+                >
+                  ${(plan.yearlyPriceUSD * 12).toFixed(0)}/yr
+                </motion.span>
+              </>
+            )}
+          </div>
         </div>
 
-        <ul style={{ listStyle: "none", margin: "0 0 32px", padding: 0, flex: 1 }}>
-          {tier.features.map((f) => (
+        <div style={{ marginTop: 16, marginBottom: 28 }}>
+          <HomePlanCTA cardHovered={hovered} accent={accent} />
+        </div>
+
+        <ul style={{ listStyle: "none", margin: 0, padding: 0, flex: 1 }}>
+          {plan.features.map((f) => (
             <motion.li
               key={f}
-              animate={{ color: hovered ? hTextSec : C.textLight }}
+              animate={{ color: hovered ? hTextSec : dTextSec }}
               transition={{ duration: 0.3 }}
               style={{
                 fontFamily: fonts.body, fontSize: 14, fontWeight: 400,
-                marginBottom: 10, display: "flex", gap: 10, alignItems: "flex-start",
+                marginBottom: 10, display: "flex", gap: 10, alignItems: "center",
               }}
             >
               <motion.span
-                animate={{ color: hovered ? hTextFaint : C.textMuted }}
+                animate={{ color: hovered ? "rgba(255,255,255,0.85)" : C.accent }}
                 transition={{ duration: 0.3 }}
-                style={{ flexShrink: 0, lineHeight: "1.5", fontSize: 12 }}
-              >—</motion.span>
+                style={{ flexShrink: 0, display: "flex", alignItems: "center" }}
+              >
+                <RiCheckLine size={16} />
+              </motion.span>
               {f}
             </motion.li>
           ))}
         </ul>
-
-        <PricingCTA label={tier.cta} accent={tier.accent} hovered={hovered} isDark={isDark} />
       </div>
-    </motion.div>
+    </motion.a>
   );
 }
 
-function PricingCTA({ label, accent, hovered: cardHovered, isDark }: { label: string; accent: string; hovered: boolean; isDark: boolean }) {
+function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: string }) {
   const [btnHovered, setBtnHovered] = useState(false);
 
+  const bg = cardHovered
+    ? (btnHovered ? "#FFFFFF" : "#FFFFFF")
+    : (btnHovered ? accent : accent);
+  const fg = cardHovered ? accent : "#FFFFFF";
+
   return (
-    <motion.button
+    <motion.a
+      href="/app"
       onMouseEnter={() => setBtnHovered(true)}
       onMouseLeave={() => setBtnHovered(false)}
-      animate={{
-        backgroundColor: cardHovered
-          ? (isDark
-            ? (btnHovered ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.85)")
-            : (btnHovered ? C.accent : C.accent))
-          : (btnHovered ? "#F0F0F0" : "rgba(0,0,0,0)"),
-        color: cardHovered ? (isDark ? accent : "#FFFFFF") : C.text,
-        borderColor: cardHovered ? "transparent" : "#E0E0E0",
-      }}
+      animate={{ backgroundColor: bg, color: fg }}
       transition={{ duration: 0.2 }}
       style={{
         width: "100%", padding: "12px 24px",
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
-        cursor: "pointer",
-        border: "1px solid #E0E0E0",
+        cursor: "pointer", border: "none",
+        textDecoration: "none", textAlign: "center", display: "block",
+        backgroundColor: bg, color: fg,
       }}
     >
-      {label}
-    </motion.button>
+      Get started
+    </motion.a>
+  );
+}
+
+function HomeBillingToggle({ annual, onToggle }: { annual: boolean; onToggle: () => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <button
+        onClick={onToggle}
+        style={{
+          position: "relative", width: 44, height: 24,
+          backgroundColor: annual ? C.accent : "#D4D4D4",
+          border: "none", cursor: "pointer", padding: 0,
+          transition: "background-color 0.2s",
+        }}
+      >
+        <motion.div
+          animate={{ x: annual ? 22 : 2 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          style={{ position: "absolute", top: 2, width: 20, height: 20, backgroundColor: "#FFFFFF" }}
+        />
+      </button>
+      <span style={{ fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: C.text }}>
+        Pay annually,{" "}
+        <span style={{ color: C.accent }}>save {ANNUAL_DISCOUNT_PERCENT}%</span>
+      </span>
+    </div>
   );
 }
 
 function PricingSection() {
+  const [annual, setAnnual] = useState(false);
+
   return (
     <section id="pricing" style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
       <Container>
         <FadeIn>
-          <div style={{ marginBottom: 64 }}>
-            <SectionLabel>Pricing</SectionLabel>
+          <div style={{ marginBottom: 40 }}>
             <h2 style={{
-              fontFamily: fonts.heading, fontSize: 48, fontWeight: 700,
-              lineHeight: 1.08, letterSpacing: "-0.02em", color: C.text,
-              margin: "16px 0 0",
+              fontFamily: fonts.heading, fontSize: 36, fontWeight: 500,
+              lineHeight: 1.17, letterSpacing: "-0.02em", color: C.text,
+              margin: 0,
             }}>
               Simple, transparent pricing.
             </h2>
-            <p style={{ fontFamily: fonts.body, fontSize: 15, fontWeight: 400, lineHeight: 1.6, color: "#777777", margin: "12px 0 0", maxWidth: 520 }}>
-              Start for free. Upgrade when you need more stems, better quality,
-              or batch processing. No hidden fees.
+            <p style={{ fontFamily: fonts.body, fontSize: 18, fontWeight: 400, lineHeight: 1.5, color: "#666666", margin: "16px 0 0 0", maxWidth: 560 }}>
+              Pay for what you use. No subscriptions you forget about, no credits that expire.
             </p>
+            <div style={{ marginTop: 24 }}>
+              <HomeBillingToggle annual={annual} onToggle={() => setAnnual(!annual)} />
+            </div>
           </div>
         </FadeIn>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
-          {TIERS.map((t, i) => (
-            <FadeIn key={t.name} delay={i * 0.08}>
-              <PricingCard tier={t} />
+          {(["free", "pro", "studio"] as HomePlanId[]).map((id, i) => (
+            <FadeIn key={id} delay={i * 0.08}>
+              <HomePlanCard planId={id} annual={annual} />
             </FadeIn>
           ))}
         </div>
@@ -963,18 +1093,12 @@ function CTABanner() {
       <Container>
         <FadeIn>
           <h2 style={{
-            fontFamily: fonts.heading, fontSize: 40, fontWeight: 700,
+            fontFamily: fonts.heading, fontSize: 36, fontWeight: 500,
             lineHeight: 1.15, letterSpacing: "-0.02em", color: "#FFFFFF",
-            margin: "0 0 12px",
+            margin: "0 0 32px",
           }}>
-            Ready to split your first track?
+            Your next song starts here.
           </h2>
-          <p style={{
-            fontFamily: fonts.body, fontSize: 15, fontWeight: 400,
-            color: "rgba(255,255,255,0.9)", margin: "0 0 32px", lineHeight: 1.5,
-          }}>
-            Start for free. No credit card required.
-          </p>
           <CTABannerButton />
         </FadeIn>
       </Container>
@@ -997,7 +1121,7 @@ function CTABannerButton() {
         transition: "background-color 0.15s",
       }}
     >
-      Get Started Free
+      Start for free
     </a>
   );
 }

@@ -57,6 +57,7 @@ export function Footer() {
             gridTemplateColumns: "repeat(4, 1fr)",
             gap: "40px",
             marginBottom: "40px",
+            textAlign: "center",
           }}
         >
           {sections.map((section) => (
@@ -120,7 +121,7 @@ export function Footer() {
             paddingTop: "24px",
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "center",
           }}
         >
           <div
@@ -130,7 +131,7 @@ export function Footer() {
               gap: "16px",
             }}
           >
-            <Logo size="sm" color={T.textMuted} />
+            <Logo size="sm" color={T.textMuted} monochrome />
             <span
               style={{
                 fontFamily: fonts.body,

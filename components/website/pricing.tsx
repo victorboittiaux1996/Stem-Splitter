@@ -27,52 +27,39 @@ interface PricingProps {
 const tiers = [
   {
     id: "free" as const,
-    name: "Free",
-    price: `$${PLANS.free.priceUSD}`,
+    name: PLANS.free.label,
+    tagline: PLANS.free.tagline,
+    monthlyPrice: `$${PLANS.free.priceUSD}`,
+    yearlyPrice: `$${PLANS.free.yearlyPriceUSD}`,
     period: "forever",
     highlighted: false,
     badge: null,
     cta: "Get started",
-    features: [
-      `${PLANS.free.minutesIncluded} min/month`,
-      "MP3 output",
-      "2 & 4 stems",
-      "Standard queue",
-    ],
+    features: PLANS.free.features,
   },
   {
     id: "pro" as const,
-    name: "Pro",
-    price: `$${PLANS.pro.priceUSD}`,
-    period: "/month",
+    name: PLANS.pro.label,
+    tagline: PLANS.pro.tagline,
+    monthlyPrice: `$${PLANS.pro.priceUSD}`,
+    yearlyPrice: `$${PLANS.pro.yearlyPriceUSD}`,
+    period: "/mo",
     highlighted: true,
     badge: "Popular",
     cta: "Start free trial",
-    features: [
-      `${PLANS.pro.minutesIncluded} min/month`,
-      "WAV 24-bit + MP3 320kbps",
-      "2 / 4 / 6 stems",
-      "Priority queue",
-      "Batch processing",
-      "URL import",
-    ],
+    features: PLANS.pro.features,
   },
   {
     id: "studio" as const,
-    name: "Studio",
-    price: `$${PLANS.studio.priceUSD}`,
-    period: "/month",
+    name: PLANS.studio.label,
+    tagline: PLANS.studio.tagline,
+    monthlyPrice: `$${PLANS.studio.priceUSD}`,
+    yearlyPrice: `$${PLANS.studio.yearlyPriceUSD}`,
+    period: "/mo",
     highlighted: false,
     badge: null,
     cta: "Get Studio",
-    features: [
-      `${PLANS.studio.minutesIncluded} min/month`,
-      "Everything in Pro",
-      "API access",
-      "Team seats (up to 5)",
-      "Dedicated support",
-      "Early access to new models",
-    ],
+    features: PLANS.studio.features,
   },
 ];
 
@@ -144,9 +131,10 @@ function CTAButton({
   );
 }
 
-function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number]; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio") => void }) {
+function PricingCard({ tier, variant, onUpgrade, annual }: { tier: typeof tiers[number]; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio") => void; annual: boolean }) {
   const [hovered, setHovered] = useState(false);
   const isHighlighted = tier.highlighted;
+  const displayPrice = annual ? tier.yearlyPrice : tier.monthlyPrice;
 
   return (
     <div
@@ -157,6 +145,7 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
         padding: "0 0 40px 0",
         display: "flex",
         flexDirection: "column",
+        height: "100%",
         borderRadius: 0,
         transition: "box-shadow 0.2s ease, border-color 0.2s ease",
         boxShadow: "none",
@@ -209,11 +198,22 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
             textTransform: "uppercase",
             letterSpacing: "0.06em",
             color: isHighlighted ? "#1B10FD" : T.textMuted,
-            margin: "0 0 16px 0",
+            margin: "0 0 4px 0",
           }}
         >
           {tier.name}
         </h3>
+        <p
+          style={{
+            fontFamily: F,
+            fontSize: "12px",
+            fontWeight: 300,
+            color: isHighlighted ? "#1B10FD88" : T.textMuted,
+            margin: "0 0 16px 0",
+          }}
+        >
+          {tier.tagline}
+        </p>
 
         {/* Price */}
         <div
@@ -233,7 +233,7 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
               lineHeight: 1,
             }}
           >
-            {tier.price}
+            {displayPrice}
           </span>
           <span
             style={{
@@ -293,6 +293,8 @@ function PricingCard({ tier, variant, onUpgrade }: { tier: typeof tiers[number];
 }
 
 export function Pricing({ variant, onUpgrade }: PricingProps) {
+  const [annual, setAnnual] = useState(false);
+
   return (
     <section
       style={{
@@ -340,7 +342,7 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
                 letterSpacing: "-0.01em",
               }}
             >
-              Simple, transparent pricing
+              Simple, transparent pricing.
             </h2>
           </div>
           <div style={{ flex: 1, paddingTop: "6px" }}>
@@ -354,8 +356,36 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
                 margin: 0,
               }}
             >
-              Start for free. Upgrade when you need more stems, better quality, or batch processing. No hidden fees.
+              Pay for what you use. No subscriptions you forget about, no credits that expire.
             </p>
+            {/* Billing toggle */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 24 }}>
+              <span style={{ fontFamily: F, fontSize: 14, fontWeight: annual ? 300 : 500, color: annual ? T.textMuted : T.text }}>Monthly</span>
+              <button
+                onClick={() => setAnnual(!annual)}
+                style={{
+                  position: "relative", width: 44, height: 24,
+                  backgroundColor: annual ? T.accent : "#D4D4D4",
+                  border: "none", cursor: "pointer", padding: 0, borderRadius: 0,
+                  transition: "background-color 0.2s",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute", top: 2,
+                    left: annual ? 22 : 2,
+                    width: 20, height: 20, backgroundColor: "#FFFFFF",
+                    transition: "left 0.2s ease",
+                  }}
+                />
+              </button>
+              <span style={{ fontFamily: F, fontSize: 14, fontWeight: annual ? 500 : 300, color: annual ? T.text : T.textMuted }}>Annual</span>
+              {annual && (
+                <span style={{ fontFamily: F, fontSize: 11, fontWeight: 600, color: T.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Save 30%
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -368,7 +398,7 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
           }}
         >
           {tiers.map((tier) => (
-            <PricingCard key={tier.id} tier={tier} variant={variant} onUpgrade={onUpgrade} />
+            <PricingCard key={tier.id} tier={tier} variant={variant} onUpgrade={onUpgrade} annual={annual} />
           ))}
         </div>
       </div>

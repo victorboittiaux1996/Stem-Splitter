@@ -166,9 +166,13 @@ const STEMS = [
 ];
 
 const MOCK_FILES = [
-  { name: "Daft Punk - Get Lucky.wav", time: "2h ago", stems: 4, bpm: "116", key: "5B", dur: "6m 09s", fmt: "WAV / MP3" },
-  { name: "Billie Eilish - Bad Guy.mp3", time: "5h ago", stems: 4, bpm: "135", key: "7A", dur: "3m 14s", fmt: "WAV / MP3" },
-  { name: "Michael Jackson - Billie Jean.wav", time: "1 day ago", stems: 4, bpm: "117", key: "11B", dur: "4m 54s", fmt: "WAV / MP3" },
+  { name: "Daft Punk - Get Lucky (feat. Pharrell Williams).wav", time: "2h ago", stems: 4, bpm: "116", key: "5B", dur: "6m 09s", fmt: "WAV / MP3" },
+  { name: "Stardust - Music Sounds Better With You.wav", time: "3h ago", stems: 4, bpm: "124", key: "3B", dur: "6m 43s", fmt: "WAV / MP3" },
+  { name: "Prospa - This Rhythm (feat. RAHH) (Extended Mix).wav", time: "6h ago", stems: 4, bpm: "127", key: "6A", dur: "4m 19s", fmt: "WAV / MP3" },
+  { name: "Billie Eilish - bad guy.mp3", time: "12h ago", stems: 4, bpm: "135", key: "9B", dur: "3m 14s", fmt: "WAV / MP3" },
+  { name: "Michael Jackson - Billie Jean.wav", time: "1 day ago", stems: 4, bpm: "117", key: "10A", dur: "4m 54s", fmt: "WAV / MP3" },
+  { name: "Fred again.. - Delilah (pull me out of this).mp3", time: "2 days ago", stems: 4, bpm: "134", key: "11B", dur: "4m 10s", fmt: "WAV / MP3" },
+  { name: "Flume - Say It (feat. Tove Lo).wav", time: "3 days ago", stems: 4, bpm: "77", key: "1A", dur: "4m 43s", fmt: "WAV / MP3" },
 ];
 
 // ─── Main component ─────────────────────────────────────────

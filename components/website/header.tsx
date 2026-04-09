@@ -1,18 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Logo } from "./logo";
 import { fonts } from "./theme";
 
-const NAV_ITEMS = ["Product", "Resources", "Pricing", "Enterprise"];
+const C = {
+  bg: "#FFFFFF",
+  bgCard: "#F5F5F5",
+  text: "#000000",
+  accent: "#1B10FD",
+  accentHover: "#0E08D8",
+} as const;
 
 export function Header() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
+    const h = () => setScrolled(window.scrollY > 8);
+    window.addEventListener("scroll", h, { passive: true });
+    return () => window.removeEventListener("scroll", h);
   }, []);
 
   return (
@@ -21,132 +28,181 @@ export function Header() {
         position: "sticky",
         top: 0,
         zIndex: 100,
-        height: "64px",
+        height: 56,
         display: "flex",
         alignItems: "center",
-        backgroundColor: scrolled ? "rgba(255,255,255,0.92)" : "#FFFFFF",
+        backgroundColor: scrolled ? "rgba(255,255,255,0.92)" : C.bg,
         backdropFilter: scrolled ? "blur(20px)" : "none",
         WebkitBackdropFilter: scrolled ? "blur(20px)" : "none",
-        borderBottom: scrolled ? "1px solid #E8E8E8" : "1px solid transparent",
-        transition: "border-color 0.25s ease, background-color 0.25s ease",
+        borderBottom: scrolled ? "1px solid #E0E0E0" : "1px solid transparent",
+        transition: "all 0.25s ease",
       }}
     >
       <div
         style={{
-          width: "100%",
-          maxWidth: "1200px",
+          maxWidth: 1200,
           margin: "0 auto",
           padding: "0 40px",
-          display: "flex",
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
           alignItems: "center",
-          justifyContent: "space-between",
-          position: "relative",
+          width: "100%",
         }}
       >
         {/* Logo — left */}
-        <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
-          <Logo size="md" color="#000000" />
-        </a>
-
-        {/* Nav — left, after logo */}
-        <nav
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "32px",
-            marginLeft: "48px",
-          }}
-        >
-          {NAV_ITEMS.map((item) => (
-            <NavLink key={item} label={item} />
-          ))}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
+            <Logo size="md" color={C.text} monochrome />
+          </a>
+        </div>
+        {/* Nav — center */}
+        <nav style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <NavLink label="Product" href="/#features" />
+          <NavLink label="Pricing" href="/pricing" />
+          <NavLink label="API" href="#" />
+          <NavDropdown
+            label="Resources"
+            items={[
+              { label: "Docs", href: "#" },
+              { label: "Blog", href: "#" },
+              { label: "Changelog", href: "#" },
+              { label: "Community", href: "#" },
+              { label: "Help", href: "#" },
+              { label: "Tutorials", href: "#" },
+            ]}
+          />
         </nav>
-
         {/* CTAs — right */}
-        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <LogInButton />
-          <GetStartedButton />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+          <LoginButton />
+          <HeaderCTA />
         </div>
       </div>
     </header>
   );
 }
 
-function NavLink({ label }: { label: string }) {
+function NavLink({ label, href }: { label: string; href: string }) {
   const [hovered, setHovered] = useState(false);
   return (
     <a
-      href="#"
-      style={{
-        fontFamily: fonts.body,
-        fontSize: "14px",
-        fontWeight: 400,
-        color: hovered ? "#000000" : "#222222",
-        textDecoration: "none",
-        transition: "color 0.15s ease",
-        cursor: "pointer",
-        whiteSpace: "nowrap",
-      }}
+      href={href}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+        color: C.text,
+        opacity: hovered ? 0.6 : 1,
+        textDecoration: "none", padding: "6px 15px",
+        transition: "opacity 0.15s",
+      }}
     >
       {label}
     </a>
   );
 }
 
-function LogInButton() {
+function NavDropdown({ label, items }: { label: string; items: { label: string; href: string }[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      style={{ position: "relative" }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        style={{
+          fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+          color: C.text, opacity: open ? 0.6 : 1, background: "transparent",
+          border: "none", cursor: "pointer",
+          padding: "6px 15px", display: "inline-flex", alignItems: "center",
+          transition: "opacity 0.15s",
+        }}
+      >
+        {label}
+      </button>
+      {/* Invisible bridge so mouse doesn't lose hover */}
+      <div style={{
+        position: "absolute", top: "100%", left: 0, right: 0, height: 8,
+        pointerEvents: open ? "auto" : "none",
+      }} />
+      <motion.div
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: open ? 1 : 0, y: open ? 0 : -4 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        style={{
+          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+          padding: "12px 8px",
+          backgroundColor: C.bg, border: `1px solid ${C.bgCard}`,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+          minWidth: 300,
+          display: "grid", gridTemplateColumns: "1fr 1fr",
+          pointerEvents: open ? "auto" : "none",
+        }}
+      >
+        {items.map(({ label: l, href }) => (
+          <DropdownLink key={l} label={l} href={href} />
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+
+function DropdownLink({ label, href }: { label: string; href: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href={href}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 400,
+        color: C.text,
+        textDecoration: "none",
+        padding: "8px 12px",
+        backgroundColor: hovered ? "rgba(0,0,0,0.04)" : "transparent",
+        transition: "background-color 0.15s",
+      }}
+    >
+      {label}
+    </a>
+  );
+}
+
+function LoginButton() {
   const [hovered, setHovered] = useState(false);
   return (
     <a
       href="/login"
-      style={{
-        fontFamily: fonts.body,
-        fontSize: "14px",
-        fontWeight: 400,
-        color: hovered ? "#000000" : "#222222",
-        textDecoration: "none",
-        padding: "0 12px",
-        height: "36px",
-        display: "inline-flex",
-        alignItems: "center",
-        cursor: "pointer",
-        transition: "color 0.15s ease",
-        background: "transparent",
-        borderRadius: 0,
-        whiteSpace: "nowrap",
-      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+        color: C.text, opacity: hovered ? 0.6 : 1,
+        textDecoration: "none", padding: "6px 15px",
+        display: "inline-flex", alignItems: "center",
+        transition: "opacity 0.15s",
+      }}
     >
       Log in
     </a>
   );
 }
 
-function GetStartedButton() {
+function HeaderCTA() {
   const [hovered, setHovered] = useState(false);
   return (
     <a
       href="/app"
-      style={{
-        fontFamily: fonts.body,
-        fontSize: "14px",
-        fontWeight: 500,
-        color: "#FFFFFF",
-        backgroundColor: hovered ? "#0E08D8" : "#1B10FD",
-        textDecoration: "none",
-        padding: "0 16px",
-        height: "36px",
-        display: "inline-flex",
-        alignItems: "center",
-        borderRadius: 0,
-        cursor: "pointer",
-        transition: "background-color 0.15s ease",
-        whiteSpace: "nowrap",
-      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: "#FFFFFF",
+        backgroundColor: hovered ? C.accentHover : C.accent,
+        textDecoration: "none", padding: "0 20px", height: 36,
+        display: "inline-flex", alignItems: "center",
+        transition: "background-color 0.15s",
+      }}
     >
       Get Started
     </a>
