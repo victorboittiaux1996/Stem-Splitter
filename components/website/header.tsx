@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Logo } from "./logo";
 import { fonts } from "./theme";
+import { useAuthModal } from "@/contexts/auth-modal-context";
 
 const C = {
   bg: "#FFFFFF",
@@ -171,40 +172,44 @@ function DropdownLink({ label, href }: { label: string; href: string }) {
 
 function LoginButton() {
   const [hovered, setHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
   return (
-    <a
-      href="/login"
+    <button
+      onClick={() => openAuthModal()}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
         color: C.text, opacity: hovered ? 0.6 : 1,
-        textDecoration: "none", padding: "6px 15px",
+        background: "transparent", border: "none", cursor: "pointer",
+        padding: "6px 15px",
         display: "inline-flex", alignItems: "center",
         transition: "opacity 0.15s",
       }}
     >
       Log in
-    </a>
+    </button>
   );
 }
 
 function HeaderCTA() {
   const [hovered, setHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
   return (
-    <a
-      href="/app"
+    <button
+      onClick={() => openAuthModal("/app")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: "#FFFFFF",
         backgroundColor: hovered ? C.accentHover : C.accent,
-        textDecoration: "none", padding: "0 20px", height: 36,
+        border: "none", cursor: "pointer",
+        padding: "0 20px", height: 36,
         display: "inline-flex", alignItems: "center",
         transition: "background-color 0.15s",
       }}
     >
       Get Started
-    </a>
+    </button>
   );
 }

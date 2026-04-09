@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueueProvider } from "@/contexts/queue-context";
+import { AuthModalProvider } from "@/contexts/auth-modal-context";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -46,9 +47,11 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <QueueProvider>
-            {children}
-          </QueueProvider>
+          <AuthModalProvider>
+            <QueueProvider>
+              {children}
+            </QueueProvider>
+          </AuthModalProvider>
           <Toaster />
         </ThemeProvider>
       </body>

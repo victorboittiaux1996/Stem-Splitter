@@ -48,6 +48,7 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublic && !isWebhook && !isDev) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
