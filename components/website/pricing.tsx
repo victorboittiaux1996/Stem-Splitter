@@ -20,7 +20,7 @@ type PricingVariant = "minimal" | "pop" | "structured";
 
 interface PricingProps {
   variant: PricingVariant;
-  onUpgrade?: (plan: "pro" | "studio") => void;
+  onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
 }
 
 // Prices from central config, marketing features kept here (different tone than technical limits)
@@ -131,7 +131,7 @@ function CTAButton({
   );
 }
 
-function PricingCard({ tier, variant, onUpgrade, annual }: { tier: typeof tiers[number]; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio") => void; annual: boolean }) {
+function PricingCard({ tier, variant, onUpgrade, annual }: { tier: typeof tiers[number]; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void; annual: boolean }) {
   const [hovered, setHovered] = useState(false);
   const isHighlighted = tier.highlighted;
   const displayPrice = annual ? tier.yearlyPrice : tier.monthlyPrice;
@@ -286,7 +286,7 @@ function PricingCard({ tier, variant, onUpgrade, annual }: { tier: typeof tiers[
         </ul>
 
         {/* CTA */}
-        <CTAButton label={tier.cta} highlighted={isHighlighted} variant={variant} onClick={tier.id !== "free" ? () => onUpgrade?.(tier.id as "pro" | "studio") : undefined} />
+        <CTAButton label={tier.cta} highlighted={isHighlighted} variant={variant} onClick={tier.id !== "free" ? () => onUpgrade?.(tier.id as "pro" | "studio", annual ? "annual" : "monthly") : undefined} />
       </div>
     </div>
   );

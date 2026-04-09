@@ -100,9 +100,12 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
 
   const cardBorder = "none";
 
+  const checkoutUrl = planId === "free"
+    ? "/app"
+    : `/app?upgrade=${planId}&billing=${annual ? "annual" : "monthly"}`;
+
   return (
-    <motion.a
-      href="/app"
+    <motion.div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       animate={{ backgroundColor: hovered ? accent : C.bgAlt }}
@@ -110,7 +113,6 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
       style={{
         padding: 0, display: "flex", flexDirection: "column", overflow: "hidden",
         cursor: "pointer", height: "100%", border: cardBorder,
-        textDecoration: "none", color: "inherit",
       }}
     >
       <div style={{ padding: "36px 32px 40px", display: "flex", flexDirection: "column", flex: 1 }}>
@@ -179,7 +181,7 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
 
         {/* CTA — right after price, like Ahrefs */}
         <div style={{ marginTop: 16, marginBottom: 28 }}>
-          <PlanCTA cardHovered={hovered} accent={accent} />
+          <PlanCTA cardHovered={hovered} accent={accent} href={checkoutUrl} />
         </div>
 
         {/* Features */}
@@ -206,11 +208,11 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
           ))}
         </ul>
       </div>
-    </motion.a>
+    </motion.div>
   );
 }
 
-function PlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: string }) {
+function PlanCTA({ cardHovered, accent, href }: { cardHovered: boolean; accent: string; href: string }) {
   const [btnHovered, setBtnHovered] = useState(false);
 
   const bg = cardHovered
@@ -220,7 +222,7 @@ function PlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: string
 
   return (
     <motion.a
-      href="/app"
+      href={href}
       onMouseEnter={() => setBtnHovered(true)}
       onMouseLeave={() => setBtnHovered(false)}
       animate={{ backgroundColor: bg, color: fg }}

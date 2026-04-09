@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
-import { PLANS } from "@/lib/plans";
+import { PLANS, type PlanId, ANNUAL_DISCOUNT_PERCENT } from "@/lib/plans";
+import { stemColors } from "@/components/website/theme";
+import { RiCheckLine } from "@remixicon/react";
 
 export type SettingsSection = "profile" | "subscription" | "usage" | "defaults";
 
@@ -24,7 +26,7 @@ interface AccountViewProps {
   remainingFormatted?: string;
   usagePercent?: number;
   daysUntilReset?: number;
-  onUpgrade?: (plan: "pro" | "studio") => void;
+  onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   displayName?: string;
   email?: string;
   initials?: string;
@@ -48,11 +50,6 @@ const USAGE_HISTORY = [
   { date: "Mar 22, 2026", details: "Daily Free Credits",          type: "Credit", time: "+5:00",  positive: true  },
   { date: "Mar 20, 2026", details: "Daily Free Credits",          type: "Credit", time: "+5:00",  positive: true  },
 ];
-
-// Features derived from central plan config
-const FREE_FEATURES = PLANS.free.features;
-const PRO_FEATURES = PLANS.pro.features;
-const STUDIO_FEATURES = PLANS.studio.features;
 
 const TABS: { id: SettingsSection; label: string }[] = [
   { id: "profile",       label: "ACCOUNT SETTINGS" },
@@ -92,6 +89,184 @@ function Toggle({ on, C }: { on: boolean; C: C }) {
         position: "absolute", top: 2, left: on ? 18 : 2,
         transition: "left 150ms",
       }} />
+    </div>
+  );
+}
+
+// ─── Plan accents matching the website /pricing page ───
+const planAccents: Record<PlanId, { label: string; color: string }> = {
+  free: { label: "Free", color: "#3A3A3A" },
+  pro: { label: "Pro", color: stemColors.vocals },
+  studio: { label: "Studio", color: stemColors.drums },
+};
+
+const PLAN_ORDER: PlanId[] = ["free", "pro", "studio"];
+
+function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSectionChange }: {
+  C: AccountViewProps["C"];
+  planLabel?: string;
+  isPro?: boolean;
+  minutesIncluded?: number;
+  onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
+  onSectionChange: (s: SettingsSection) => void;
+}) {
+  const [annual, setAnnual] = React.useState(false);
+
+  // Derive current plan from planLabel
+  const currentPlan: PlanId =
+    planLabel === "Studio" ? "studio" :
+    planLabel === "Pro" ? "pro" : "free";
+
+  const planTier = PLAN_ORDER.indexOf(currentPlan);
+
+  return (
+    <div>
+      {/* Current plan card */}
+      <div style={{ backgroundColor: C.bgCard, padding: 20, marginBottom: 20 }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <SectionHeading C={C}>Current Plan</SectionHeading>
+            <div className="flex items-center gap-[10px]" style={{ marginTop: 4 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{planLabel ?? "Free"}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.badgeText, backgroundColor: C.badgeBg, padding: "2px 7px" }}>
+                {planLabel?.toUpperCase() ?? "FREE"}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{minutesIncluded} min / month</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Billing toggle */}
+      <div className="flex items-center gap-[12px]" style={{ marginBottom: 16 }}>
+        <button
+          onClick={() => setAnnual(!annual)}
+          style={{
+            position: "relative", width: 40, height: 22,
+            backgroundColor: annual ? C.accent : C.bgHover,
+            border: "none", cursor: "pointer", padding: 0,
+            transition: "background-color 0.2s",
+          }}
+        >
+          <div style={{
+            position: "absolute", top: 2,
+            left: annual ? 20 : 2,
+            width: 18, height: 18, backgroundColor: "#FFFFFF",
+            transition: "left 0.2s ease",
+          }} />
+        </button>
+        <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
+          Pay annually,{" "}
+          <span style={{ color: C.accent }}>save {ANNUAL_DISCOUNT_PERCENT}%</span>
+        </span>
+      </div>
+
+      {/* Plan cards grid — matching website /pricing style */}
+      <div className="grid grid-cols-3 gap-[2px]" style={{ marginBottom: 20 }}>
+        {PLAN_ORDER.map((id) => {
+          const plan = PLANS[id];
+          const accent = planAccents[id];
+          const tier = PLAN_ORDER.indexOf(id);
+          const isCurrent = id === currentPlan;
+          const canUpgrade = tier > planTier;
+          const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+          const period = id === "free" ? "forever" : "/mo";
+
+          // CTA logic
+          let ctaLabel: string | null = null;
+          if (isCurrent) ctaLabel = "Current plan";
+          else if (canUpgrade) ctaLabel = `Upgrade to ${accent.label}`;
+
+          return (
+            <div
+              key={id}
+              style={{
+                backgroundColor: C.bgCard,
+                padding: "24px 20px 28px",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* Plan name */}
+              <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em", color: C.text, marginBottom: 2 }}>
+                {accent.label}
+              </div>
+
+              {/* Tagline */}
+              <div style={{ fontSize: 12, fontWeight: 400, color: C.textMuted, marginBottom: 14 }}>
+                {plan.tagline}
+              </div>
+
+              {/* Price */}
+              <div className="flex items-baseline gap-[3px]" style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 36, fontWeight: 700, lineHeight: 1, color: C.text }}>{price}</span>
+                <span style={{ fontSize: 13, fontWeight: 400, color: C.textMuted }}>{period}</span>
+              </div>
+
+              {/* Annual savings */}
+              <div style={{ minHeight: annual && id !== "free" ? 20 : 0, marginBottom: 14 }}>
+                {annual && id !== "free" && (
+                  <div className="flex items-center gap-[6px]">
+                    <span style={{ fontSize: 12, textDecoration: "line-through", color: C.textMuted }}>${plan.priceUSD}/mo</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.accent }}>${(plan.yearlyPriceUSD * 12).toFixed(0)}/yr</span>
+                  </div>
+                )}
+              </div>
+
+              {/* CTA Button */}
+              {ctaLabel && (
+                <button
+                  onClick={canUpgrade ? () => onUpgrade?.(id as "pro" | "studio", annual ? "annual" : "monthly") : undefined}
+                  style={{
+                    width: "100%",
+                    padding: "10px 0",
+                    marginBottom: 20,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: "0.02em",
+                    cursor: canUpgrade ? "pointer" : "default",
+                    border: "none",
+                    backgroundColor: canUpgrade ? accent.color : C.bgHover,
+                    color: canUpgrade ? "#FFFFFF" : C.textMuted,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  {ctaLabel}
+                </button>
+              )}
+
+              {/* Features */}
+              <div style={{ flex: 1 }}>
+                {plan.features.map((f) => (
+                  <div key={f} className="flex items-center gap-[8px]" style={{ marginBottom: 8 }}>
+                    <RiCheckLine size={14} style={{ flexShrink: 0, color: isCurrent ? C.accent : accent.color }} />
+                    <span style={{ fontSize: 13, fontWeight: 400, color: C.text }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, marginBottom: 20 }} />
+
+      <div className="flex items-center justify-between">
+        <a
+          href="/pricing"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: 13, color: C.textMuted, textDecoration: "none" }}
+        >
+          See full pricing details and comparison →
+        </a>
+        <button
+          onClick={() => onSectionChange("usage")}
+          style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer" }}
+        >
+          VIEW USAGE →
+        </button>
+      </div>
     </div>
   );
 }
@@ -370,91 +545,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             PLANS & PRICING
            ══════════════════════════════════════════════════════ */}
         {section === "subscription" && (
-          <div>
-            {/* Current plan card */}
-            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
-                <div>
-                  <SectionHeading C={C}>Current Plan</SectionHeading>
-                  <div className="flex items-center gap-[10px]" style={{ marginTop: 4 }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{isPro ? (planLabel?.replace(" Plan", "") ?? "Pro") : "Free"}</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.badgeText, backgroundColor: C.badgeBg, padding: "3px 8px" }}>
-                      {planLabel?.toUpperCase() ?? "FREE PLAN"}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{minutesIncluded} min / month · Resets monthly</div>
-                </div>
-              </div>
-              {!isPro && (
-                <button
-                  onClick={() => onUpgrade?.("pro")}
-                  style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
-                >
-                  UPGRADE TO PRO
-                </button>
-              )}
-            </div>
-
-            {/* Plan comparison — 3 columns */}
-            <SectionHeading C={C}>Compare Plans</SectionHeading>
-            <div className="grid grid-cols-3 gap-[12px]" style={{ marginBottom: 32, marginTop: 8 }}>
-              {/* Free */}
-              <div style={{ backgroundColor: C.bgCard, padding: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, marginBottom: 4 }}>FREE</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>$0</div>
-                {FREE_FEATURES.map((f, i) => (
-                  <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
-                    <span style={{ fontSize: 12, color: C.textMuted, marginTop: 1 }}>✓</span>
-                    <span style={{ fontSize: 13, color: C.textSec }}>{f}</span>
-                  </div>
-                ))}
-              </div>
-              {/* Pro */}
-              <div style={{ backgroundColor: C.bgCard, padding: 20, borderLeft: `2px solid ${C.accent}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 4 }}>PRO</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>${PLANS.pro.priceUSD}<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
-                {PRO_FEATURES.map((f, i) => (
-                  <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
-                    <span style={{ fontSize: 12, color: C.accent, marginTop: 1 }}>✓</span>
-                    <span style={{ fontSize: 13, color: C.text }}>{f}</span>
-                  </div>
-                ))}
-                {!isPro && (
-                  <button onClick={() => onUpgrade?.("pro")} style={{ width: "100%", padding: "8px 0", marginTop: 12, backgroundColor: C.accent, color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
-                    UPGRADE TO PRO
-                  </button>
-                )}
-              </div>
-              {/* Studio */}
-              <div style={{ backgroundColor: C.bgCard, padding: 20, borderLeft: `2px solid ${C.accent}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.accent, marginBottom: 4 }}>STUDIO</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.text, marginBottom: 16 }}>${PLANS.studio.priceUSD}<span style={{ fontSize: 12, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
-                {STUDIO_FEATURES.map((f, i) => (
-                  <div key={i} className="flex items-start gap-[8px]" style={{ marginBottom: 10 }}>
-                    <span style={{ fontSize: 12, color: C.accent, marginTop: 1 }}>✓</span>
-                    <span style={{ fontSize: 13, color: C.text }}>{f}</span>
-                  </div>
-                ))}
-                {planLabel !== "Studio Plan" && (
-                  <button onClick={() => onUpgrade?.("studio")} style={{ width: "100%", padding: "8px 0", marginTop: 12, backgroundColor: C.accent, color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
-                    UPGRADE TO STUDIO
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, marginBottom: 24 }} />
-
-            <div className="flex items-center justify-between">
-              <span style={{ fontSize: 13, color: C.textMuted }}>Need to check your usage?</span>
-              <button
-                onClick={() => onSectionChange("usage")}
-                style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer" }}
-              >
-                VIEW USAGE →
-              </button>
-            </div>
-          </div>
+          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} onUpgrade={onUpgrade} onSectionChange={onSectionChange} />
         )}
 
         {/* ══════════════════════════════════════════════════════

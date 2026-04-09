@@ -160,12 +160,21 @@ export default function AbletonDashboard() {
   const { planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, daysUntilReset, loading: subLoading } = useSubscription(user?.id);
 
   // Handle checkout success redirect from Polar
+  // Also handle ?upgrade=pro&billing=annual from /pricing page
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
       toast.success("Payment successful! Your plan is being activated.");
       window.history.replaceState({}, "", "/app");
     }
+    const upgradePlan = params.get("upgrade");
+    const billingRaw = params.get("billing");
+    const billing = billingRaw === "annual" ? "annual" : "monthly";
+    if (upgradePlan === "pro" || upgradePlan === "studio") {
+      window.history.replaceState({}, "", "/app");
+      handleUpgrade(upgradePlan, billing);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
   const [systemDark, setSystemDark] = useState(true);
@@ -257,12 +266,12 @@ export default function AbletonDashboard() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("profile");
 
   // Polar checkout — redirect to payment page
-  const handleUpgrade = async (plan: "pro" | "studio" = "pro") => {
+  const handleUpgrade = async (plan: "pro" | "studio" = "pro", billing: "monthly" | "annual" = "monthly") => {
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, billing }),
       });
       const data = await res.json();
       if (data.url) {
