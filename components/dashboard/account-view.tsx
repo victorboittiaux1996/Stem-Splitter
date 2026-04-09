@@ -481,22 +481,27 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               )}
             </div>
 
-            {/* Payment method card */}
-            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-              <SectionHeading C={C}>Payment Method</SectionHeading>
-              <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
-                <div style={{ fontSize: 13, color: C.textMuted }}>No payment method on file</div>
-                <button style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer" }}>
-                  ADD PAYMENT METHOD
-                </button>
+            {/* Subscription management card — only for paying users */}
+            {isPro && (
+              <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
+                <SectionHeading C={C}>Subscription</SectionHeading>
+                <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
+                  <div style={{ fontSize: 13, color: C.textMuted }}>Manage invoices, payment method, or cancel</div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch("/api/portal", { method: "POST" });
+                        const data = await res.json();
+                        if (data.url) window.open(data.url, "_blank");
+                      } catch {}
+                    }}
+                    style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer" }}
+                  >
+                    MANAGE SUBSCRIPTION →
+                  </button>
+                </div>
               </div>
-            </div>
-
-            {/* Invoice history card */}
-            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-              <SectionHeading C={C}>Invoices</SectionHeading>
-              <div style={{ fontSize: 13, color: C.textMuted, paddingTop: 8 }}>No invoices yet</div>
-            </div>
+            )}
 
             {/* Usage history table */}
             <div style={{ marginBottom: 0 }}>
