@@ -6,6 +6,7 @@ import { Logo } from "@/components/website/logo";
 import { Footer } from "@/components/website/footer";
 import { FAQ } from "@/components/website/faq";
 import { fonts, stemColors } from "@/components/website/theme";
+import { useAuthModal } from "@/contexts/auth-modal-context";
 import { PLANS, ANNUAL_DISCOUNT_PERCENT } from "@/lib/plans";
 import { HeroDemo } from "@/components/website/hero-demo";
 import {
@@ -223,41 +224,45 @@ function DropdownLink({ label, href }: { label: string; href: string }) {
 
 function LoginButton() {
   const [hovered, setHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
   return (
-    <a
-      href="/login"
+    <button
+      onClick={() => openAuthModal()}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
         color: C.text, opacity: hovered ? 0.6 : 1,
-        textDecoration: "none", padding: "6px 15px",
+        background: "transparent", border: "none", cursor: "pointer",
+        padding: "6px 15px",
         display: "inline-flex", alignItems: "center",
         transition: "opacity 0.15s",
       }}
     >
       Log in
-    </a>
+    </button>
   );
 }
 
 function HeaderCTA() {
   const [hovered, setHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
   return (
-    <a
-      href="/app"
+    <button
+      onClick={() => openAuthModal("/app")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: "#FFFFFF",
         backgroundColor: hovered ? C.accentHover : C.accent,
-        textDecoration: "none", padding: "0 20px", height: 36,
+        border: "none", cursor: "pointer",
+        padding: "0 20px", height: 36,
         display: "inline-flex", alignItems: "center",
         transition: "background-color 0.15s",
       }}
     >
       Get Started
-    </a>
+    </button>
   );
 }
 
@@ -300,7 +305,7 @@ function Hero() {
           style={{ marginTop: 40, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}
         >
           <div style={{ display: "flex", gap: 12 }}>
-            <HeroCTA label="Try it free" variant="primary" href="/app" />
+            <HeroTryFree />
             <HeroCTA label="See pricing" variant="secondary" href="/pricing" />
           </div>
           <span
@@ -327,12 +332,13 @@ function Hero() {
   );
 }
 
-function HeroCTA({ label, variant, href }: { label: string; variant: "primary" | "secondary"; href: string }) {
+function HeroCTA({ label, variant, href, onClick }: { label: string; variant: "primary" | "secondary"; href?: string; onClick?: () => void }) {
   const [hovered, setHovered] = useState(false);
   const isPrimary = variant === "primary";
+  const Tag = onClick ? "button" : "a";
   return (
-    <a
-      href={href}
+    <Tag
+      {...(onClick ? { onClick } : { href })}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -342,11 +348,17 @@ function HeroCTA({ label, variant, href }: { label: string; variant: "primary" |
         textDecoration: "none", padding: "0 28px", height: 48,
         display: "inline-flex", alignItems: "center",
         transition: "background-color 0.15s",
+        border: "none", cursor: "pointer",
       }}
     >
       {label}
-    </a>
+    </Tag>
   );
+}
+
+function HeroTryFree() {
+  const { openAuthModal } = useAuthModal();
+  return <HeroCTA label="Try it free" variant="primary" onClick={() => openAuthModal("/app")} />;
 }
 
 // ─── Trust Bar ──────────────────────────────────────────────
@@ -876,6 +888,7 @@ type HomePlanId = "free" | "pro" | "studio";
 
 function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean }) {
   const [hovered, setHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
   const plan = PLANS[planId];
   const accent = homePlanAccents[planId];
 
@@ -891,15 +904,15 @@ function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean 
   const dTextMuted = "#333333";
 
   return (
-    <motion.a
-      href="/app"
+    <motion.div
+      onClick={() => openAuthModal("/app")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       animate={{ backgroundColor: hovered ? accent : "#FFFFFF" }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       style={{
         padding: 0, display: "flex", flexDirection: "column", overflow: "hidden",
-        cursor: "pointer", height: "100%", textDecoration: "none", color: "inherit",
+        cursor: "pointer", height: "100%", color: "inherit",
       }}
     >
       <div style={{ padding: "36px 32px 40px", display: "flex", flexDirection: "column", flex: 1 }}>
@@ -988,12 +1001,13 @@ function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean 
           ))}
         </ul>
       </div>
-    </motion.a>
+    </motion.div>
   );
 }
 
 function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: string }) {
   const [btnHovered, setBtnHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
 
   const bg = cardHovered
     ? (btnHovered ? "#FFFFFF" : "#FFFFFF")
@@ -1001,8 +1015,8 @@ function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: st
   const fg = cardHovered ? accent : "#FFFFFF";
 
   return (
-    <motion.a
-      href="/app"
+    <motion.div
+      onClick={(e) => { e.stopPropagation(); openAuthModal("/app"); }}
       onMouseEnter={() => setBtnHovered(true)}
       onMouseLeave={() => setBtnHovered(false)}
       animate={{ backgroundColor: bg, color: fg }}
@@ -1011,12 +1025,12 @@ function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: st
         width: "100%", padding: "12px 24px",
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
         cursor: "pointer", border: "none",
-        textDecoration: "none", textAlign: "center", display: "block",
+        textAlign: "center", display: "block",
         backgroundColor: bg, color: fg,
       }}
     >
       Get started
-    </motion.a>
+    </motion.div>
   );
 }
 
@@ -1108,21 +1122,23 @@ function CTABanner() {
 
 function CTABannerButton() {
   const [hovered, setHovered] = useState(false);
+  const { openAuthModal } = useAuthModal();
   return (
-    <a
-      href="/app"
+    <button
+      onClick={() => openAuthModal("/app")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         fontFamily: fonts.body, fontSize: 15, fontWeight: 600,
         color: C.text, backgroundColor: hovered ? "#E8E8E8" : "#FFFFFF",
-        textDecoration: "none", padding: "0 36px", height: 52,
+        border: "none", cursor: "pointer",
+        padding: "0 36px", height: 52,
         display: "inline-flex", alignItems: "center",
         transition: "background-color 0.15s",
       }}
     >
       Start for free
-    </a>
+    </button>
   );
 }
 
