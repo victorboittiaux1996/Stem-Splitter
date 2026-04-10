@@ -12,7 +12,6 @@ import Link from "next/link";
 import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
 import { detectPlatform, PLATFORMS } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
-import { prefetchStemPeaks } from "@/components/stem-variants";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
@@ -418,14 +417,15 @@ export default function AbletonDashboard() {
         setAppState("complete");
         setView("results");
 
-        // Load stem download URLs
+        // Cache server-computed peaks + load stem download URLs
+        if (job.peaks && Object.keys(job.peaks).length > 0) {
+          stemPeaksCacheRef.current[id] = job.peaks;
+        }
         const dlRes = await fetch(`/api/download/${id}`, { headers: { "x-workspace-id": wsId2 } });
         if (dlRes.ok) {
           const dlData = await dlRes.json();
           if (dlData.stems) {
             setStemDownloads(dlData.stems);
-            const urls = Object.fromEntries((dlData.stems as StemDownload[]).map(s => [s.name, s.url]));
-            prefetchStemPeaks(urls);
           }
         }
       } catch (err) {
@@ -653,15 +653,18 @@ export default function AbletonDashboard() {
 
     // Queue fully completed
     if (allDone && prevQueueLenRef.current > 0) {
+      // Cache server-computed peaks for all completed items (avoids full audio download later)
+      for (const qi of queueItems) {
+        if (qi.status === "completed" && qi.jobId && qi.job?.peaks && Object.keys(qi.job.peaks).length > 0) {
+          stemPeaksCacheRef.current[qi.jobId] = qi.job.peaks;
+        }
+      }
+
       if (queueItems.length === 1 && queueItems[0].status === "completed" && queueItems[0].job) {
         // Single file → auto results
         setCurrentJob(queueItems[0].job);
         setStemDownloads(queueItems[0].stemDownloads);
         if (queueItems[0].jobId) setJobId(queueItems[0].jobId);
-        if (queueItems[0].stemDownloads.length > 0) {
-          const urls = Object.fromEntries(queueItems[0].stemDownloads.map(s => [s.name, s.url]));
-          prefetchStemPeaks(urls);
-        }
         setAppState("complete");
         setView("results");
       } else {
