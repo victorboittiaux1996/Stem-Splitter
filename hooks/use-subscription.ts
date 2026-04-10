@@ -75,5 +75,7 @@ export function useSubscription(userId: string | undefined) {
     remainingFormatted: formatMinutes(remainingSeconds), // "8:27"
     usagePercent,
     overLimit: state.minutesUsed >= planConfig.minutesIncluded,
+    batchLimit: planConfig.batchLimit,
+    urlImport: planConfig.urlImport,
   };
 }

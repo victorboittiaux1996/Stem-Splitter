@@ -158,7 +158,7 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 // ─── Component ──────────────────────────────────────────────
 export default function AbletonDashboard() {
   const { user, displayName, initials, email, signOut, avatarUrl, createdAt } = useAuth();
-  const { planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, daysUntilReset, loading: subLoading } = useSubscription(user?.id);
+  const { planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, daysUntilReset, loading: subLoading, batchLimit, urlImport } = useSubscription(user?.id);
 
   // Handle checkout success redirect from Polar
   // Also handle ?upgrade=pro&billing=annual from /pricing page
@@ -319,16 +319,18 @@ export default function AbletonDashboard() {
   const detectedPlatform = detectPlatform(urlInput);
   const isValidUrl = detectedPlatform !== null;
   const [urlDurationLoading, setUrlDurationLoading] = useState(false);
+  const [urlTitle, setUrlTitle] = useState<string | null>(null);
   const [playlistTracks, setPlaylistTracks] = useState<{ url: string; title: string; duration: number }[]>([]);
 
   // Fetch duration (single track) or track list (playlist) when a valid URL is entered
   useEffect(() => {
-    if (!isValidUrl || inputMode !== "url") { setTotalDurationSec(null); setPlaylistTracks([]); return; }
+    if (!isValidUrl || inputMode !== "url") { setTotalDurationSec(null); setPlaylistTracks([]); setUrlTitle(null); return; }
     const trimmed = urlInput.trim();
     let cancelled = false;
     setUrlDurationLoading(true);
     setTotalDurationSec(null);
     setPlaylistTracks([]);
+    setUrlTitle(null);
 
     const timeout = setTimeout(() => {
       fetch(`/api/url-info?url=${encodeURIComponent(trimmed)}`)
@@ -339,8 +341,9 @@ export default function AbletonDashboard() {
             setPlaylistTracks(data.tracks);
             const totalSec = data.tracks.reduce((sum: number, t: { duration: number }) => sum + (t.duration || 0), 0);
             if (totalSec > 0) setTotalDurationSec(totalSec);
-          } else if (data.duration > 0) {
-            setTotalDurationSec(data.duration);
+          } else {
+            if (data.duration > 0) setTotalDurationSec(data.duration);
+            if (data.title) setUrlTitle(data.title);
           }
         })
         .catch(() => {})
@@ -596,14 +599,14 @@ export default function AbletonDashboard() {
 
     if (isValidUrl && inputMode === "url") {
       if (playlistTracks.length > 0) {
-        // Playlist: enqueue each track individually (cap at 50)
-        const MAX_PLAYLIST = 50;
-        const tracks = playlistTracks.slice(0, MAX_PLAYLIST);
-        for (const track of tracks) {
-          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap });
+        // Playlist: cap to plan's batchLimit
+        const limit = batchLimit || 1;
+        if (playlistTracks.length > limit) {
+          setUploadError(`Your ${planLabel} plan allows ${limit} tracks per batch. Upgrade for more.`);
+          return;
         }
-        if (playlistTracks.length > MAX_PLAYLIST) {
-          setUploadError(`Playlist capped at ${MAX_PLAYLIST} tracks (${playlistTracks.length} detected). Split the rest separately.`);
+        for (const track of playlistTracks) {
+          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap });
         }
       } else {
         // Single track
@@ -622,7 +625,7 @@ export default function AbletonDashboard() {
     setPendingFiles([]);
     setAppState("processing");
     setUploadError(null);
-  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, qualityPreset, enqueue, enqueueUrl, totalDurationSec, remainingSeconds, playlistTracks]);
+  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, qualityPreset, enqueue, enqueueUrl, totalDurationSec, remainingSeconds, playlistTracks, batchLimit, planLabel]);
 
   const handleNewSplit = useCallback(() => {
     setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
@@ -1041,14 +1044,24 @@ export default function AbletonDashboard() {
                     {/* Tabs: UPLOAD | LINK */}
                     <div className="flex items-center gap-[20px] mb-[8px]">
                       {([["file", "UPLOAD"], ["url", "LINK"]] as const).map(([mode, label]) => (
-                        <button key={mode} onClick={() => { setInputMode(mode); if (mode === "file") setUrlInput(""); if (mode === "url") { setFile(null); setAppState("idle"); } }}
+                        <button key={mode} onClick={() => {
+                          if (mode === "url" && !urlImport) {
+                            setUploadError("Split stems directly from YouTube, Spotify & Dropbox links — available on Pro.");
+                            return;
+                          }
+                          setInputMode(mode); if (mode === "file") setUrlInput(""); if (mode === "url") { setFile(null); setAppState("idle"); }
+                        }}
                           className="pb-[6px] text-[14px] font-semibold transition-colors"
                           style={{
-                            color: inputMode === mode ? C.text : C.textMuted,
+                            color: inputMode === mode ? C.text : (!urlImport && mode === "url" ? C.textMuted : C.textMuted),
                             borderBottom: inputMode === mode ? `2px solid ${C.accent}` : "2px solid transparent",
                             letterSpacing: "0.04em",
+                            opacity: !urlImport && mode === "url" ? 0.5 : 1,
                           }}>
                           {label}
+                          {!urlImport && mode === "url" && (
+                            <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.06em", marginLeft: 6, verticalAlign: "super" }}>PRO</span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -1057,13 +1070,46 @@ export default function AbletonDashboard() {
                     {inputMode === "url" ? (
                       <div className="flex items-center justify-center transition-all"
                         style={{ minHeight: 160, backgroundColor: C.dropZoneBg, position: "relative" }}>
-                        {isValidUrl ? (
+                        {isValidUrl && urlDurationLoading ? (
+                          /* Loading state while fetching metadata */
                           <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
                             <div className="flex items-center gap-[10px]">
                               <span style={{ fontSize: 11, fontWeight: 700, color: C.textSec, letterSpacing: "0.06em", padding: "4px 10px", backgroundColor: C.bgHover }}>{detectedPlatform}</span>
-                              <span style={{ fontSize: 14, color: C.textSec }}>{urlInput}</span>
+                              <span style={{ fontSize: 14, color: C.textMuted, letterSpacing: "0.02em" }}>Analyzing
+                                {[0, 1, 2].map(i => (
+                                  <motion.span key={i} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.3 }}>.</motion.span>
+                                ))}
+                              </span>
                             </div>
-                            <button onClick={() => setUrlInput("")}
+                            <button onClick={() => { setUrlInput(""); setUrlTitle(null); setPlaylistTracks([]); }}
+                              style={{ fontSize: 14, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>REMOVE</button>
+                          </div>
+                        ) : isValidUrl && playlistTracks.length > 0 ? (
+                          /* Playlist: same layout as multiple files */
+                          <div className="flex flex-col items-center justify-center w-full gap-[4px]" style={{ position: "relative" }}>
+                            <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>{playlistTracks.length} TRACKS FROM {detectedPlatform}</span>
+                            {playlistTracks.slice(0, 3).map((t, i) => (
+                              <span key={i} className="truncate" style={{ fontSize: 13, color: C.textMuted, maxWidth: 400 }}>{t.title || `Track ${i + 1}`}</span>
+                            ))}
+                            {playlistTracks.length > 3 && (
+                              <span style={{ fontSize: 13, color: C.textMuted }}>+{playlistTracks.length - 3} more</span>
+                            )}
+                            {batchLimit > 0 && playlistTracks.length > batchLimit && (
+                              <span style={{ fontSize: 12, color: "#FF3B30", fontWeight: 500, marginTop: 4 }}>
+                                {planLabel} plan: {batchLimit} tracks max per batch — upgrade for more
+                              </span>
+                            )}
+                            <button onClick={() => { setUrlInput(""); setUrlTitle(null); setPlaylistTracks([]); }}
+                              style={{ fontSize: 13, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", marginTop: 4 }}>REMOVE</button>
+                          </div>
+                        ) : isValidUrl ? (
+                          /* Single track: badge + title */
+                          <div className="flex flex-col items-center justify-center w-full" style={{ position: "relative" }}>
+                            <div className="flex items-center gap-[10px]">
+                              <span style={{ fontSize: 11, fontWeight: 700, color: C.textSec, letterSpacing: "0.06em", padding: "4px 10px", backgroundColor: C.bgHover }}>{detectedPlatform}</span>
+                              <span className="truncate" style={{ fontSize: 14, color: C.textSec, maxWidth: 400 }}>{urlTitle || urlInput}</span>
+                            </div>
+                            <button onClick={() => { setUrlInput(""); setUrlTitle(null); }}
                               style={{ fontSize: 14, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>REMOVE</button>
                           </div>
                         ) : (

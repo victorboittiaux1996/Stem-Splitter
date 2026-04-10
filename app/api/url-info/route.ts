@@ -27,7 +27,8 @@ async function fetchSpotifyTrackInfo(url: string) {
 
   const title = entity.name ?? "";
   const artist = entity.artists?.map((a: { name: string }) => a.name).join(", ") ?? "";
-  const durationMs = entity.duration?.milliseconds ?? entity.duration_ms ?? 0;
+  const rawDuration = entity.duration;
+  const durationMs = typeof rawDuration === "number" ? rawDuration : (rawDuration?.milliseconds ?? 0);
 
   return {
     duration: Math.round(durationMs / 1000),
@@ -59,7 +60,7 @@ async function fetchSpotifyPlaylistInfo(url: string) {
     uid?: string;
     title?: string;
     subtitle?: string;
-    duration?: { milliseconds?: number };
+    duration?: number | { milliseconds?: number };
     uri?: string;
   }
 
@@ -67,7 +68,8 @@ async function fetchSpotifyPlaylistInfo(url: string) {
   const tracks = trackList.map((t: SpotifyTrackItem) => {
     const trackTitle = t.title ?? "";
     const artist = t.subtitle ?? "";
-    const durationMs = t.duration?.milliseconds ?? 0;
+    const rawDur = t.duration;
+    const durationMs = typeof rawDur === "number" ? rawDur : (rawDur?.milliseconds ?? 0);
     // Reconstruct Spotify track URL from URI (spotify:track:ID → https://open.spotify.com/track/ID)
     const uri = t.uri ?? "";
     const trackId = uri.startsWith("spotify:track:") ? uri.replace("spotify:track:", "") : "";

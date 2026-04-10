@@ -214,17 +214,68 @@ def _download_dropbox(url: str, output_dir: str) -> str:
         raise Exception(f"Dropbox download failed: {e.reason}")
 
 
+def _resolve_spotify_to_ytsearch(url: str) -> str:
+    """Convert a Spotify track URL to a YouTube search query.
+
+    Spotify links can't be downloaded directly (DRM).
+    Scrape the Spotify embed page for artist+title, then search YouTube.
+    """
+    import re
+    import json
+    import urllib.request
+
+    track_id_match = re.search(r'track/([a-zA-Z0-9]+)', url)
+    if not track_id_match:
+        raise Exception("Invalid Spotify URL — only track links are supported")
+
+    embed_url = f"https://open.spotify.com/embed/track/{track_id_match.group(1)}"
+    req = urllib.request.Request(embed_url, headers={
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    })
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        raise Exception(f"Failed to fetch Spotify embed: {e}")
+
+    match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html)
+    if not match:
+        raise Exception("Could not parse Spotify embed data")
+
+    data = json.loads(match.group(1))
+    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity')
+    if not entity:
+        raise Exception("No entity found in Spotify embed data")
+
+    title = entity.get('name', '')
+    artists = entity.get('artists', [])
+    artist = ', '.join(a.get('name', '') for a in artists) if artists else ''
+    query = f"{artist} - {title}" if artist else title
+
+    if not query.strip():
+        raise Exception("Could not extract artist/title from Spotify")
+
+    print(f"Spotify → YouTube search: {query}")
+    return f"ytsearch:{query}"
+
+
 def download_from_url(url: str, output_dir: str) -> str:
     """Download audio from URL at best available quality.
 
     Dropbox links are downloaded directly via HTTP.
-    YouTube/SoundCloud/Deezer/Spotify use yt-dlp with a 90-second timeout.
+    Spotify links are resolved to YouTube search (DRM protection).
+    YouTube/SoundCloud/Deezer use yt-dlp with a 90-second timeout.
     """
     # Dropbox: direct HTTP download (yt-dlp doesn't support it)
     if 'dropbox.com' in url or 'dropboxusercontent.com' in url:
         return _download_dropbox(url, output_dir)
 
-    # All other platforms: yt-dlp
+    # Spotify: resolve to YouTube search (yt-dlp can't handle Spotify DRM)
+    if 'spotify.com' in url:
+        url = _resolve_spotify_to_ytsearch(url)
+
+    # All other platforms (including resolved Spotify → ytsearch): yt-dlp
     import subprocess
     output_template = os.path.join(output_dir, 'audio.%(ext)s')
 
@@ -283,7 +334,7 @@ def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
     return patched, _orig
 
 
-@app.function(image=image, gpu="H100", timeout=600, keep_warm=1, secrets=[modal.Secret.from_name("r2-credentials")])
+@app.function(image=image, gpu="H100", timeout=600, keep_warm=0, secrets=[modal.Secret.from_name("r2-credentials")])
 @modal.web_endpoint(method="POST")
 def separate(request: dict):
     """Process a stem separation job.
