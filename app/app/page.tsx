@@ -298,12 +298,12 @@ export default function AbletonDashboard() {
   }, []);
   const WORKSPACE_ID = "ws-1";
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">(() => {
-    if (typeof window === "undefined") return "fast";
+    if (typeof window === "undefined") return "balanced";
     try {
       const saved = localStorage.getItem("44stems-preferences");
       if (saved) { const p = JSON.parse(saved); if (p.quality) return p.quality; }
     } catch {}
-    return "fast";
+    return "balanced";
   });
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);

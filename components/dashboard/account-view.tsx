@@ -285,7 +285,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   const [notifMarketing, setNotifMarketing] = React.useState(false);
   const [defaultStems, setDefaultStems] = React.useState<2 | 4 | 6>(4);
   const [defaultFormat, setDefaultFormat] = React.useState<"wav" | "mp3">("wav");
-  const [defaultQuality, setDefaultQuality] = React.useState<"fast" | "balanced" | "high">("fast");
+  const [defaultQuality, setDefaultQuality] = React.useState<"fast" | "balanced" | "high">("balanced");
 
   // Load preferences from localStorage on mount
   React.useEffect(() => {
