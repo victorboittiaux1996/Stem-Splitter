@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
 
     const body = await request.json();
-    const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, workspaceId = null } = body;
+    const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, workspaceId = null, title = null } = body;
     const overlap = typeof rawOverlap === "number" && [2, 8, 16].includes(rawOverlap) ? rawOverlap : 8;
     const wsId: string | null = typeof workspaceId === "string" && workspaceId ? workspaceId : null;
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
       await writeJsonToR2(key, {
         id: jobId, status: "processing", mode, progress: 5,
-        stage: "Downloading audio...", createdAt: Date.now(), fileName: url, workspaceId: wsId, userId: user.id,
+        stage: "Downloading audio...", createdAt: Date.now(), fileName: (typeof title === "string" && title) ? title : url, workspaceId: wsId, userId: user.id,
       });
 
       fetch(MODAL_WEBHOOK_URL, {

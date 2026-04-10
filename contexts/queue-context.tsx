@@ -11,6 +11,7 @@ interface QueueConfig {
   mode: SplitMode;
   outputFormat: OutputFormat;
   overlap?: number;
+  title?: string;
 }
 
 interface QueueContextValue {
@@ -98,7 +99,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       id: nanoid(8),
       file: null,
       url,
-      fileName: url,
+      fileName: config.title || url,
       fileSize: 0,
       jobId: null,
       status: "pending",
@@ -149,7 +150,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-workspace-id": wsId },
-          body: JSON.stringify({ url: item.url, mode: item.mode, overlap, workspaceId: wsId }),
+          body: JSON.stringify({ url: item.url, mode: item.mode, overlap, workspaceId: wsId, title: item.fileName }),
         });
         if (!res.ok) {
           let msg = "Upload failed";

@@ -606,11 +606,11 @@ export default function AbletonDashboard() {
           return;
         }
         for (const track of playlistTracks) {
-          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap });
+          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap, title: track.title });
         }
       } else {
         // Single track
-        enqueueUrl(urlInput, { mode, outputFormat, overlap });
+        enqueueUrl(urlInput, { mode, outputFormat, overlap, title: urlTitle || undefined });
       }
       setUrlInput("");
       setPlaylistTracks([]);
