@@ -34,9 +34,12 @@ IMPORTANT: Before creating or modifying ANY visual component, page, or UI elemen
 - Workspace ID must be in URL query params (&ws=), not just headers — audio tags can't send headers
 - Audio preview uses &format=mp3, download uses &format=wav — don't mix them up
 - R2 presigned URLs expire in 1h (downloads) / 2h (uploads) — don't cache them
-- Worker overlap=8 hardcoded — don't expose to UI without Victor's approval
-- Settings/Account UI is entirely mock — don't assume any data is real
-- No auth, no DB, no Stripe yet — all API endpoints are public
+- Processing Quality presets (Fast/Balanced/High) are WIRED end-to-end to overlap 2/8/16 — DO NOT hardcode overlap, it flows from UI → QueueItem → API → Modal worker
+- Account Settings Preferences (localStorage 44stems-preferences) initializes qualityPreset in page.tsx — keep them in sync
+- API validates overlap whitelist [2, 8, 16] in app/api/upload/route.ts — update both if adding new values
+- Modal keep_warm=0 — NEVER set keep_warm>0 without Victor's explicit cost approval (~$95/day for H100)
+- Auth via Supabase (Google OAuth, Apple, Email magic link) — middleware protects /app routes
+- Payments via Polar — plans in lib/plans.ts, webhooks at /api/webhooks/polar
 
 ## Verification Protocol (MANDATORY)
 
