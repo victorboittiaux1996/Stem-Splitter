@@ -318,6 +318,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
             read: false,
           }, ...prev]);
 
+          // Refresh usage minutes (triggers useSubscription re-fetch)
+          window.dispatchEvent(new Event("usage-updated"));
+
           // Refresh history
           fetch("/api/history", {
             headers: { "x-workspace-id": workspaceIdRef.current },

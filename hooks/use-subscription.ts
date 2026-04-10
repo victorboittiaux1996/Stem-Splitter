@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANS, formatMinutes, getRemainingSeconds, type PlanId } from "@/lib/plans";
 
@@ -25,7 +25,7 @@ export function useSubscription(userId: string | undefined) {
     loading: true,
   });
 
-  useEffect(() => {
+  const fetchSubscription = useCallback(() => {
     if (!userId) return;
 
     const supabase = createClient();
@@ -49,7 +49,6 @@ export function useSubscription(userId: string | undefined) {
           ? (subResult.data.plan as PlanId)
           : "free";
 
-      // tracks_used stores minutes as a decimal number
       const minutesUsed = usageResult.data?.tracks_used ?? 0;
 
       setState({
@@ -58,8 +57,22 @@ export function useSubscription(userId: string | undefined) {
         daysUntilReset: getDaysUntilReset(),
         loading: false,
       });
+    }).catch(() => {
+      setState(prev => ({ ...prev, loading: false }));
     });
   }, [userId]);
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchSubscription();
+  }, [fetchSubscription]);
+
+  // Re-fetch when a split completes (fired from queue-context)
+  useEffect(() => {
+    const handler = () => fetchSubscription();
+    window.addEventListener("usage-updated", handler);
+    return () => window.removeEventListener("usage-updated", handler);
+  }, [fetchSubscription]);
 
   const planConfig = PLANS[state.plan];
   const remainingSeconds = getRemainingSeconds(state.minutesUsed, state.plan);

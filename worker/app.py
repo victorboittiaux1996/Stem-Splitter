@@ -575,25 +575,47 @@ def separate(request: dict):
                               workspace_id=workspace_id)
 
             # Notify Next.js to track usage minutes
+            # No retry — increment_usage is additive, retrying risks double-counting
             if callback_url:
                 import urllib.request
+                import urllib.error
+                import urllib.parse
+
+                secret = os.environ.get("MODAL_CALLBACK_SECRET", "")
+                payload = json.dumps({
+                    "status": "completed",
+                    "duration": analysis["duration"],
+                    "stems": stem_names,
+                    "bpm": analysis["bpm"],
+                    "key": analysis["key"],
+                    "workspaceId": workspace_id,
+                }).encode("utf-8")
+
                 try:
-                    secret = os.environ.get("MODAL_CALLBACK_SECRET", "")
-                    payload = json.dumps({
-                        "status": "completed",
-                        "duration": analysis["duration"],
-                        "stems": stem_names,
-                        "bpm": analysis["bpm"],
-                        "key": analysis["key"],
-                        "workspaceId": workspace_id,
-                    }).encode("utf-8")
                     req = urllib.request.Request(callback_url, data=payload, method="PATCH")
                     req.add_header("Content-Type", "application/json")
                     req.add_header("x-modal-secret", secret)
-                    urllib.request.urlopen(req, timeout=10)
+
+                    # Follow 307/308 redirects while preserving PATCH method and body
+                    class _RedirectHandler(urllib.request.HTTPRedirectHandler):
+                        def redirect_request(self, req, fp, code, msg, headers, newurl):
+                            parsed = urllib.parse.urlparse(newurl)
+                            if not parsed.hostname or not parsed.hostname.endswith("44stems.com"):
+                                print(f"Refused redirect to {newurl}")
+                                raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+                            new_req = urllib.request.Request(newurl, data=req.data, method=req.get_method())
+                            new_req.add_header("Content-Type", "application/json")
+                            new_req.add_header("x-modal-secret", secret)
+                            return new_req
+
+                    opener = urllib.request.build_opener(_RedirectHandler)
+                    opener.open(req, timeout=10)
                     print(f"Callback sent to {callback_url}")
+                except urllib.error.HTTPError as e:
+                    body = e.read().decode("utf-8", errors="replace")[:200] if hasattr(e, "read") else ""
+                    print(f"Callback failed (HTTP {e.code}): {body}")
                 except Exception as e:
-                    print(f"Callback failed (usage may not be tracked): {e}")
+                    print(f"Callback failed — usage NOT tracked for job {job_id}: {type(e).__name__}: {e}")
 
             return {"status": "completed", "stems": stem_names}
 
