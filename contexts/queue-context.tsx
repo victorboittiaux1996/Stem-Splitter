@@ -84,6 +84,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       error: null,
       mode: config.mode,
       outputFormat: config.outputFormat,
+      overlap: config.overlap,
       job: null,
       stemDownloads: [],
       addedAt: Date.now(),
@@ -106,6 +107,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       error: null,
       mode: config.mode,
       outputFormat: config.outputFormat,
+      overlap: config.overlap,
       job: null,
       stemDownloads: [],
       addedAt: Date.now(),
@@ -137,7 +139,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   // ─── Process a single item (upload + trigger Modal) ─────────────────────
 
   const processItem = useCallback(async (item: QueueItem) => {
-    const overlap = 8; // default overlap
+    const overlap = item.overlap ?? 8;
 
     try {
       const wsId = workspaceIdRef.current;

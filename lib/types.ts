@@ -50,6 +50,7 @@ export interface QueueItem {
   error: string | null;
   mode: SplitMode;
   outputFormat: OutputFormat;
+  overlap?: number;
   job: Job | null;
   stemDownloads: StemDownload[];
   addedAt: number;

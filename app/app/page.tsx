@@ -10,6 +10,7 @@ import { StemModal } from "@/components/stem-modal";
 import { StemVariants } from "@/components/stem-variants";
 import Link from "next/link";
 import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
+import { detectPlatform, PLATFORMS } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
 import { prefetchStemPeaks } from "@/components/stem-variants";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
@@ -296,7 +297,14 @@ export default function AbletonDashboard() {
     return () => mq.removeEventListener("change", handler);
   }, []);
   const WORKSPACE_ID = "ws-1";
-  const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">("fast");
+  const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">(() => {
+    if (typeof window === "undefined") return "fast";
+    try {
+      const saved = localStorage.getItem("44stems-preferences");
+      if (saved) { const p = JSON.parse(saved); if (p.quality) return p.quality; }
+    } catch {}
+    return "fast";
+  });
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
@@ -307,32 +315,33 @@ export default function AbletonDashboard() {
   // URL input variations
   const [urlInput, setUrlInput] = useState("");
   const [inputMode, setInputMode] = useState<"file" | "url">("file");
-  // Platform detection
-  const PLATFORMS = [
-    { name: "YOUTUBE", pattern: /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|music\.youtube\.com\/watch\?v=)/ },
-    { name: "SPOTIFY", pattern: /^(https?:\/\/)?(www\.)?open\.spotify\.com\/(intl-[a-z]{2}\/)?(track|album)\// },
-    { name: "DEEZER", pattern: /^(https?:\/\/)?(www\.)?deezer\.com\/(track|album)\// },
-    { name: "SOUNDCLOUD", pattern: /^(https?:\/\/)?(www\.)?soundcloud\.com\// },
-    { name: "APPLE MUSIC", pattern: /^(https?:\/\/)?(www\.)?music\.apple\.com\// },
-  ] as const;
-  const detectedPlatform = PLATFORMS.find(p => p.pattern.test(urlInput.trim()))?.name || null;
+  // Platform detection (shared with /api/url-info)
+  const detectedPlatform = detectPlatform(urlInput);
   const isValidUrl = detectedPlatform !== null;
   const [urlDurationLoading, setUrlDurationLoading] = useState(false);
+  const [playlistTracks, setPlaylistTracks] = useState<{ url: string; title: string; duration: number }[]>([]);
 
-  // Fetch duration when a valid URL is entered
+  // Fetch duration (single track) or track list (playlist) when a valid URL is entered
   useEffect(() => {
-    if (!isValidUrl || inputMode !== "url") { setTotalDurationSec(null); return; }
+    if (!isValidUrl || inputMode !== "url") { setTotalDurationSec(null); setPlaylistTracks([]); return; }
     const trimmed = urlInput.trim();
     let cancelled = false;
     setUrlDurationLoading(true);
     setTotalDurationSec(null);
+    setPlaylistTracks([]);
 
     const timeout = setTimeout(() => {
       fetch(`/api/url-info?url=${encodeURIComponent(trimmed)}`)
         .then(r => r.json())
         .then(data => {
           if (cancelled) return;
-          if (data.duration > 0) setTotalDurationSec(data.duration);
+          if (data.isPlaylist && data.tracks?.length) {
+            setPlaylistTracks(data.tracks);
+            const totalSec = data.tracks.reduce((sum: number, t: { duration: number }) => sum + (t.duration || 0), 0);
+            if (totalSec > 0) setTotalDurationSec(totalSec);
+          } else if (data.duration > 0) {
+            setTotalDurationSec(data.duration);
+          }
         })
         .catch(() => {})
         .finally(() => { if (!cancelled) setUrlDurationLoading(false); });
@@ -582,22 +591,38 @@ export default function AbletonDashboard() {
     }
 
     const mode: SplitMode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
+    const OVERLAP_MAP = { fast: 2, balanced: 8, high: 16 } as const;
+    const overlap = OVERLAP_MAP[qualityPreset];
 
     if (isValidUrl && inputMode === "url") {
-      enqueueUrl(urlInput, { mode, outputFormat });
+      if (playlistTracks.length > 0) {
+        // Playlist: enqueue each track individually (cap at 50)
+        const MAX_PLAYLIST = 50;
+        const tracks = playlistTracks.slice(0, MAX_PLAYLIST);
+        for (const track of tracks) {
+          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap });
+        }
+        if (playlistTracks.length > MAX_PLAYLIST) {
+          setUploadError(`Playlist capped at ${MAX_PLAYLIST} tracks (${playlistTracks.length} detected). Split the rest separately.`);
+        }
+      } else {
+        // Single track
+        enqueueUrl(urlInput, { mode, outputFormat, overlap });
+      }
       setUrlInput("");
+      setPlaylistTracks([]);
     } else if (pendingFiles.length > 0) {
-      enqueue(pendingFiles, { mode, outputFormat });
+      enqueue(pendingFiles, { mode, outputFormat, overlap });
       setPendingFiles([]);
     } else if (file) {
-      enqueue([file], { mode, outputFormat });
+      enqueue([file], { mode, outputFormat, overlap });
     }
 
     setFile(null);
     setPendingFiles([]);
     setAppState("processing");
     setUploadError(null);
-  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, enqueue, enqueueUrl, totalDurationSec, remainingSeconds]);
+  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, qualityPreset, enqueue, enqueueUrl, totalDurationSec, remainingSeconds, playlistTracks]);
 
   const handleNewSplit = useCallback(() => {
     setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
@@ -1161,28 +1186,19 @@ export default function AbletonDashboard() {
                                   <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em" }}>ADVANCED SETTINGS</span>
                                 </div>
                                 <div className="px-[16px] py-[14px] space-y-[16px]">
-                                  <div className="space-y-[6px]">
-                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>MODEL</label>
-                                    <div className="flex items-center gap-[8px] px-[10px] py-[7px]" style={{ backgroundColor: C.bgHover }}>
-                                      <div className="flex h-[16px] items-center px-[4px]" style={{ backgroundColor: C.accent }}>
-                                        <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>AI</span>
-                                      </div>
-                                      <span style={{ fontSize: 15, fontWeight: 500 }}>MelBand RoFormer</span>
-                                    </div>
-                                  </div>
                                   <div className="space-y-[8px]">
                                     <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>PROCESSING QUALITY</label>
+                                    <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Higher quality uses more processing time per file</p>
                                     <div className="flex gap-[4px]">
-                                      {([["fast", "Fast", "~35s"], ["balanced", "Balanced", "~45s"], ["high", "High Quality", "~55s"]] as const).map(([val, label, time]) => (
+                                      {([["fast", "FAST", "Fastest, good quality"], ["balanced", "BALANCED", "Recommended"], ["high", "HIGH", "Best quality, slower"]] as const).map(([val, label, desc]) => (
                                         <button key={val} onClick={() => setQualityPreset(val as typeof qualityPreset)}
-                                          className="flex-1 flex flex-col items-center gap-[2px] py-[8px] transition-colors"
+                                          className="flex-1 flex flex-col items-center gap-[2px] py-[10px] transition-colors"
                                           style={{ backgroundColor: qualityPreset === val ? C.accent : C.bgHover, color: qualityPreset === val ? C.accentText : C.text }}>
-                                          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.03em" }}>{label.toUpperCase()}</span>
-                                          <span style={{ fontSize: 11, opacity: 0.7 }}>{time}</span>
+                                          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.03em" }}>{label}</span>
+                                          <span style={{ fontSize: 11, opacity: 0.7 }}>{desc}</span>
                                         </button>
                                       ))}
                                     </div>
-                                    <p style={{ fontSize: 11, color: C.textMuted }}>Higher quality uses more overlap between audio chunks for smoother results</p>
                                   </div>
                                 </div>
                               </motion.div>
@@ -1194,9 +1210,11 @@ export default function AbletonDashboard() {
                         <span style={{ fontSize: 13, color: C.textMuted }}>
                           {urlDurationLoading
                             ? "..."
-                            : totalDurationSec != null
-                              ? `${Math.floor(totalDurationSec / 60)}:${String(Math.floor(totalDurationSec % 60)).padStart(2, "0")} of credits will be used`
-                              : ""}
+                            : playlistTracks.length > 0
+                              ? `${playlistTracks.length} tracks${totalDurationSec != null ? ` · ${Math.floor(totalDurationSec / 60)}:${String(Math.floor(totalDurationSec % 60)).padStart(2, "0")} total` : ""}`
+                              : totalDurationSec != null
+                                ? `${Math.floor(totalDurationSec / 60)}:${String(Math.floor(totalDurationSec % 60)).padStart(2, "0")} of credits will be used`
+                                : isValidUrl ? "Credits deducted after processing" : ""}
                         </span>
                         <button onClick={handleSplit} disabled={!canSplit}
                           className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:cursor-not-allowed"

@@ -37,6 +37,92 @@ image = (
     .add_local_python_source("analyzer", "storage")
 )
 
+# Lightweight CPU-only image for URL metadata fetching (no GPU, no ML libs)
+url_info_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("yt-dlp", "fastapi[standard]")
+)
+
+
+@app.function(image=url_info_image, timeout=60)
+@modal.web_endpoint(method="GET")
+def url_info(url: str = "", playlist: str = ""):
+    """Fetch metadata (duration + title) for a URL using yt-dlp.
+
+    Lightweight CPU-only function — no GPU needed.
+    Called by /api/url-info on Vercel where yt-dlp isn't available.
+
+    For playlists (playlist="1"), returns a list of tracks instead of a single track.
+    """
+    if not url:
+        return {"error": "Missing url parameter"}
+
+    import subprocess
+    import json
+
+    # Playlist mode: extract all track URLs + metadata
+    if playlist == "1":
+        cmd = [
+            "yt-dlp",
+            "--flat-playlist",
+            "--dump-json",
+            "--no-download",
+            "--no-warnings",
+            "--socket-timeout", "10",
+            url,
+        ]
+        try:
+            result = subprocess.run(cmd, timeout=45, capture_output=True, check=True)
+            tracks = []
+            for line in result.stdout.decode("utf-8", errors="replace").strip().split("\n"):
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                track_url = entry.get("url") or entry.get("webpage_url") or ""
+                # yt-dlp returns video IDs for YouTube playlists — reconstruct full URL
+                # Other platforms (Spotify, SoundCloud) return full URLs directly
+                if track_url and not track_url.startswith("http") and "youtube" in url.lower():
+                    track_url = f"https://www.youtube.com/watch?v={track_url}"
+                tracks.append({
+                    "url": track_url,
+                    "title": entry.get("title") or "",
+                    "duration": entry.get("duration") or 0,
+                })
+            return {"isPlaylist": True, "tracks": tracks, "count": len(tracks)}
+        except subprocess.TimeoutExpired:
+            return {"error": "Playlist fetch timed out — too many tracks?", "isPlaylist": True, "tracks": []}
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode("utf-8", errors="replace")[:300] if e.stderr else ""
+            return {"error": f"Could not fetch playlist: {stderr}", "isPlaylist": True, "tracks": []}
+        except Exception as e:
+            return {"error": str(e), "isPlaylist": True, "tracks": []}
+
+    # Single track mode
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--no-download",
+        "--no-warnings",
+        "--socket-timeout", "10",
+        url,
+    ]
+
+    try:
+        result = subprocess.run(cmd, timeout=20, capture_output=True, check=True)
+        data = json.loads(result.stdout)
+        return {
+            "duration": data.get("duration") or 0,
+            "title": data.get("title") or "",
+            "isPlaylist": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {"error": "Metadata fetch timed out", "duration": 0, "title": ""}
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="replace")[:300] if e.stderr else ""
+        return {"error": f"Could not fetch URL info: {stderr}", "duration": 0, "title": ""}
+    except Exception as e:
+        return {"error": str(e), "duration": 0, "title": ""}
+
 
 def compute_peaks(wav_path: str, num_peaks: int = 1000) -> list[float]:
     """Extract waveform peaks from a WAV file for instant frontend rendering."""
@@ -76,35 +162,69 @@ def convert_to_mp3(wav_path: str, mp3_path: str):
     )
 
 
+def _download_dropbox(url: str, output_dir: str) -> str:
+    """Download audio from a Dropbox shared link (direct HTTP download)."""
+    import urllib.request
+    import urllib.parse
+
+    # Transform Dropbox share URL to direct download
+    parsed = urllib.parse.urlparse(url)
+    if 'dropbox.com' in parsed.netloc:
+        qs = urllib.parse.parse_qs(parsed.query)
+        qs['dl'] = ['1']
+        new_query = urllib.parse.urlencode(qs, doseq=True)
+        url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+    req = urllib.request.Request(url, headers={
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    })
+
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            # Try to get filename from Content-Disposition header
+            cd = resp.headers.get('Content-Disposition', '')
+            filename = 'audio'
+            if 'filename=' in cd:
+                import re
+                m = re.search(r'filename[*]?=["\']?([^"\';\n]+)', cd)
+                if m:
+                    filename = os.path.basename(m.group(1).strip())  # basename prevents path traversal
+
+            # Ensure we have an extension
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in ('.mp3', '.wav', '.flac', '.aif', '.aiff', '.ogg', '.m4a', '.aac', '.webm'):
+                ext = '.mp3'
+                filename = f'audio{ext}'
+
+            output_path = os.path.join(output_dir, filename)
+            with open(output_path, 'wb') as f:
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+            if os.path.getsize(output_path) < 1000:
+                raise Exception("Downloaded file is too small — check the Dropbox share link permissions")
+
+            return output_path
+    except urllib.error.HTTPError as e:
+        raise Exception(f"Dropbox download failed (HTTP {e.code}) — make sure the link is publicly shared")
+    except urllib.error.URLError as e:
+        raise Exception(f"Dropbox download failed: {e.reason}")
+
+
 def download_from_url(url: str, output_dir: str) -> str:
-    """Download audio from URL (YouTube/SoundCloud/Deezer) at best available quality.
+    """Download audio from URL at best available quality.
 
-    Has a hard 90-second timeout to prevent hanging forever on blocked IPs.
+    Dropbox links are downloaded directly via HTTP.
+    YouTube/SoundCloud/Deezer/Spotify use yt-dlp with a 90-second timeout.
     """
-    import yt_dlp
-    import threading
-    import ctypes
+    # Dropbox: direct HTTP download (yt-dlp doesn't support it)
+    if 'dropbox.com' in url or 'dropboxusercontent.com' in url:
+        return _download_dropbox(url, output_dir)
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_dir, 'audio.%(ext)s'),
-        'quiet': True,
-        'no_warnings': True,
-        'socket_timeout': 30,
-        'retries': 1,
-        'fragment_retries': 1,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'android'],
-            },
-        },
-    }
-
-    # Use subprocess with hard timeout instead of Python yt-dlp API
-    # This allows os-level kill if the process hangs
+    # All other platforms: yt-dlp
     import subprocess
     output_template = os.path.join(output_dir, 'audio.%(ext)s')
 
@@ -187,7 +307,7 @@ def separate(request: dict):
     callback_url = request.get("callbackUrl")  # PATCH /api/jobs/{jobId} on Next.js
     overlap = request.get("overlap", 8)
     workspace_id = request.get("workspaceId") or None
-    mdxc = {"overlap": overlap} if overlap != 8 else {}
+    mdxc = {"overlap": overlap}
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Get input file
@@ -237,10 +357,10 @@ def separate(request: dict):
         os.makedirs(vocal_dir)
 
         print(f"Extracting vocals (MelBand RoFormer, overlap={overlap})...")
-        sep_v = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9, **({"mdxc_params": mdxc} if mdxc else {}))
+        sep_v = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
         sep_v.load_model(model_filename=VOCAL_MODEL)
         start = time.time()
-        if input_key:
+        if job_id != "test":
             from tqdm import tqdm as _tqdm
             _end_pct = 85 if mode == "2stem" else 50
             _patched, _orig = _make_tqdm_hook(10, _end_pct, job_id, "Extracting vocals", workspace_id=workspace_id)
@@ -273,10 +393,10 @@ def separate(request: dict):
             os.makedirs(inst_dir)
 
             print(f"Extracting instruments (BS-RoFormer SW, overlap={overlap})...")
-            sep_i = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9, **({"mdxc_params": mdxc} if mdxc else {}))
+            sep_i = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
             sep_i.load_model(model_filename=INSTRUMENT_MODEL)
             start = time.time()
-            if input_key:
+            if job_id != "test":
                 from tqdm import tqdm as _tqdm
                 _patched, _orig = _make_tqdm_hook(50, 85, job_id, "Extracting instruments", workspace_id=workspace_id)
                 _tqdm.update = _patched
@@ -347,13 +467,13 @@ def separate(request: dict):
         if not results:
             error_msg = "No stems produced — input file may be corrupted or too short"
             print(f"ERROR: {error_msg}")
-            if input_key:
+            if job_id != "test":
                 from storage import update_job_status
                 update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg, workspace_id=workspace_id)
             return {"error": error_msg}
 
-        # Upload to R2 if job has inputKey
-        if input_key:
+        # Upload to R2 for all real jobs (file mode via inputKey OR URL mode via downloadUrl)
+        if job_id != "test":
             from storage import upload_to_r2, update_job_status
 
             uploaded_bytes = [0]

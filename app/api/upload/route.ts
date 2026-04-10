@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
       `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
 
     const body = await request.json();
-    const { url, mode = "4stem", filename, size, contentType, overlap = 8, workspaceId = null } = body;
+    const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, workspaceId = null } = body;
+    const overlap = typeof rawOverlap === "number" && [2, 8, 16].includes(rawOverlap) ? rawOverlap : 8;
     const wsId: string | null = typeof workspaceId === "string" && workspaceId ? workspaceId : null;
 
     // ── URL mode: { url, mode } ──────────────────────────────────────────────
@@ -70,7 +71,14 @@ export async function POST(request: NextRequest) {
             stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
           });
         }
-      }).catch(() => {});
+      }).catch(async (err) => {
+        console.error(`Modal webhook failed for job ${jobId}:`, err);
+        await writeJsonToR2(key, {
+          id: jobId, status: "failed", mode, progress: 0,
+          stage: "Error", error: "Failed to reach processing server. Please try again.",
+          createdAt: Date.now(), workspaceId: wsId, userId: user.id,
+        });
+      });
 
       return NextResponse.json({ jobId });
     }
@@ -181,7 +189,14 @@ export async function PUT(request: NextRequest) {
           stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
         });
       }
-    }).catch(() => {});
+    }).catch(async (err) => {
+      console.error(`Modal webhook failed for job ${job.id}:`, err);
+      await writeJsonToR2(finalKey, {
+        id: job.id, status: "failed", mode: job.mode, progress: 0,
+        stage: "Error", error: "Failed to reach processing server. Please try again.",
+        createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
+      });
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
