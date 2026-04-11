@@ -79,20 +79,25 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     if (!raw) return;
     localStorage.removeItem(STORAGE_KEY);
 
-    let saved: { jobId: string; fileName: string; mode: string; addedAt: number }[];
+    let saved: { jobId: string | null; fileName: string; mode: string; addedAt: number; status?: string; url?: string | null }[];
     try { saved = JSON.parse(raw); } catch { return; }
     if (!Array.isArray(saved) || saved.length === 0) return;
 
-    // Query each job's current status and restore into queue
+    // Split into items with jobId (need API query) and pending items (restore directly)
+    const withJobId = saved.filter(s => s.jobId);
+    const pending = saved.filter(s => !s.jobId || s.status === "pending");
+
     const wsId = workspaceIdRef.current;
     Promise.allSettled(
-      saved.map(s =>
+      withJobId.map(s =>
         fetch(`/api/jobs/${s.jobId}`, { headers: { "x-workspace-id": wsId } })
           .then(r => r.ok ? r.json() : null)
           .then(job => ({ ...s, job }))
       )
     ).then(results => {
       const restored: QueueItem[] = [];
+
+      // Restore items that have a jobId (processing/completed/failed)
       for (const r of results) {
         if (r.status !== "fulfilled" || !r.value.job) continue;
         const { jobId, fileName, mode, addedAt, job } = r.value;
@@ -117,16 +122,40 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           completedAt: status === "completed" ? Date.now() : null,
         });
       }
+
+      // Restore pending items (waiting in queue, not yet sent to worker)
+      for (const p of pending) {
+        const hasUrl = !!p.url;
+        restored.push({
+          id: nanoid(8),
+          file: null,
+          url: p.url ?? undefined,
+          fileName: p.fileName,
+          fileSize: 0,
+          jobId: null,
+          // URL items can be reprocessed; file items can't (File object is lost on refresh)
+          status: hasUrl ? "pending" as const : "failed" as const,
+          progress: 0,
+          stage: "",
+          error: hasUrl ? null : "File lost after page refresh — please re-add",
+          mode: (p.mode || "4stem") as QueueConfig["mode"],
+          outputFormat: "wav",
+          job: null,
+          stemDownloads: [],
+          addedAt: p.addedAt,
+          completedAt: null,
+        });
+      }
+
       if (restored.length > 0) {
         setItems(prev => {
           const existingJobIds = new Set(prev.map(i => i.jobId).filter(Boolean));
-          const deduped = restored.filter(i => !existingJobIds.has(i.jobId));
+          const deduped = restored.filter(i => !i.jobId || !existingJobIds.has(i.jobId));
           return [...prev, ...deduped];
         });
         // Pick up the first processing item to resume polling
         const next = restored.find(i => i.status === "processing");
         if (next && !processingLockRef.current) {
-          // Initialize progress display to current value so there's no flash from 0
           progressTargetRef.current = next.progress;
           progressDisplayRef.current = next.progress;
           setDisplayProgress(next.progress);
@@ -144,9 +173,8 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!restoredRef.current) return; // don't persist until restore has run
     const active = items
-      .filter(i => i.status === "processing" || i.status === "uploading")
-      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt }))
-      .filter(i => i.jobId);
+      .filter(i => i.status === "processing" || i.status === "uploading" || i.status === "pending")
+      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt, status: i.status, url: i.url ?? null }));
     const serialized = JSON.stringify(active);
     if (serialized === lastPersistedRef.current) return;
     lastPersistedRef.current = serialized;
