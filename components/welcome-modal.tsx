@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { X, ArrowRight } from "lucide-react";
+import { X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -157,14 +157,12 @@ export function WelcomeModal() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 10,
                 transition: "opacity 0.15s",
               }}
               onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
               onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
             >
               Split my first track
-              <ArrowRight size={18} strokeWidth={2.5} />
             </button>
           </motion.div>
         </div>
