@@ -502,7 +502,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   // ─── Warn before leaving with active jobs ───────────────────────────────
 
   useEffect(() => {
-    const hasActive = items.some(i => i.status === "pending" || i.status === "processing" || i.status === "uploading");
+    const hasActive = items.some(i => i.status === "processing" || i.status === "uploading");
     if (!hasActive) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     window.addEventListener("beforeunload", handler);
