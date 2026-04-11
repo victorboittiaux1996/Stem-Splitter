@@ -251,6 +251,13 @@ export default function AbletonDashboard() {
       .catch(() => {});
   }, [prefetchJobStems]);
 
+  // Re-fetch My Files when any job completes (fired from queue-context)
+  useEffect(() => {
+    const handler = () => refreshHistory();
+    window.addEventListener("history-updated", handler);
+    return () => window.removeEventListener("history-updated", handler);
+  }, [refreshHistory]);
+
   const [view, setView] = useState<View>("split");
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
@@ -671,18 +678,13 @@ export default function AbletonDashboard() {
         // Batch done → idle
         setAppState("idle");
       }
-      refreshHistory();
+      // refreshHistory() handled by "history-updated" event listener
     }
 
     // Single failed item with no others pending
     if (queueItems.length === 1 && queueItems[0].status === "failed" && incomplete.length === 0) {
       setUploadError(queueItems[0].error || "Processing failed");
       setAppState("idle");
-    }
-
-    // Refresh history when any item completes
-    if (active?.status === "completed") {
-      refreshHistory();
     }
 
     prevQueueLenRef.current = queueItems.length;

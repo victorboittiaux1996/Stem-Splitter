@@ -568,14 +568,18 @@ def separate(request: dict):
                 r2_key = _stem_key(workspace_id, job_id, stem_name, ".mp3")
                 upload_to_r2(filepath, r2_key, content_type="audio/mpeg", callback=_upload_callback)
 
-            update_job_status(job_id, "completed", progress=100, stage="Done",
+            # Write all data to R2 at progress=99 — NOT "completed" yet.
+            # The PATCH callback will flip to "completed" AFTER tracking usage in Supabase.
+            # This eliminates the race where the frontend sees "completed" before minutes are tracked.
+            update_job_status(job_id, "processing", progress=99, stage="Finalizing",
                               stems=stem_names, bpm=analysis["bpm"],
                               key=analysis["key"], key_raw=analysis["key_raw"],
                               duration=analysis["duration"], peaks=stem_peaks,
                               workspace_id=workspace_id)
 
-            # Notify Next.js to track usage minutes
+            # Notify Next.js to track usage minutes and flip status to "completed"
             # No retry — increment_usage is additive, retrying risks double-counting
+            callback_ok = False
             if callback_url:
                 import urllib.request
                 import urllib.error
@@ -585,9 +589,6 @@ def separate(request: dict):
                 payload = json.dumps({
                     "status": "completed",
                     "duration": analysis["duration"],
-                    "stems": stem_names,
-                    "bpm": analysis["bpm"],
-                    "key": analysis["key"],
                     "workspaceId": workspace_id,
                 }).encode("utf-8")
 
@@ -611,11 +612,22 @@ def separate(request: dict):
                     opener = urllib.request.build_opener(_RedirectHandler)
                     opener.open(req, timeout=10)
                     print(f"Callback sent to {callback_url}")
+                    callback_ok = True
                 except urllib.error.HTTPError as e:
                     body = e.read().decode("utf-8", errors="replace")[:200] if hasattr(e, "read") else ""
                     print(f"Callback failed (HTTP {e.code}): {body}")
                 except Exception as e:
                     print(f"Callback failed — usage NOT tracked for job {job_id}: {type(e).__name__}: {e}")
+
+            # Fallback: if callback failed (or no callback_url), write "completed" to R2
+            # so the user still sees their stems — but usage won't be tracked
+            if not callback_ok:
+                try:
+                    print(f"Writing completed to R2 as fallback for job {job_id}")
+                    update_job_status(job_id, "completed", progress=100, stage="Done",
+                                      workspace_id=workspace_id)
+                except Exception as e:
+                    print(f"Fallback R2 write also failed for job {job_id}: {e}")
 
             return {"status": "completed", "stems": stem_names}
 

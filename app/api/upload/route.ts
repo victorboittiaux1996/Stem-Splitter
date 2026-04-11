@@ -26,9 +26,10 @@ export async function POST(request: NextRequest) {
 
     const maxFileSize = PLANS[plan].maxFileSizeMB * 1024 * 1024;
 
-    const appUrl =
+    const appUrl = (
       process.env.APP_URL ??
-      `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
+      `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`
+    ).trim();
 
     const body = await request.json();
     const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, workspaceId = null, title = null } = body;
@@ -134,9 +135,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const appUrl =
+    const appUrl = (
       process.env.APP_URL ??
-      `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`;
+      `${request.headers.get("x-forwarded-proto") ?? "http"}://${request.headers.get("host")}`
+    ).trim();
 
     const { jobId } = await request.json();
     if (!jobId || typeof jobId !== "string") {

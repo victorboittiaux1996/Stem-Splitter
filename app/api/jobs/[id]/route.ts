@@ -37,9 +37,10 @@ export async function PATCH(
     if (!existing) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     const key = jobKey(existing.workspaceId ?? wsId, id);
     const merged = { ...existing, ...updates };
-    await writeJsonToR2(key, merged);
 
-    // Track minutes when job completes with a duration
+    // Track minutes BEFORE writing "completed" to R2.
+    // This eliminates the race where the frontend polls R2, sees "completed",
+    // and re-fetches usage from Supabase before it's been written.
     if (updates.status === "completed" && typeof merged.duration === "number" && merged.userId) {
       try {
         await trackMinutesUsed(merged.userId, merged.duration);
@@ -47,6 +48,13 @@ export async function PATCH(
         console.error("Failed to track usage:", err);
       }
     }
+
+    // Set completedAt timestamp when completing
+    if (updates.status === "completed") {
+      merged.completedAt = Date.now();
+    }
+
+    await writeJsonToR2(key, merged);
 
     return NextResponse.json({ ok: true });
   } catch {

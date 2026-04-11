@@ -22,9 +22,10 @@ export async function POST(req: NextRequest) {
     }
 
     const productId = getProductId(plan, billing);
-    const appUrl =
+    const appUrl = (
       process.env.NEXT_PUBLIC_APP_URL ??
-      `${req.headers.get("x-forwarded-proto") ?? "https"}://${req.headers.get("host")}`;
+      `${req.headers.get("x-forwarded-proto") ?? "https"}://${req.headers.get("host")}`
+    ).trim();
 
     const checkout = await polar.checkouts.create({
       products: [productId],

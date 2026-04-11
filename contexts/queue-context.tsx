@@ -64,6 +64,91 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // ─── Persist active jobs to localStorage ────────────────────────────────
+
+  const STORAGE_KEY = "44stems-active-jobs";
+
+  const lastPersistedRef = useRef("");
+  useEffect(() => {
+    const active = items
+      .filter(i => i.status === "processing" || i.status === "uploading")
+      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt }))
+      .filter(i => i.jobId); // only persist items that have a jobId
+    const serialized = JSON.stringify(active);
+    if (serialized === lastPersistedRef.current) return; // skip if unchanged
+    lastPersistedRef.current = serialized;
+    if (active.length > 0) {
+      localStorage.setItem(STORAGE_KEY, serialized);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [items]);
+
+  // ─── Restore active jobs on mount ──────────────────────────────────────
+
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    localStorage.removeItem(STORAGE_KEY);
+
+    let saved: { jobId: string; fileName: string; mode: string; addedAt: number }[];
+    try { saved = JSON.parse(raw); } catch { return; }
+    if (!Array.isArray(saved) || saved.length === 0) return;
+
+    // Query each job's current status and restore into queue
+    const wsId = workspaceIdRef.current;
+    Promise.allSettled(
+      saved.map(s =>
+        fetch(`/api/jobs/${s.jobId}`, { headers: { "x-workspace-id": wsId } })
+          .then(r => r.ok ? r.json() : null)
+          .then(job => ({ ...s, job }))
+      )
+    ).then(results => {
+      const restored: QueueItem[] = [];
+      for (const r of results) {
+        if (r.status !== "fulfilled" || !r.value.job) continue;
+        const { jobId, fileName, mode, addedAt, job } = r.value;
+        const status = job.status === "completed" ? "completed" as const
+          : job.status === "failed" ? "failed" as const
+          : "processing" as const;
+        restored.push({
+          id: nanoid(8),
+          file: null,
+          fileName,
+          fileSize: 0,
+          jobId,
+          status,
+          progress: job.progress ?? 0,
+          stage: job.stage ?? "",
+          error: job.error ?? null,
+          mode: mode as QueueConfig["mode"],
+          outputFormat: "wav",
+          job: status === "completed" ? job : null,
+          stemDownloads: [],
+          addedAt,
+          completedAt: status === "completed" ? Date.now() : null,
+        });
+      }
+      if (restored.length > 0) {
+        setItems(prev => {
+          const existingJobIds = new Set(prev.map(i => i.jobId).filter(Boolean));
+          const deduped = restored.filter(i => !existingJobIds.has(i.jobId));
+          return [...prev, ...deduped];
+        });
+        // Pick up the first processing item to resume polling
+        const next = restored.find(i => i.status === "processing");
+        if (next && !processingLockRef.current) {
+          setActiveItemId(next.id);
+        }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   const updateItem = useCallback((id: string, updates: Partial<QueueItem>) => {
@@ -321,10 +406,8 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           // Refresh usage minutes (triggers useSubscription re-fetch)
           window.dispatchEvent(new Event("usage-updated"));
 
-          // Refresh history
-          fetch("/api/history", {
-            headers: { "x-workspace-id": workspaceIdRef.current },
-          }).catch(() => {});
+          // Refresh history (triggers page.tsx to re-fetch My Files)
+          window.dispatchEvent(new Event("history-updated"));
 
           setActiveItemId(null);
         } else if (job.status === "failed") {
