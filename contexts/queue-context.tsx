@@ -68,23 +68,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
 
   const STORAGE_KEY = "44stems-active-jobs";
 
-  const lastPersistedRef = useRef("");
-  useEffect(() => {
-    const active = items
-      .filter(i => i.status === "processing" || i.status === "uploading")
-      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt }))
-      .filter(i => i.jobId); // only persist items that have a jobId
-    const serialized = JSON.stringify(active);
-    if (serialized === lastPersistedRef.current) return; // skip if unchanged
-    lastPersistedRef.current = serialized;
-    if (active.length > 0) {
-      localStorage.setItem(STORAGE_KEY, serialized);
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [items]);
-
-  // ─── Restore active jobs on mount ──────────────────────────────────────
+  // ─── Restore active jobs on mount (MUST run before persistence effect) ──
 
   const restoredRef = useRef(false);
   useEffect(() => {
@@ -148,6 +132,26 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ─── Persist active jobs to localStorage ────────────────────────────────
+  // MUST be declared AFTER restore effect so it doesn't clear localStorage before restore runs
+
+  const lastPersistedRef = useRef("");
+  useEffect(() => {
+    if (!restoredRef.current) return; // don't persist until restore has run
+    const active = items
+      .filter(i => i.status === "processing" || i.status === "uploading")
+      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt }))
+      .filter(i => i.jobId);
+    const serialized = JSON.stringify(active);
+    if (serialized === lastPersistedRef.current) return;
+    lastPersistedRef.current = serialized;
+    if (active.length > 0) {
+      localStorage.setItem(STORAGE_KEY, serialized);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [items]);
 
   // ─── Helpers ────────────────────────────────────────────────────────────
 
