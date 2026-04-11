@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { StemModal } from "@/components/stem-modal";
 import { StemVariants } from "@/components/stem-variants";
+import { WelcomeModal } from "@/components/welcome-modal";
 import Link from "next/link";
 import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
 import { detectPlatform, PLATFORMS } from "@/lib/platforms";
@@ -1794,6 +1795,7 @@ export default function AbletonDashboard() {
         </div>
       </div>
 
+      <WelcomeModal />
     </div>
   );
 }
