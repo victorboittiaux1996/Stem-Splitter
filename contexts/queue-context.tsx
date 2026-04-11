@@ -502,8 +502,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   // ─── Warn before leaving with active jobs ───────────────────────────────
 
   useEffect(() => {
-    const hasActive = items.some(i => i.status === "processing" || i.status === "uploading");
-    if (!hasActive) return;
+    // Warn only when pending FILE items exist — they're lost on refresh (File objects can't be serialized).
+    // Processing/uploading items survive refresh via localStorage + R2. URL pending items also survive.
+    const hasPendingFiles = items.some(i => i.status === "pending" && i.file && !i.url);
+    if (!hasPendingFiles) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
