@@ -126,6 +126,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         // Pick up the first processing item to resume polling
         const next = restored.find(i => i.status === "processing");
         if (next && !processingLockRef.current) {
+          // Initialize progress display to current value so there's no flash from 0
+          progressTargetRef.current = next.progress;
+          progressDisplayRef.current = next.progress;
+          setDisplayProgress(next.progress);
           setActiveItemId(next.id);
         }
       }
