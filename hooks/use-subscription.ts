@@ -17,12 +17,31 @@ function getDaysUntilReset(): number {
   return Math.max(1, Math.ceil((endOfMonth.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 }
 
+const SUB_CACHE_KEY = "44stems-subscription";
+
+function getCachedSubscription(): { plan: PlanId; minutesUsed: number } {
+  if (typeof window === "undefined") return { plan: "free", minutesUsed: 0 };
+  try {
+    const cached = localStorage.getItem(SUB_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const plan = parsed.plan === "pro" || parsed.plan === "studio" ? parsed.plan : "free";
+      const minutes = Number(parsed.minutesUsed);
+      return { plan, minutesUsed: Number.isFinite(minutes) ? minutes : 0 };
+    }
+  } catch {}
+  return { plan: "free", minutesUsed: 0 };
+}
+
 export function useSubscription(userId: string | undefined) {
-  const [state, setState] = useState<SubscriptionState>({
-    plan: "free",
-    minutesUsed: 0,
-    daysUntilReset: getDaysUntilReset(),
-    loading: true,
+  const [state, setState] = useState<SubscriptionState>(() => {
+    const cached = getCachedSubscription();
+    return {
+      plan: cached.plan,
+      minutesUsed: cached.minutesUsed,
+      daysUntilReset: getDaysUntilReset(),
+      loading: true,
+    };
   });
 
   const fetchSubscription = useCallback(() => {
@@ -51,6 +70,7 @@ export function useSubscription(userId: string | undefined) {
 
       const minutesUsed = usageResult.data?.tracks_used ?? 0;
 
+      localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed }));
       setState({
         plan,
         minutesUsed,

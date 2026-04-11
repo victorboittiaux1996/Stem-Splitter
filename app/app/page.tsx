@@ -177,12 +177,16 @@ export default function AbletonDashboard() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
-  const [systemDark, setSystemDark] = useState(true);
+  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">(() => {
+    if (typeof window === "undefined") return "dark";
+    const saved = localStorage.getItem("44stems-theme");
+    return saved === "dark" || saved === "light" || saved === "system" ? saved : "dark";
+  });
+  const [systemDark, setSystemDark] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
   useEffect(() => {
-    const saved = localStorage.getItem("44stems-theme") as "dark" | "light" | "system" | null;
-    if (saved && saved !== "dark") setThemeMode(saved);
-    setSystemDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
     mq.addEventListener("change", handler);

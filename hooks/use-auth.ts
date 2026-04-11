@@ -31,6 +31,7 @@ export function useAuth() {
   const signOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    localStorage.removeItem("44stems-subscription");
     window.location.href = "/";
   };
 
