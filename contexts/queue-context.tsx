@@ -499,6 +499,16 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     return () => cancelAnimationFrame(progressRafRef.current);
   }, []);
 
+  // ─── Warn before leaving with active jobs ───────────────────────────────
+
+  useEffect(() => {
+    const hasActive = items.some(i => i.status === "pending" || i.status === "processing" || i.status === "uploading");
+    if (!hasActive) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [items]);
+
   // ─── Context value ──────────────────────────────────────────────────────
 
   const value: QueueContextValue = {
