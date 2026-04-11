@@ -19,7 +19,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   // Verify caller is the Modal worker via shared secret
-  const expectedSecret = process.env.MODAL_CALLBACK_SECRET;
+  const expectedSecret = process.env.MODAL_CALLBACK_SECRET?.trim();
   if (!expectedSecret) {
     console.warn("MODAL_CALLBACK_SECRET not set — PATCH /api/jobs is unprotected");
   }
