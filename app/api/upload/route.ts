@@ -6,6 +6,7 @@ import { PLANS } from "@/lib/plans";
 
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
+const STEM_MODE_MAP: Record<string, number> = { "2stem": 2, "4stem": 4, "6stem": 6 };
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,11 +16,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const plan = await getUserPlan(user.id);
-    const { allowed } = await checkUsage(user.id, plan);
+    const { plan, periodStart } = await getUserPlan(user.id);
+    const { allowed } = await checkUsage(user.id, plan, periodStart);
     if (!allowed) {
       return NextResponse.json(
-        { error: "Monthly limit reached. Upgrade your plan for more processing time." },
+        { error: "Processing limit reached. Upgrade your plan for more processing time." },
         { status: 429 }
       );
     }
@@ -33,6 +34,15 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, workspaceId = null, title = null } = body;
+
+    // Validate stem mode against plan
+    const stemCountFromMode = STEM_MODE_MAP[mode] ?? 4;
+    if (!PLANS[plan].stems.includes(stemCountFromMode)) {
+      return NextResponse.json(
+        { error: "6-stem processing requires a Pro or Studio plan.", upgradeUrl: "/pricing" },
+        { status: 403 }
+      );
+    }
     const overlap = typeof rawOverlap === "number" && [2, 8, 16].includes(rawOverlap) ? rawOverlap : 8;
     const wsId: string | null = typeof workspaceId === "string" && workspaceId ? workspaceId : null;
 
@@ -145,6 +155,13 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "jobId required" }, { status: 400 });
     }
 
+    // Re-validate plan against job mode (prevents bypassing POST gate)
+    const { plan: planPut, periodStart: periodStartPut } = await getUserPlan(user.id);
+    const { allowed: allowedPut } = await checkUsage(user.id, planPut, periodStartPut);
+    if (!allowedPut) {
+      return NextResponse.json({ error: "Processing limit reached." }, { status: 429 });
+    }
+
     const wsIdPut: string | null = typeof request.headers.get("x-workspace-id") === "string" ? request.headers.get("x-workspace-id") : null;
     const keyPut = jobKey(wsIdPut, jobId);
     const job = await readJsonFromR2<{
@@ -155,6 +172,12 @@ export async function PUT(request: NextRequest) {
     }
     if (!job.inputKey) {
       return NextResponse.json({ error: "Job has no inputKey — cannot trigger processing" }, { status: 400 });
+    }
+
+    // Re-validate stem mode against plan
+    const stemCountPut = STEM_MODE_MAP[job.mode] ?? 4;
+    if (!PLANS[planPut].stems.includes(stemCountPut)) {
+      return NextResponse.json({ error: "6-stem processing requires a Pro or Studio plan.", upgradeUrl: "/pricing" }, { status: 403 });
     }
 
     // Verify the file was actually uploaded (not empty/corrupted)

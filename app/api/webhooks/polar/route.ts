@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
 
   let event;
   try {
-    event = validateEvent(body, headers, process.env.POLAR_WEBHOOK_SECRET!);
+    event = validateEvent(body, headers, process.env.POLAR_WEBHOOK_SECRET!.trim());
   } catch (error) {
     if (error instanceof WebhookVerificationError) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
@@ -40,6 +40,10 @@ export async function POST(req: NextRequest) {
           ? new Date(sub.currentPeriodEnd).toISOString()
           : null;
 
+        const periodStart = sub.currentPeriodStart
+          ? new Date(sub.currentPeriodStart).toISOString().slice(0, 10)
+          : null;
+
         await supabaseAdmin
           .from("subscriptions")
           .upsert(
@@ -47,9 +51,10 @@ export async function POST(req: NextRequest) {
               user_id: userId,
               plan,
               status: sub.status === "active" ? "active" : sub.status,
-              stripe_customer_id: sub.customer?.id ?? null,   // stores Polar customer ID
-              stripe_subscription_id: sub.id,                  // stores Polar subscription ID
+              stripe_customer_id: sub.customer?.id ?? null,
+              stripe_subscription_id: sub.id,
               current_period_end: periodEnd,
+              ...(periodStart ? { period_start: periodStart } : {}),
               updated_at: new Date().toISOString(),
             },
             { onConflict: "user_id" }

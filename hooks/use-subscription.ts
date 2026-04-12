@@ -3,18 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANS, formatMinutes, getRemainingSeconds, type PlanId } from "@/lib/plans";
+import { computePeriodKey, getDaysUntilPeriodEnd } from "@/lib/period";
 
 interface SubscriptionState {
   plan: PlanId;
-  minutesUsed: number; // decimal minutes (e.g. 3.5 = 3min 30s)
+  minutesUsed: number;
   daysUntilReset: number;
   loading: boolean;
-}
-
-function getDaysUntilReset(): number {
-  const now = new Date();
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return Math.max(1, Math.ceil((endOfMonth.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 }
 
 const SUB_CACHE_KEY = "44stems-subscription";
@@ -36,58 +31,43 @@ function getCachedSubscription(): { plan: PlanId; minutesUsed: number } {
 export function useSubscription(userId: string | undefined) {
   const [state, setState] = useState<SubscriptionState>(() => {
     const cached = getCachedSubscription();
-    return {
-      plan: cached.plan,
-      minutesUsed: cached.minutesUsed,
-      daysUntilReset: getDaysUntilReset(),
-      loading: true,
-    };
+    return { plan: cached.plan, minutesUsed: cached.minutesUsed, daysUntilReset: 30, loading: true };
   });
 
   const fetchSubscription = useCallback(() => {
     if (!userId) return;
-
     const supabase = createClient();
-    const month = new Date().toISOString().slice(0, 7);
-
     Promise.all([
-      supabase
-        .from("subscriptions")
-        .select("plan, status")
-        .eq("user_id", userId)
-        .maybeSingle(),
-      supabase
-        .from("usage")
-        .select("tracks_used")
-        .eq("user_id", userId)
-        .eq("month", month)
-        .maybeSingle(),
-    ]).then(([subResult, usageResult]) => {
-      const plan: PlanId =
-        subResult.data?.status === "active"
-          ? (subResult.data.plan as PlanId)
-          : "free";
+      supabase.from("subscriptions").select("plan, status, period_start").eq("user_id", userId).maybeSingle(),
+      supabase.from("profiles").select("created_at").eq("id", userId).maybeSingle(),
+    ]).then(([subResult, profileResult]) => {
+      const plan: PlanId = subResult.data?.status === "active" ? (subResult.data.plan as PlanId) : "free";
+      const periodStart = subResult.data?.period_start ?? null;
+      const isPaidPlan = plan === "pro" || plan === "studio";
 
-      const minutesUsed = usageResult.data?.tracks_used ?? 0;
+      let anchor: Date;
+      if (isPaidPlan && periodStart) {
+        anchor = new Date(periodStart + "T00:00:00");
+      } else if (profileResult.data?.created_at) {
+        anchor = new Date(profileResult.data.created_at);
+      } else {
+        const now = new Date();
+        anchor = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
 
-      localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed }));
-      setState({
-        plan,
-        minutesUsed,
-        daysUntilReset: getDaysUntilReset(),
-        loading: false,
-      });
-    }).catch(() => {
-      setState(prev => ({ ...prev, loading: false }));
-    });
+      const periodKey = computePeriodKey(anchor);
+      const daysUntilReset = getDaysUntilPeriodEnd(anchor);
+
+      supabase.from("usage").select("tracks_used").eq("user_id", userId).eq("month", periodKey).maybeSingle()
+        .then(({ data }) => {
+          const minutesUsed = data?.tracks_used ?? 0;
+          localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed }));
+          setState({ plan, minutesUsed, daysUntilReset, loading: false });
+        });
+    }).catch(() => setState(prev => ({ ...prev, loading: false })));
   }, [userId]);
 
-  // Fetch on mount
-  useEffect(() => {
-    fetchSubscription();
-  }, [fetchSubscription]);
-
-  // Re-fetch when a split completes (fired from queue-context)
+  useEffect(() => { fetchSubscription(); }, [fetchSubscription]);
   useEffect(() => {
     const handler = () => fetchSubscription();
     window.addEventListener("usage-updated", handler);
@@ -96,19 +76,23 @@ export function useSubscription(userId: string | undefined) {
 
   const planConfig = PLANS[state.plan];
   const remainingSeconds = getRemainingSeconds(state.minutesUsed, state.plan);
-  const usagePercent = planConfig.minutesIncluded > 0
-    ? Math.min(100, (state.minutesUsed / planConfig.minutesIncluded) * 100)
-    : 0;
+  const usagePercent = planConfig.minutesIncluded > 0 ? Math.min(100, (state.minutesUsed / planConfig.minutesIncluded) * 100) : 0;
 
   return {
     ...state,
+    refetch: fetchSubscription,
     planLabel: planConfig.label,
     isPro: state.plan === "pro" || state.plan === "studio",
     minutesIncluded: planConfig.minutesIncluded,
-    remainingFormatted: formatMinutes(remainingSeconds), // "8:27"
+    remainingFormatted: formatMinutes(remainingSeconds),
     usagePercent,
     overLimit: state.minutesUsed >= planConfig.minutesIncluded,
     batchLimit: planConfig.batchLimit,
     urlImport: planConfig.urlImport,
+    stems: planConfig.stems,
+    wavAllowed: planConfig.exportFormats.includes("WAV 24-bit"),
+    queuePriority: planConfig.queuePriority,
+    shareLinksPerMonth: planConfig.shareLinksPerMonth,
+    minutesNeverReset: planConfig.minutesNeverReset,
   };
 }

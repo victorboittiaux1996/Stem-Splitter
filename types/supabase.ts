@@ -112,6 +112,7 @@ export type Database = {
           created_at: string | null
           current_period_end: string | null
           id: string
+          period_start: string | null
           plan: string
           status: string
           stripe_customer_id: string | null
@@ -123,6 +124,7 @@ export type Database = {
           created_at?: string | null
           current_period_end?: string | null
           id?: string
+          period_start?: string | null
           plan?: string
           status?: string
           stripe_customer_id?: string | null
@@ -134,12 +136,43 @@ export type Database = {
           created_at?: string | null
           current_period_end?: string | null
           id?: string
+          period_start?: string | null
           plan?: string
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      share_links: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          job_id: string
+          user_id: string
+          view_count: number
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          job_id: string
+          user_id: string
+          view_count?: number
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          job_id?: string
+          user_id?: string
+          view_count?: number
+          workspace_id?: string | null
         }
         Relationships: []
       }
