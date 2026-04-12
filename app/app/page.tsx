@@ -601,7 +601,7 @@ export default function AbletonDashboard() {
 
     // Check if user has enough credits
     if (totalDurationSec != null && totalDurationSec > remainingSeconds) {
-      setUploadError(`Not enough minutes — this requires ${Math.ceil(totalDurationSec / 60)} min but you have ${Math.floor(remainingSeconds / 60)}:${String(Math.floor(remainingSeconds % 60)).padStart(2, "0")} left. Upgrade your plan for more.`);
+      setUploadError(`Not enough minutes — this requires ${Math.ceil(totalDurationSec / 60)} min but you have ${remainingFormatted} left. Upgrade your plan for more.`);
       return;
     }
 
