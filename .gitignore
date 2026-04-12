@@ -55,6 +55,10 @@ __pycache__/
 # screenshots (may contain sensitive info)
 *.png
 !public/**/*.png
+!app/apple-icon.png
+!app/icon.png
+!app/opengraph-image.png
+!app/twitter-image.png
 
 # handoff files (may contain tokens)
 HANDOFF.md
