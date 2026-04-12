@@ -82,6 +82,8 @@ interface StemVariantsProps {
   trackDuration?: number | null;
   precomputedPeaks?: Record<string, number[]>;
   outputFormat?: "wav" | "mp3";
+  /** Called when user clicks Share — handles API call + clipboard copy. Null = Pro-gate (show disabled badge). */
+  onShare?: (() => Promise<void>) | null;
 }
 
 // ─── Format duration ────────────────────────────────────────
@@ -94,7 +96,7 @@ function fmtDuration(sec: number): string {
 // ─── Main Exported Component ────────────────────────────────
 export function StemVariants(props: StemVariantsProps) {
   const { stemCount, stemMap, labels, stemColors, C, isDark, fileName, onNewSplit,
-    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration, precomputedPeaks, outputFormat = "wav" } = props;
+    bpm, stemKey, keyRaw, stemUrls, jobId, realStemList, trackDuration, precomputedPeaks, outputFormat = "wav", onShare } = props;
   const fmt = outputFormat;
   const fmtExt = fmt === "mp3" ? ".mp3" : ".wav";
   const fmtLabel = fmt.toUpperCase();
@@ -363,6 +365,26 @@ export function StemVariants(props: StemVariantsProps) {
           <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
           <span style={{ fontSize: 13, color: C.textMuted }}>{(trackDuration ?? duration) ? fmtDuration((trackDuration ?? duration)!) : "—"}</span>
         </div>
+        <div className="flex items-center gap-[8px]">
+        {/* Share button — only shown if jobId exists */}
+        {isRealMode && jobId && (
+          onShare ? (
+            <button
+              onClick={() => onShare()}
+              className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
+              style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.text, backgroundColor: C.bgHover }}>
+              SHARE
+            </button>
+          ) : (
+            <button
+              disabled
+              className="flex items-center gap-[6px] px-[12px] py-[7px]"
+              style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.textMuted, backgroundColor: C.bgHover, opacity: 0.6, cursor: "default" }}>
+              SHARE
+              <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.06em", marginLeft: 4, verticalAlign: "super" }}>PRO</span>
+            </button>
+          )
+        )}
         {isRealMode && jobId ? (
           <button onClick={async () => {
             const JSZip = (await import("jszip")).default;
@@ -394,6 +416,7 @@ export function StemVariants(props: StemVariantsProps) {
             DOWNLOAD .ZIP
           </button>
         )}
+        </div>
       </div>
     </div>
     </div>

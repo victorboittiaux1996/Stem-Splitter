@@ -18,6 +18,7 @@ import { AccountView, type SettingsSection } from "@/components/dashboard/accoun
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { useAuth } from "@/hooks/use-auth";
 import { useSubscription } from "@/hooks/use-subscription";
+import { PLANS } from "@/lib/plans";
 import { toast } from "sonner";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
@@ -158,15 +159,50 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 // ─── Component ──────────────────────────────────────────────
 export default function AbletonDashboard() {
   const { user, displayName, initials, email, signOut, avatarUrl, createdAt } = useAuth();
-  const { planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, daysUntilReset, loading: subLoading, batchLimit, urlImport } = useSubscription(user?.id);
+  const { plan: userPlan, planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, daysUntilReset, loading: subLoading, batchLimit, urlImport, stems, wavAllowed, minutesNeverReset, refetch: refetchSubscription } = useSubscription(user?.id);
 
   // Handle checkout success redirect from Polar
   // Also handle ?upgrade=pro&billing=annual from /pricing page
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
-      toast.success("Payment successful! Your plan is being activated.");
+      const checkoutId = params.get("checkoutId");
       window.history.replaceState({}, "", "/app");
+      toast.success("Payment successful! Activating your plan…");
+
+      // Poll Polar checkout status until succeeded, then refresh subscription
+      if (checkoutId) {
+        let attempts = 0;
+        const maxAttempts = 10;
+        let active = true;
+        const interval = setInterval(async () => {
+          if (!active) return;
+          attempts++;
+          try {
+            const res = await fetch(`/api/checkout/status?checkoutId=${checkoutId}`);
+            const data = await res.json();
+            if (data.status === "succeeded") {
+              clearInterval(interval);
+              active = false;
+              // Small delay to let webhook arrive before refetch
+              setTimeout(() => { if (active !== false) return; refetchSubscription(); }, 1500);
+              refetchSubscription();
+              toast.success("Your plan is now active!");
+            }
+          } catch {}
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            active = false;
+            refetchSubscription();
+          }
+        }, 2000);
+        // Cleanup if component unmounts before polling completes
+        return () => { active = false; clearInterval(interval); };
+      } else {
+        // No checkoutId — just refetch after a short delay
+        const t = setTimeout(() => refetchSubscription(), 3000);
+        return () => clearTimeout(t);
+      }
     }
     const upgradePlan = params.get("upgrade");
     const billingRaw = params.get("billing");
@@ -276,6 +312,20 @@ export default function AbletonDashboard() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("profile");
+
+  // Auto-correct stemCount if plan doesn't allow current selection
+  useEffect(() => {
+    if (!subLoading && !stems.includes(stemCount)) {
+      setStemCount(stems[stems.length - 1] as StemCount);
+    }
+  }, [stems, subLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-correct outputFormat if plan doesn't allow WAV
+  useEffect(() => {
+    if (!subLoading && !wavAllowed && outputFormat === "wav") {
+      setOutputFormat("mp3");
+    }
+  }, [wavAllowed, subLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Polar checkout — redirect to payment page
   const handleUpgrade = async (plan: "pro" | "studio" = "pro", billing: "monthly" | "annual" = "monthly") => {
@@ -498,12 +548,23 @@ export default function AbletonDashboard() {
 
   const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem } = useQueue();
   const handleFiles = useCallback((files: File[]) => {
-    if (files.length === 1) {
-      setFile(files[0]); setPendingFiles([]); setAppState("file-selected");
-    } else {
-      setFile(null); setPendingFiles(files); setAppState("file-selected");
+    const maxBytes = PLANS[userPlan].maxFileSizeMB * 1024 * 1024;
+    const oversized = files.filter(f => f.size > maxBytes);
+    const valid = files.filter(f => f.size <= maxBytes);
+    if (oversized.length > 0) {
+      const limitLabel = PLANS[userPlan].maxFileSizeMB >= 1024
+        ? `${PLANS[userPlan].maxFileSizeMB / 1024} GB`
+        : `${PLANS[userPlan].maxFileSizeMB} MB`;
+      const upgradeHint = userPlan === "free" ? " — upgrade to Pro for 2 GB uploads." : ".";
+      setUploadError(`${oversized.map(f => f.name).join(", ")} exceeds the ${limitLabel} limit${upgradeHint}`);
     }
-  }, []);
+    if (valid.length === 0) return;
+    if (valid.length === 1) {
+      setFile(valid[0]); setPendingFiles([]); setAppState("file-selected");
+    } else {
+      setFile(null); setPendingFiles(valid); setAppState("file-selected");
+    }
+  }, [userPlan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute total audio duration when files change
   useEffect(() => {
@@ -605,6 +666,12 @@ export default function AbletonDashboard() {
       return;
     }
 
+    // Check batch limit for file uploads (batchLimit=0 means Free — credits are the only gate)
+    if (batchLimit > 0 && pendingFiles.length > batchLimit) {
+      setUploadError(`Your ${planLabel} plan allows ${batchLimit} tracks per batch. Upgrade for more.`);
+      return;
+    }
+
     const mode: SplitMode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
     const OVERLAP_MAP = { fast: 2, balanced: 8, high: 16 } as const;
     const overlap = OVERLAP_MAP[qualityPreset];
@@ -644,6 +711,25 @@ export default function AbletonDashboard() {
     setIsPlaying(false); setCurrentTime(0); setSoloTrack(null); setMutedTracks(new Set());
     setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null);
     progressTargetRef.current = 0; progressDisplayRef.current = 0;
+  }, []);
+
+  const handleShare = useCallback(async (jId: string) => {
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: jId, workspaceId: WORKSPACE_ID }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to create share link");
+        return;
+      }
+      await navigator.clipboard.writeText(data.url);
+      toast.success("Share link copied to clipboard!");
+    } catch {
+      toast.error("Failed to create share link");
+    }
   }, []);
 
   // Sync progress from queue context
@@ -819,7 +905,7 @@ export default function AbletonDashboard() {
             <div style={{ marginTop: 8 }}>
               <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
                 <span style={{ fontSize: 11, color: C.textSec }}>{remainingFormatted} left</span>
-                <span style={{ fontSize: 11, color: C.textMuted }}>Resets in {daysUntilReset}d</span>
+                <span style={{ fontSize: 11, color: C.textMuted }}>{minutesNeverReset ? "Never resets" : `Resets in ${daysUntilReset}d`}</span>
               </div>
               <div style={{ height: 2, backgroundColor: C.bgHover }}>
                 <div style={{ height: "100%", width: `${usagePercent}%`, backgroundColor: C.accent }} />
@@ -1162,6 +1248,11 @@ export default function AbletonDashboard() {
                             {pendingFiles.length > 3 && (
                               <span style={{ fontSize: 13, color: C.textMuted }}>+{pendingFiles.length - 3} more</span>
                             )}
+                            {batchLimit > 0 && (
+                              <span style={{ fontSize: 12, color: pendingFiles.length > batchLimit ? "#FF3B30" : C.textMuted, fontWeight: 500, marginTop: 2 }}>
+                                {pendingFiles.length}/{batchLimit} tracks
+                              </span>
+                            )}
                             <button onClick={(e) => { e.stopPropagation(); setPendingFiles([]); setAppState("idle"); }}
                               style={{ fontSize: 13, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", marginTop: 4 }}>REMOVE</button>
                           </div>
@@ -1183,6 +1274,9 @@ export default function AbletonDashboard() {
                               <button onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click(); }}
                                 style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.03em", padding: "6px 0", backgroundColor: isDark ? "#242424" : "#E0E0E0", width: 120, textAlign: "center", cursor: "pointer" }}>SELECT FOLDER</button>
                             </div>
+                            <span style={{ fontSize: 11, color: C.textMuted, opacity: 0.6, letterSpacing: "0.04em" }}>
+                              {PLANS[userPlan].maxFileSizeMB >= 1024 ? `${PLANS[userPlan].maxFileSizeMB / 1024} GB` : `${PLANS[userPlan].maxFileSizeMB} MB`} max
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1213,16 +1307,63 @@ export default function AbletonDashboard() {
                               <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
                                 transition={{ duration: 0.1 }} className="absolute left-0 top-full mt-[2px] z-30 w-[220px]"
                                 style={{ backgroundColor: C.bgCard }}>
-                                {STEM_OPTIONS.map(opt => (
-                                  <button key={opt.value} onClick={() => { setStemCount(opt.value); setStemsOpen(false); }}
-                                    className="flex w-full items-center gap-[8px] px-[12px] py-[10px] text-left transition-colors"
-                                    style={{ backgroundColor: stemCount === opt.value ? C.bgHover : undefined }}>
-                                    <div>
-                                      <p style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.02em", color: C.text }}>{opt.label.toUpperCase()}</p>
-                                      <p style={{ fontSize: 13, color: C.textMuted }}>{opt.desc}</p>
-                                    </div>
-                                  </button>
-                                ))}
+                                {STEM_OPTIONS.map(opt => {
+                                  const stemAllowed = stems.includes(opt.value);
+                                  return (
+                                    <button key={opt.value}
+                                      onClick={() => {
+                                        if (!stemAllowed) { setUploadError("6 stems requires a Pro plan."); setStemsOpen(false); return; }
+                                        setStemCount(opt.value); setStemsOpen(false);
+                                      }}
+                                      className="flex w-full items-center gap-[8px] px-[12px] py-[10px] text-left transition-colors"
+                                      style={{ backgroundColor: stemCount === opt.value ? C.bgHover : undefined, opacity: stemAllowed ? 1 : 0.5 }}>
+                                      <div>
+                                        <p style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.02em", color: C.text }}>
+                                          {opt.label.toUpperCase()}
+                                          {!stemAllowed && <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.06em", marginLeft: 6, verticalAlign: "super" }}>PRO</span>}
+                                        </p>
+                                        <p style={{ fontSize: 13, color: C.textMuted }}>{opt.desc}</p>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                        {/* Format selector */}
+                        <div className="relative" ref={formatRef}>
+                          <button onClick={() => { setFormatOpen(!formatOpen); setStemsOpen(false); setExtraOpen(false); }}
+                            className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
+                            style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: formatOpen ? C.bgHover : undefined }}>
+                            {outputFormat.toUpperCase()}
+                            <ChevronDown className="h-[11px] w-[11px]" style={{ color: C.textMuted }} strokeWidth={2} />
+                          </button>
+                          <AnimatePresence>
+                            {formatOpen && (
+                              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                                transition={{ duration: 0.1 }} className="absolute left-0 top-full mt-[2px] z-30 w-[160px]"
+                                style={{ backgroundColor: C.bgCard }}>
+                                {([["wav", "WAV", "24-bit lossless"], ["mp3", "MP3", "320kbps"]] as const).map(([val, label, desc]) => {
+                                  const fmtAllowed = val === "mp3" || wavAllowed;
+                                  return (
+                                    <button key={val}
+                                      onClick={() => {
+                                        if (!fmtAllowed) { setUploadError("WAV export requires a Pro plan."); setFormatOpen(false); return; }
+                                        setOutputFormat(val); setFormatOpen(false);
+                                      }}
+                                      className="flex w-full items-center gap-[8px] px-[12px] py-[10px] text-left transition-colors"
+                                      style={{ backgroundColor: outputFormat === val ? C.bgHover : undefined, opacity: fmtAllowed ? 1 : 0.5 }}>
+                                      <div>
+                                        <p style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.02em", color: C.text }}>
+                                          {label}
+                                          {!fmtAllowed && <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.06em", marginLeft: 6, verticalAlign: "super" }}>PRO</span>}
+                                        </p>
+                                        <p style={{ fontSize: 13, color: C.textMuted }}>{desc}</p>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
                               </motion.div>
                             )}
                           </AnimatePresence>
@@ -1364,6 +1505,7 @@ export default function AbletonDashboard() {
                     trackDuration={currentJob?.duration}
                     precomputedPeaks={currentJob?.peaks}
                     outputFormat={outputFormat}
+                    onShare={isPro && jobId ? () => handleShare(jobId) : null}
                   />
                 )}
               </div>
@@ -1393,6 +1535,7 @@ export default function AbletonDashboard() {
                     trackDuration={currentJob?.duration}
                     precomputedPeaks={currentJob?.peaks}
                     outputFormat={outputFormat}
+                    onShare={isPro && jobId ? () => handleShare(jobId) : null}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-[80px]">

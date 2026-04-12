@@ -79,7 +79,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     if (!raw) return;
     localStorage.removeItem(STORAGE_KEY);
 
-    let saved: { jobId: string | null; fileName: string; mode: string; addedAt: number; status?: string; url?: string | null }[];
+    let saved: { jobId: string | null; fileName: string; mode: string; outputFormat?: string; addedAt: number; status?: string; url?: string | null }[];
     try { saved = JSON.parse(raw); } catch { return; }
     if (!Array.isArray(saved) || saved.length === 0) return;
 
@@ -100,7 +100,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       // Restore items that have a jobId (processing/completed/failed)
       for (const r of results) {
         if (r.status !== "fulfilled" || !r.value.job) continue;
-        const { jobId, fileName, mode, addedAt, job } = r.value;
+        const { jobId, fileName, mode, outputFormat: savedOutputFormat, addedAt, job } = r.value;
         const status = job.status === "completed" ? "completed" as const
           : job.status === "failed" ? "failed" as const
           : "processing" as const;
@@ -115,7 +115,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           stage: job.stage ?? "",
           error: job.error ?? null,
           mode: mode as QueueConfig["mode"],
-          outputFormat: "wav",
+          outputFormat: (savedOutputFormat as QueueConfig["outputFormat"]) ?? "mp3",
           job: status === "completed" ? job : null,
           stemDownloads: [],
           addedAt,
@@ -139,7 +139,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           stage: "",
           error: hasUrl ? null : "File lost after page refresh — please re-add",
           mode: (p.mode || "4stem") as QueueConfig["mode"],
-          outputFormat: "wav",
+          outputFormat: (p.outputFormat as QueueConfig["outputFormat"]) ?? "mp3",
           job: null,
           stemDownloads: [],
           addedAt: p.addedAt,

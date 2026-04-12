@@ -6,11 +6,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   // Auth check — only authenticated users can download stems
-  const { getAuthUser } = await import("@/lib/supabase/auth-helpers");
+  const { getAuthUser, getUserPlan } = await import("@/lib/supabase/auth-helpers");
+  const { PLANS } = await import("@/lib/plans");
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
+
+  const { plan } = await getUserPlan(user.id);
+  const wavAllowed = PLANS[plan].exportFormats.includes("WAV 24-bit");
 
   const { id } = await params;
   const stem = request.nextUrl.searchParams.get("stem");
@@ -18,7 +22,9 @@ export async function GET(
 
   try {
     if (stem) {
-      const format = request.nextUrl.searchParams.get("format") || "wav";
+      const requestedFormat = request.nextUrl.searchParams.get("format") || "wav";
+      // Graceful downgrade: Free users requesting WAV get MP3 (both exist on R2)
+      const format = (!wavAllowed && requestedFormat === "wav") ? "mp3" : requestedFormat;
       const ext = format === "mp3" ? ".mp3" : ".wav";
       const resolvedWsId = wsId || request.nextUrl.searchParams.get("ws") || null;
       const key = stemKey(resolvedWsId, id, stem, ext);

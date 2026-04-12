@@ -24,6 +24,7 @@ export interface Job {
   duration?: number | null;
   peaks?: Record<string, number[]>;
   workspaceId?: string;
+  userId?: string;
 }
 
 export interface StemDownload {

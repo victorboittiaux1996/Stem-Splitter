@@ -35,7 +35,7 @@ export function useSubscription(userId: string | undefined) {
   });
 
   const fetchSubscription = useCallback(() => {
-    if (!userId) return;
+    if (!userId) { setState(prev => ({ ...prev, loading: false })); return; }
     const supabase = createClient();
     Promise.all([
       supabase.from("subscriptions").select("plan, status, period_start").eq("user_id", userId).maybeSingle(),

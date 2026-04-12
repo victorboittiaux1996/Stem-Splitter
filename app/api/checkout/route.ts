@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const checkout = await polar.checkouts.create({
       products: [productId],
       customerEmail: user.email,
-      successUrl: `${appUrl}/app?checkout=success`,
+      successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
     });
 
     if (!checkout.url) {
