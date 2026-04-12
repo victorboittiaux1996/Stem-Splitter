@@ -19,7 +19,7 @@ const C = {
   accent: "#1B10FD",
 } as const;
 
-const F = "'Futura PT', 'futura-pt', sans-serif";
+const F = "var(--font-futura), sans-serif";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
