@@ -23,7 +23,7 @@ const D = {
 } as const;
 
 // Font — exact from app (line 28)
-const F = "var(--font-futura), sans-serif";
+const F = "'Futura PT', 'futura-pt', sans-serif";
 
 type DemoView = "split" | "results" | "files";
 

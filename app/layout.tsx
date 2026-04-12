@@ -3,7 +3,6 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { QueueProvider } from "@/contexts/queue-context";
 import { AuthModalProvider } from "@/contexts/auth-modal-context";
 import { Toaster } from "@/components/ui/sonner";
-import { futuraPT, aeonik } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -27,8 +26,16 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`h-full ${futuraPT.variable} ${aeonik.variable}`}
+      className="h-full"
     >
+      <head>
+        <link rel="preload" as="font" href="/fonts/futura-pt-book.ttf" type="font/ttf" crossOrigin="anonymous" />
+        <link rel="preload" as="font" href="/fonts/futura-pt-medium.ttf" type="font/ttf" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Atkinson+Hyperlegible+Next:wght@400;500;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="h-full antialiased font-sans">
         <ThemeProvider
           attribute="class"

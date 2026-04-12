@@ -38,8 +38,8 @@ export const stemColors = {
 } as const;
 
 export const fonts = {
-  heading: "var(--font-futura), sans-serif",
-  body: "var(--font-futura), sans-serif",
+  heading: "'Futura PT', 'futura-pt', sans-serif",
+  body: "'Futura PT', 'futura-pt', sans-serif",
   mono: "'Fira Code', monospace",
 } as const;
 

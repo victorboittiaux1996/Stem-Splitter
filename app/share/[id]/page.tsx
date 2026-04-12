@@ -4,7 +4,7 @@ import { getJobForWorkspace, getPresignedUrl, listStemsForWorkspace, stemKey } f
 import { Logo } from "@/components/website/logo";
 import Link from "next/link";
 
-const F = "var(--font-futura), sans-serif";
+const F = "'Futura PT', 'futura-pt', sans-serif";
 const C = {
   bg: "#F3F3F3",
   bgCard: "#FFFFFF",

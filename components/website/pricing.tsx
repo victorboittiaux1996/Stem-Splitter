@@ -4,7 +4,7 @@ import { useState } from "react";
 import { stemColors } from "./theme";
 import { PLANS } from "@/lib/plans";
 
-const F = "var(--font-futura), sans-serif";
+const F = "'Futura PT', 'futura-pt', sans-serif";
 
 const T = {
   bg: "#FFFFFF",

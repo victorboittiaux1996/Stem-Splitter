@@ -28,7 +28,13 @@ type StemCount = 2 | 4 | 6;
 type OutputFormat = "wav" | "mp3";
 type View = "split" | "results" | "files" | "stats" | "games" | "settings";
 
-const F = "var(--font-futura), sans-serif";
+const F = "'Futura PT', 'futura-pt', sans-serif";
+
+// Force-load the font on mount
+if (typeof window !== "undefined") {
+  const font = new FontFace("Futura PT", "url(/fonts/futura-pt-medium.ttf)");
+  font.load().then(f => document.fonts.add(f)).catch(() => {});
+}
 
 // ─── Classic theme (sober Ableton — no borders, bg contrast only) ─
 const classicThemes = {
