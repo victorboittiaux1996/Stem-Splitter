@@ -8,7 +8,29 @@ import { PricingComparisonTable } from "@/components/website/pricing-comparison-
 import { PricingFAQ } from "@/components/website/pricing-faq";
 import { PLANS, type PlanId, ANNUAL_DISCOUNT_PERCENT } from "@/lib/plans";
 import { fonts, stemColors } from "@/components/website/theme";
+import { useAuth } from "@/hooks/use-auth";
+import { useSubscription } from "@/hooks/use-subscription";
 import { RiCheckLine } from "@remixicon/react";
+
+const PLAN_ORDER: PlanId[] = ["free", "pro", "studio"];
+
+function usePlanCTA(planId: PlanId, annual: boolean) {
+  const { user, loading: authLoading } = useAuth();
+  const { plan: userPlan, loading: subLoading } = useSubscription(user?.id);
+
+  const checkoutUrl = planId === "free"
+    ? "/app"
+    : `/app?upgrade=${planId}&billing=${annual ? "annual" : "monthly"}`;
+
+  const ready = !!user && !authLoading && !subLoading;
+  const tier = PLAN_ORDER.indexOf(planId);
+  const currentTier = ready ? PLAN_ORDER.indexOf(userPlan) : -1;
+
+  if (!ready) return { label: "Get started", href: checkoutUrl, isCurrent: false };
+  if (currentTier === tier) return { label: "Current plan", href: "/app", isCurrent: true };
+  if (currentTier > tier) return { label: "Manage plan", href: "/app", isCurrent: false };
+  return { label: `Upgrade to ${PLANS[planId].label}`, href: checkoutUrl, isCurrent: false };
+}
 
 const F = fonts.body;
 
@@ -100,9 +122,7 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
 
   const cardBorder = "none";
 
-  const checkoutUrl = planId === "free"
-    ? "/app"
-    : `/app?upgrade=${planId}&billing=${annual ? "annual" : "monthly"}`;
+  const cta = usePlanCTA(planId, annual);
 
   return (
     <motion.div
@@ -181,7 +201,7 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
 
         {/* CTA — right after price, like Ahrefs */}
         <div style={{ marginTop: 16, marginBottom: 28 }}>
-          <PlanCTA cardHovered={hovered} accent={accent} href={checkoutUrl} />
+          <PlanCTA cardHovered={hovered} accent={accent} href={cta.href} label={cta.label} isCurrent={cta.isCurrent} />
         </div>
 
         {/* Features */}
@@ -212,8 +232,31 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
   );
 }
 
-function PlanCTA({ cardHovered, accent, href }: { cardHovered: boolean; accent: string; href: string }) {
+function PlanCTA({ cardHovered, accent, href, label, isCurrent }: { cardHovered: boolean; accent: string; href: string; label: string; isCurrent: boolean }) {
   const [btnHovered, setBtnHovered] = useState(false);
+
+  // "Current plan" → muted, non-actionable look (still navigates to /app)
+  if (isCurrent) {
+    return (
+      <motion.a
+        href={href}
+        animate={{ color: cardHovered ? "#FFFFFF" : "#666666" }}
+        transition={{ duration: 0.2 }}
+        style={{
+          width: "100%", padding: "12px 24px",
+          fontFamily: F, fontSize: 14, fontWeight: 500,
+          border: `1px solid ${cardHovered ? "rgba(255,255,255,0.4)" : "#D4D4D4"}`,
+          textDecoration: "none",
+          textAlign: "center",
+          display: "block",
+          backgroundColor: "transparent",
+          cursor: "default",
+        }}
+      >
+        {label}
+      </motion.a>
+    );
+  }
 
   const bg = cardHovered
     ? (btnHovered ? "#FFFFFF" : "#FFFFFF")
@@ -239,7 +282,7 @@ function PlanCTA({ cardHovered, accent, href }: { cardHovered: boolean; accent: 
         color: fg,
       }}
     >
-      Get started
+      {label}
     </motion.a>
   );
 }

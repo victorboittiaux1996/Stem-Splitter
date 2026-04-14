@@ -6,7 +6,9 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   let next = searchParams.get("next") ?? "/app";
 
-  if (!next.startsWith("/")) {
+  // Open-redirect protection: must be a same-origin path.
+  // Reject protocol-relative (//evil.com), backslash tricks, non-absolute paths.
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
     next = "/";
   }
 

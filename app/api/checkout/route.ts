@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { polar, getProductId } from "@/lib/polar";
 import { getAuthUser } from "@/lib/supabase/auth-helpers";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,6 +20,31 @@ export async function POST(req: NextRequest) {
 
     if (!user.email) {
       return NextResponse.json({ error: "Account has no email address" }, { status: 400 });
+    }
+
+    // If user already has an active paid subscription, redirect to the Polar
+    // customer portal so they can change plan / billing interval with proration.
+    // Polar's checkout rejects a second active sub and shows an ugly error mid-payment.
+    const { data: existingSub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("stripe_customer_id, plan, status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const hasActivePaidSub =
+      existingSub &&
+      existingSub.stripe_customer_id &&
+      existingSub.plan !== "free" &&
+      (existingSub.status === "active" || existingSub.status === "trialing" || existingSub.status === "past_due");
+
+    if (hasActivePaidSub) {
+      const session = await polar.customerSessions.create({
+        customerId: existingSub.stripe_customer_id!,
+      });
+      if (!session.customerPortalUrl) {
+        return NextResponse.json({ error: "Failed to create portal session" }, { status: 502 });
+      }
+      return NextResponse.json({ url: session.customerPortalUrl });
     }
 
     const productId = getProductId(plan, billing);

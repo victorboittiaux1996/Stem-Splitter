@@ -7,7 +7,9 @@ import { Footer } from "@/components/website/footer";
 import { FAQ } from "@/components/website/faq";
 import { fonts, stemColors } from "@/components/website/theme";
 import { useAuthModal } from "@/contexts/auth-modal-context";
-import { PLANS, ANNUAL_DISCOUNT_PERCENT } from "@/lib/plans";
+import { PLANS, ANNUAL_DISCOUNT_PERCENT, type PlanId } from "@/lib/plans";
+import { useAuth } from "@/hooks/use-auth";
+import { useSubscription } from "@/hooks/use-subscription";
 import { HeroDemo } from "@/components/website/hero-demo";
 import {
   RiEqualizerFill,
@@ -886,14 +888,35 @@ const homePlanAccents: Record<string, string> = {
 
 type HomePlanId = "free" | "pro" | "studio";
 
+const HOME_PLAN_ORDER: HomePlanId[] = ["free", "pro", "studio"];
+
+function useHomePlanCTA(planId: HomePlanId, annual: boolean) {
+  const { user, loading: authLoading } = useAuth();
+  const { plan: userPlan, loading: subLoading } = useSubscription(user?.id);
+
+  const checkoutUrl = planId === "free"
+    ? "/app"
+    : `/app?upgrade=${planId}&billing=${annual ? "annual" : "monthly"}`;
+
+  const ready = !!user && !authLoading && !subLoading;
+  const tier = HOME_PLAN_ORDER.indexOf(planId);
+  const currentTier = ready ? HOME_PLAN_ORDER.indexOf(userPlan as HomePlanId) : -1;
+
+  if (!ready) return { label: "Get started", href: checkoutUrl, isCurrent: false };
+  if (currentTier === tier) return { label: "Current plan", href: "/app", isCurrent: true };
+  if (currentTier > tier) return { label: "Manage plan", href: "/app", isCurrent: false };
+  return { label: `Upgrade to ${PLANS[planId].label}`, href: checkoutUrl, isCurrent: false };
+}
+
 function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean }) {
   const [hovered, setHovered] = useState(false);
-  const { openAuthModal } = useAuthModal();
   const plan = PLANS[planId];
   const accent = homePlanAccents[planId];
 
   const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
   const period = planId === "free" ? "forever" : "/mo";
+
+  const cta = useHomePlanCTA(planId, annual);
 
   const hText = "#FFFFFF";
   const hTextSec = "rgba(255,255,255,0.95)";
@@ -905,7 +928,6 @@ function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean 
 
   return (
     <motion.div
-      onClick={() => openAuthModal("/app")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       animate={{ backgroundColor: hovered ? accent : "#FFFFFF" }}
@@ -975,7 +997,7 @@ function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean 
         </div>
 
         <div style={{ marginTop: 16, marginBottom: 28 }}>
-          <HomePlanCTA cardHovered={hovered} accent={accent} />
+          <HomePlanCTA cardHovered={hovered} accent={accent} href={cta.href} label={cta.label} isCurrent={cta.isCurrent} />
         </div>
 
         <ul style={{ listStyle: "none", margin: 0, padding: 0, flex: 1 }}>
@@ -1005,9 +1027,29 @@ function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean 
   );
 }
 
-function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: string }) {
+function HomePlanCTA({ cardHovered, accent, href, label, isCurrent }: { cardHovered: boolean; accent: string; href: string; label: string; isCurrent: boolean }) {
   const [btnHovered, setBtnHovered] = useState(false);
-  const { openAuthModal } = useAuthModal();
+
+  if (isCurrent) {
+    return (
+      <motion.a
+        href={href}
+        animate={{ color: cardHovered ? "#FFFFFF" : "#666666" }}
+        transition={{ duration: 0.2 }}
+        style={{
+          width: "100%", padding: "12px 24px",
+          fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
+          border: `1px solid ${cardHovered ? "rgba(255,255,255,0.4)" : "#D4D4D4"}`,
+          textDecoration: "none",
+          textAlign: "center", display: "block",
+          backgroundColor: "transparent",
+          cursor: "default",
+        }}
+      >
+        {label}
+      </motion.a>
+    );
+  }
 
   const bg = cardHovered
     ? (btnHovered ? "#FFFFFF" : "#FFFFFF")
@@ -1015,8 +1057,8 @@ function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: st
   const fg = cardHovered ? accent : "#FFFFFF";
 
   return (
-    <motion.div
-      onClick={(e) => { e.stopPropagation(); openAuthModal("/app"); }}
+    <motion.a
+      href={href}
       onMouseEnter={() => setBtnHovered(true)}
       onMouseLeave={() => setBtnHovered(false)}
       animate={{ backgroundColor: bg, color: fg }}
@@ -1025,12 +1067,13 @@ function HomePlanCTA({ cardHovered, accent }: { cardHovered: boolean; accent: st
         width: "100%", padding: "12px 24px",
         fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
         cursor: "pointer", border: "none",
+        textDecoration: "none",
         textAlign: "center", display: "block",
         backgroundColor: bg, color: fg,
       }}
     >
-      Get started
-    </motion.div>
+      {label}
+    </motion.a>
   );
 }
 
