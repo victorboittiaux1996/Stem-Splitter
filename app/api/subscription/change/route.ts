@@ -1,0 +1,121 @@
+import { NextRequest, NextResponse } from "next/server";
+import { polar, getProductId, POLAR_PRODUCTS } from "@/lib/polar";
+import { getAuthUser } from "@/lib/supabase/auth-helpers";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { PlanId, BillingPeriod } from "@/lib/plans";
+
+// Apply a subscription change for an existing customer.
+// - Same product = no-op (400)
+// - Different product/billing = polar.subscriptions.update with proration: invoice
+// - Free customers must use /api/checkout (creates a new sub)
+
+type Body = {
+  plan: PlanId;
+  billing: BillingPeriod;
+  action?: "change" | "cancel" | "resume";
+};
+
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getAuthUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = (await req.json()) as Body;
+    const action = body.action ?? "change";
+
+    const { data: sub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("plan, status, stripe_subscription_id, stripe_customer_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!sub?.stripe_subscription_id) {
+      return NextResponse.json(
+        { error: "No active subscription found. Use /api/checkout for first-time purchase." },
+        { status: 404 },
+      );
+    }
+
+    if (action === "cancel") {
+      const updated = await polar.subscriptions.update({
+        id: sub.stripe_subscription_id,
+        subscriptionUpdate: { cancelAtPeriodEnd: true },
+      });
+      return NextResponse.json({
+        ok: true,
+        action: "canceled",
+        endsAt: updated.endsAt ?? updated.currentPeriodEnd ?? null,
+      });
+    }
+
+    if (action === "resume") {
+      const updated = await polar.subscriptions.update({
+        id: sub.stripe_subscription_id,
+        subscriptionUpdate: { cancelAtPeriodEnd: false },
+      });
+      return NextResponse.json({
+        ok: true,
+        action: "resumed",
+        currentPeriodEnd: updated.currentPeriodEnd ?? null,
+      });
+    }
+
+    if (body.plan !== "pro" && body.plan !== "studio") {
+      return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    }
+    if (body.billing !== "monthly" && body.billing !== "annual") {
+      return NextResponse.json({ error: "Invalid billing period" }, { status: 400 });
+    }
+
+    const targetProductId = getProductId(body.plan, body.billing);
+
+    const polarSub = await polar.subscriptions.get({ id: sub.stripe_subscription_id });
+    const currentProductId = polarSub.product?.id ?? polarSub.productId;
+
+    if (currentProductId === targetProductId) {
+      return NextResponse.json({ error: "Already on this plan", action: "same" }, { status: 400 });
+    }
+
+    const isBillingSwitch =
+      (currentProductId === POLAR_PRODUCTS.pro && targetProductId === POLAR_PRODUCTS.pro_annual) ||
+      (currentProductId === POLAR_PRODUCTS.pro_annual && targetProductId === POLAR_PRODUCTS.pro) ||
+      (currentProductId === POLAR_PRODUCTS.studio && targetProductId === POLAR_PRODUCTS.studio_annual) ||
+      (currentProductId === POLAR_PRODUCTS.studio_annual && targetProductId === POLAR_PRODUCTS.studio);
+
+    const updated = await polar.subscriptions.update({
+      id: sub.stripe_subscription_id,
+      subscriptionUpdate: {
+        productId: targetProductId,
+        prorationBehavior: "invoice",
+      },
+    });
+
+    // Optimistic DB update from Polar's authoritative response — webhook will re-sync
+    // shortly. We write the full set of fields from `updated` to avoid a drift
+    // window where period_end / period_start still point to the old product.
+    const newPeriodEnd = updated.currentPeriodEnd ? new Date(updated.currentPeriodEnd).toISOString() : null;
+    const newPeriodStart = updated.currentPeriodStart ? new Date(updated.currentPeriodStart).toISOString().slice(0, 10) : null;
+    await supabaseAdmin
+      .from("subscriptions")
+      .update({
+        plan: body.plan,
+        status: "active",
+        updated_at: new Date().toISOString(),
+        ...(newPeriodEnd ? { current_period_end: newPeriodEnd } : {}),
+        ...(newPeriodStart ? { period_start: newPeriodStart } : {}),
+      })
+      .eq("user_id", user.id);
+
+    return NextResponse.json({
+      ok: true,
+      action: isBillingSwitch ? "billing_switch" : "plan_change",
+      plan: body.plan,
+      billing: body.billing,
+      currentPeriodEnd: updated.currentPeriodEnd ?? null,
+    });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Failed to change subscription";
+    console.error("Subscription change error:", error);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}

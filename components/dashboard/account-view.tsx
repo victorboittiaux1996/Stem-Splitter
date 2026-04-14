@@ -1,9 +1,11 @@
 "use client";
 
 import React from "react";
-import { PLANS, type PlanId, ANNUAL_DISCOUNT_PERCENT } from "@/lib/plans";
+import { PLANS, type PlanId, ANNUAL_DISCOUNT_PERCENT, type BillingPeriod } from "@/lib/plans";
 import { stemColors } from "@/components/website/theme";
 import { RiCheckLine } from "@remixicon/react";
+import { ChangePlanModal } from "./change-plan-modal";
+import { toast } from "sonner";
 
 export type SettingsSection = "profile" | "subscription" | "usage" | "defaults";
 
@@ -33,6 +35,9 @@ interface AccountViewProps {
   avatarUrl?: string | null;
   createdAt?: string;
   usageHistory?: { date: string; details: string; type: string; time: string; positive: boolean }[];
+  onPlanChanged?: () => void;
+  pendingPlanChange?: { plan: "pro" | "studio"; billing: "monthly" | "annual" } | null;
+  onConsumePendingPlanChange?: () => void;
 }
 
 // Mock usage history data
@@ -93,6 +98,97 @@ function Toggle({ on, C }: { on: boolean; C: C }) {
   );
 }
 
+// ─── Billing history card — lists Polar invoices ───
+interface Invoice {
+  id: string;
+  createdAt: string;
+  totalMajor: number;
+  currency: string;
+  invoiceNumber: string | null;
+  status: string;
+  paid: boolean;
+}
+
+function InvoicesCard({ C }: { C: AccountViewProps["C"] }) {
+  const [invoices, setInvoices] = React.useState<Invoice[] | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    fetch("/api/subscription/invoices")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) setErr(d.error);
+        else setInvoices(d.invoices ?? []);
+      })
+      .catch(() => setErr("Failed to load invoices"));
+  }, []);
+
+  const fmt = (amount: number, currency: string) => {
+    try { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount); }
+    catch { return `${amount.toFixed(2)} ${currency}`; }
+  };
+
+  return (
+    <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
+      <SectionHeading C={C}>Billing History</SectionHeading>
+      {invoices === null && !err && (
+        <div style={{ fontSize: 13, color: C.textMuted, padding: "8px 0" }}>Loading…</div>
+      )}
+      {err && (
+        <div style={{ fontSize: 13, color: C.textMuted, padding: "8px 0" }}>{err}</div>
+      )}
+      {invoices && invoices.length === 0 && (
+        <div style={{ fontSize: 13, color: C.textMuted, padding: "8px 0" }}>No invoices yet.</div>
+      )}
+      {invoices && invoices.length > 0 && (
+        <div>
+          <div className="grid" style={{ gridTemplateColumns: "140px 1fr 120px 90px 80px", gap: 0 }}>
+            {["DATE", "INVOICE", "AMOUNT", "STATUS", ""].map((col, i) => (
+              <div key={col + i} style={{ padding: "8px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, textAlign: i >= 2 ? "right" as const : "left" as const, borderBottom: `1px solid ${C.text}14`, textTransform: "uppercase" as const }}>
+                {col}
+              </div>
+            ))}
+          </div>
+          {invoices.map((inv, i) => (
+            <div
+              key={inv.id}
+              className="grid"
+              style={{
+                gridTemplateColumns: "140px 1fr 120px 90px 80px",
+                gap: 0,
+                backgroundColor: i % 2 === 1 ? `${C.text}03` : "transparent",
+              }}
+            >
+              <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted }}>
+                {new Date(inv.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              </div>
+              <div style={{ padding: "11px 0", fontSize: 12, color: C.text }}>
+                {inv.invoiceNumber ?? inv.id.slice(0, 12)}
+              </div>
+              <div style={{ padding: "11px 0", fontSize: 12, color: C.text, fontWeight: 600, textAlign: "right" }}>
+                {fmt(inv.totalMajor, inv.currency)}
+              </div>
+              <div style={{ padding: "11px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: inv.paid ? C.text : C.textMuted, textAlign: "right", textTransform: "uppercase" as const }}>
+                {inv.paid ? "Paid" : inv.status}
+              </div>
+              <div style={{ padding: "11px 0", textAlign: "right" }}>
+                {inv.paid && (
+                  <a
+                    href={`/api/subscription/invoices?download=${inv.id}`}
+                    style={{ color: C.accent, textDecoration: "none", fontWeight: 700, letterSpacing: "0.08em", fontSize: 10, textTransform: "uppercase" as const }}
+                  >
+                    PDF →
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Plan accents matching the website /pricing page ───
 const planAccents: Record<PlanId, { label: string; color: string }> = {
   free: { label: "Free", color: "#3A3A3A" },
@@ -102,15 +198,29 @@ const planAccents: Record<PlanId, { label: string; color: string }> = {
 
 const PLAN_ORDER: PlanId[] = ["free", "pro", "studio"];
 
-function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSectionChange }: {
+function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: {
   C: AccountViewProps["C"];
   planLabel?: string;
   isPro?: boolean;
   minutesIncluded?: number;
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   onSectionChange: (s: SettingsSection) => void;
+  onPlanChanged?: () => void;
+  pendingPlanChange?: { plan: "pro" | "studio"; billing: "monthly" | "annual" } | null;
+  onConsumePendingPlanChange?: () => void;
 }) {
   const [annual, setAnnual] = React.useState(false);
+  const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
+  const [cancelLoading, setCancelLoading] = React.useState(false);
+
+  // Auto-open the modal when the home/pricing CTA arrives with ?upgrade=...
+  React.useEffect(() => {
+    if (pendingPlanChange) {
+      setAnnual(pendingPlanChange.billing === "annual");
+      setModalTarget({ plan: pendingPlanChange.plan, billing: pendingPlanChange.billing });
+      onConsumePendingPlanChange?.();
+    }
+  }, [pendingPlanChange, onConsumePendingPlanChange]);
 
   // Derive current plan from planLabel
   const currentPlan: PlanId =
@@ -118,6 +228,35 @@ function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSe
     planLabel === "Pro" ? "pro" : "free";
 
   const planTier = PLAN_ORDER.indexOf(currentPlan);
+
+  const openChange = (plan: PlanId) => {
+    if (plan === "free") return;
+    setModalTarget({ plan, billing: annual ? "annual" : "monthly" });
+  };
+
+  const handleCancel = async () => {
+    if (!confirm("Cancel your subscription? You'll keep access until the end of your current billing period.")) return;
+    setCancelLoading(true);
+    try {
+      const res = await fetch("/api/subscription/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success("Subscription canceled. Access continues until period end.");
+        window.dispatchEvent(new CustomEvent("usage-updated"));
+        onPlanChanged?.();
+      } else {
+        toast.error(data.error || "Failed to cancel");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
 
   return (
     <div>
@@ -172,10 +311,28 @@ function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSe
           const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
           const period = id === "free" ? "forever" : "/mo";
 
-          // CTA logic
+          // CTA logic — adaptive based on user's current plan
           let ctaLabel: string | null = null;
-          if (isCurrent) ctaLabel = "Current plan";
-          else if (canUpgrade) ctaLabel = `Upgrade to ${accent.label}`;
+          let ctaAction: "upgrade" | "downgrade" | "current" | "cancel" | "get" | null = null;
+          if (id === "free") {
+            if (currentPlan !== "free") {
+              ctaLabel = "Cancel subscription";
+              ctaAction = "cancel";
+            } else {
+              ctaLabel = "Current plan";
+              ctaAction = "current";
+            }
+          } else if (isCurrent) {
+            ctaLabel = "Current plan";
+            ctaAction = "current";
+          } else if (canUpgrade) {
+            ctaLabel = currentPlan === "free" ? `Get ${accent.label}` : `Upgrade to ${accent.label}`;
+            ctaAction = currentPlan === "free" ? "get" : "upgrade";
+          } else {
+            ctaLabel = `Downgrade to ${accent.label}`;
+            ctaAction = "downgrade";
+          }
+          const isClickable = ctaAction === "upgrade" || ctaAction === "downgrade" || ctaAction === "get" || ctaAction === "cancel";
 
           return (
             <div
@@ -216,7 +373,14 @@ function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSe
               {/* CTA Button */}
               {ctaLabel && (
                 <button
-                  onClick={canUpgrade ? () => onUpgrade?.(id as "pro" | "studio", annual ? "annual" : "monthly") : undefined}
+                  onClick={
+                    !isClickable
+                      ? undefined
+                      : ctaAction === "cancel"
+                      ? () => { void handleCancel(); }
+                      : () => openChange(id)
+                  }
+                  disabled={!isClickable || (ctaAction === "cancel" && cancelLoading)}
                   style={{
                     width: "100%",
                     padding: "10px 0",
@@ -224,14 +388,21 @@ function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSe
                     fontSize: 13,
                     fontWeight: 600,
                     letterSpacing: "0.02em",
-                    cursor: canUpgrade ? "pointer" : "default",
+                    cursor: isClickable ? "pointer" : "default",
                     border: "none",
-                    backgroundColor: canUpgrade ? accent.color : C.bgHover,
-                    color: canUpgrade ? "#FFFFFF" : C.textMuted,
+                    backgroundColor:
+                      ctaAction === "upgrade" || ctaAction === "get" ? accent.color :
+                      ctaAction === "downgrade" || ctaAction === "cancel" ? C.bgHover :
+                      C.bgHover,
+                    color:
+                      ctaAction === "upgrade" || ctaAction === "get" ? "#FFFFFF" :
+                      ctaAction === "downgrade" || ctaAction === "cancel" ? C.text :
+                      C.textMuted,
+                    opacity: ctaAction === "cancel" && cancelLoading ? 0.5 : 1,
                     transition: "opacity 0.15s",
                   }}
                 >
-                  {ctaLabel}
+                  {ctaAction === "cancel" && cancelLoading ? "Canceling…" : ctaLabel}
                 </button>
               )}
 
@@ -267,11 +438,20 @@ function PlansAndPricing({ C, planLabel, isPro, minutesIncluded, onUpgrade, onSe
           VIEW USAGE →
         </button>
       </div>
+
+      <ChangePlanModal
+        open={modalTarget !== null}
+        onClose={() => setModalTarget(null)}
+        targetPlan={modalTarget?.plan ?? null}
+        targetBilling={modalTarget?.billing ?? "monthly"}
+        C={C}
+        onSuccess={() => onPlanChanged?.()}
+      />
     </div>
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
   const memberSince = createdAt
     ? new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
     : "—";
@@ -486,7 +666,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
                 <SectionHeading C={C}>Subscription</SectionHeading>
                 <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
-                  <div style={{ fontSize: 13, color: C.textMuted }}>Manage invoices, payment method, or cancel</div>
+                  <div style={{ fontSize: 13, color: C.textMuted }}>Update payment method</div>
                   <button
                     onClick={async () => {
                       try {
@@ -497,11 +677,14 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                     }}
                     style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer" }}
                   >
-                    MANAGE SUBSCRIPTION →
+                    MANAGE PAYMENT →
                   </button>
                 </div>
               </div>
             )}
+
+            {/* Billing history — invoices from Polar */}
+            {isPro && <InvoicesCard C={C} />}
 
             {/* Usage history table */}
             <div style={{ marginBottom: 0 }}>
@@ -550,7 +733,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             PLANS & PRICING
            ══════════════════════════════════════════════════════ */}
         {section === "subscription" && (
-          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} onUpgrade={onUpgrade} onSectionChange={onSectionChange} />
+          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} onUpgrade={onUpgrade} onSectionChange={onSectionChange} onPlanChanged={onPlanChanged} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={onConsumePendingPlanChange} />
         )}
 
         {/* ══════════════════════════════════════════════════════

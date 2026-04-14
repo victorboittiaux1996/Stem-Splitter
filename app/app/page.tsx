@@ -203,7 +203,9 @@ export default function AbletonDashboard() {
     const billing = billingRaw === "annual" ? "annual" : "monthly";
     if (upgradePlan === "pro" || upgradePlan === "studio") {
       window.history.replaceState({}, "", "/app");
-      handleUpgrade(upgradePlan, billing);
+      setView("settings");
+      setSettingsSection("subscription");
+      setPendingPlanChange({ plan: upgradePlan, billing });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -306,6 +308,7 @@ export default function AbletonDashboard() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("profile");
+  const [pendingPlanChange, setPendingPlanChange] = useState<{ plan: "pro" | "studio"; billing: "monthly" | "annual" } | null>(null);
 
   // Auto-correct stemCount if plan doesn't allow current selection
   useEffect(() => {
@@ -1925,7 +1928,7 @@ export default function AbletonDashboard() {
 
           {/* ═══ SETTINGS ═══ */}
           {view === "settings" && (
-            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} onUpgrade={handleUpgrade} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} createdAt={createdAt} usageHistory={history.map(h => ({
+            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} onUpgrade={handleUpgrade} onPlanChanged={() => { refetchSubscription(); setTimeout(() => refetchSubscription(), 1500); }} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={() => setPendingPlanChange(null)} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} createdAt={createdAt} usageHistory={history.map(h => ({
               date: new Date(h.completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
               details: h.name,
               type: `${h.stems}-stem`,
