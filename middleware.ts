@@ -26,10 +26,14 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh session — MUST be called to keep auth cookies fresh
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Skip getUser for auth callback — PKCE code_verifier must not be touched by middleware
+  const isAuthCallback = request.nextUrl.pathname.startsWith("/auth/callback");
+
+  let user = null;
+  if (!isAuthCallback) {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  }
 
   // Public routes that don't require auth
   const publicPaths = ["/", "/login", "/pricing", "/auth/callback", "/website-", "/v5-", "/v6", "/v7", "/speed-compare"];
