@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJobForWorkspace, writeJsonToR2, jobKey } from "@/lib/r2";
+import { getAuthUser, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computePeriodKey } from "@/lib/period";
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getAuthUser();
+  if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   const { id } = await params;
-  const wsId = request.headers.get("x-workspace-id") || null;
+  const wsId = userWorkspaceId(user.id);
   const job = await getJobForWorkspace(wsId, id);
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  if (job.userId && job.userId !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json(job);
 }
 
@@ -21,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { id } = await params;
   try {
     const updates = await request.json();
-    const wsId = (updates.workspaceId as string | null) ?? request.headers.get("x-workspace-id") ?? null;
+    const wsId = (updates.workspaceId as string | null) ?? null;
     const existing = await getJobForWorkspace(wsId, id);
     if (!existing) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     const key = jobKey(existing.workspaceId ?? wsId, id);

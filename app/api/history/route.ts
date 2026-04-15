@@ -37,15 +37,14 @@ function relativeDate(ts: number): string {
 export async function GET(request: Request) {
   try {
     // Auth check — only authenticated users can view history
-    const { getAuthUser } = await import("@/lib/supabase/auth-helpers");
+    const { getAuthUser, userWorkspaceId } = await import("@/lib/supabase/auth-helpers");
     const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const wsId = new URL(request.url).searchParams.get("workspaceId") ||
-      (request.headers as Headers).get("x-workspace-id") || null;
-    const prefix = wsId ? `workspaces/${wsId}/jobs/` : "jobs/";
+    const wsId = userWorkspaceId(user.id);
+    const prefix = `workspaces/${wsId}/jobs/`;
 
     // Paginate through R2 to collect all job keys (max 200 per page)
     let allKeys: string[] = [];

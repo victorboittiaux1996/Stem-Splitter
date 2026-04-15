@@ -35,10 +35,7 @@ const QueueContext = createContext<QueueContextValue | null>(null);
 // ─── Provider ───────────────────────────────────────────────────────────────
 
 export function QueueProvider({ children }: { children: React.ReactNode }) {
-  const [workspaceId, setWorkspaceIdState] = useState<string>(() => {
-    if (typeof window === "undefined") return "ws-1";
-    return localStorage.getItem("44stems-active-workspace") || "ws-1";
-  });
+  const [workspaceId, setWorkspaceIdState] = useState<string>("");
   const workspaceIdRef = useRef(workspaceId);
   workspaceIdRef.current = workspaceId;
 

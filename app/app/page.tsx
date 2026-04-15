@@ -354,7 +354,7 @@ export default function AbletonDashboard() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
-  const WORKSPACE_ID = "ws-1";
+  const WORKSPACE_ID = user ? `ws-${user.id}` : "";
   const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">(() => {
     if (typeof window === "undefined") return "fast";
     try {
@@ -543,7 +543,11 @@ export default function AbletonDashboard() {
     return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
   }, [isPlaying]);
 
-  const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem } = useQueue();
+  const { enqueue, enqueueUrl, items: queueItems, activeItemId, displayProgress: queueDisplayProgress, notifications, unreadCount, markAllRead, clearCompleted, removeFromQueue, retry: retryItem, setCurrentWorkspace } = useQueue();
+  useEffect(() => {
+    if (WORKSPACE_ID) setCurrentWorkspace(WORKSPACE_ID);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [WORKSPACE_ID]);
   const handleFiles = useCallback((files: File[]) => {
     const maxBytes = PLANS[userPlan].maxFileSizeMB * 1024 * 1024;
     const oversized = files.filter(f => f.size > maxBytes);

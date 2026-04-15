@@ -12,27 +12,20 @@ import type { StemDownload } from "@/lib/types";
 
 export default function ProcessingPage() {
   const { jobId } = useParams<{ jobId: string }>();
-  const [wsId] = useState(() =>
-    typeof window !== "undefined"
-      ? localStorage.getItem("44stems-active-workspace") || "ws-1"
-      : "ws-1"
-  );
-  const { job, error } = useJobStatus(jobId, wsId);
+  const { job, error } = useJobStatus(jobId);
   const [stems, setStems] = useState<StemDownload[]>([]);
 
   // Fetch download URLs when job completes
   useEffect(() => {
     if (job?.status !== "completed") return;
 
-    fetch(`/api/download/${jobId}`, {
-      headers: { "x-workspace-id": wsId },
-    })
+    fetch(`/api/download/${jobId}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.stems) setStems(data.stems);
       })
       .catch(console.error);
-  }, [job?.status, jobId, wsId]);
+  }, [job?.status, jobId]);
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-16">

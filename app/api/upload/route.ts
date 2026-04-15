@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jobKey } from "@/lib/r2";
-import { getAuthUser, getUserPlan, checkUsage } from "@/lib/supabase/auth-helpers";
+import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { PLANS } from "@/lib/plans";
 
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     ).trim();
 
     const body = await request.json();
-    const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, workspaceId = null, title = null } = body;
+    const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, title = null } = body;
 
     // Validate stem mode against plan
     const stemCountFromMode = STEM_MODE_MAP[mode] ?? 4;
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const overlap = typeof rawOverlap === "number" && [2, 8, 16].includes(rawOverlap) ? rawOverlap : 8;
-    const wsId: string | null = typeof workspaceId === "string" && workspaceId ? workspaceId : null;
+    const wsId = userWorkspaceId(user.id);
 
     // ── URL mode: { url, mode } ──────────────────────────────────────────────
     if (url) {
@@ -162,11 +162,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Processing limit reached." }, { status: 429 });
     }
 
-    const wsIdPut: string | null = typeof request.headers.get("x-workspace-id") === "string" ? request.headers.get("x-workspace-id") : null;
+    const wsIdPut = userWorkspaceId(user.id);
     const keyPut = jobKey(wsIdPut, jobId);
     const job = await readJsonFromR2<{
       id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null;
-    }>(keyPut) ?? await readJsonFromR2<{ id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null; }>(`jobs/${jobId}.json`);
+    }>(keyPut);
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }

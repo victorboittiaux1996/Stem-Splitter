@@ -2,6 +2,10 @@ import { createClient } from "./server";
 import { PLANS, type PlanId } from "@/lib/plans";
 import { computePeriodKey } from "@/lib/period";
 
+export function userWorkspaceId(userId: string): string {
+  return `ws-${userId}`;
+}
+
 export async function getAuthUser() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser, getUserPlan } from "@/lib/supabase/auth-helpers";
+import { getAuthUser, getUserPlan, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { PLANS } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 import { getJobForWorkspace } from "@/lib/r2";
@@ -22,13 +22,13 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { jobId, workspaceId } = body;
+  const { jobId } = body;
   if (!jobId || typeof jobId !== "string") {
     return NextResponse.json({ error: "jobId required" }, { status: 400 });
   }
 
-  // Verify the job exists and belongs to this user
-  const wsId: string | null = typeof workspaceId === "string" && workspaceId ? workspaceId : null;
+  // Derive workspace from auth — never trust client-supplied workspaceId
+  const wsId = userWorkspaceId(user.id);
   const job = await getJobForWorkspace(wsId, jobId);
   if (!job) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
