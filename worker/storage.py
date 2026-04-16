@@ -51,6 +51,36 @@ def stem_key(workspace_id: str | None, job_id: str, stem_name: str, ext: str) ->
     return f"stems/{job_id}/{stem_name}{ext}"
 
 
+def write_phase_timings(job_id: str, timings: dict, workspace_id: str | None = None):
+    """Append phase_timings to an existing job JSON without touching any other field.
+
+    Safe to call after the job is already 'completed' — does not reset completedAt,
+    status, or any other field set by the callback or fallback paths.
+    """
+    s3 = get_s3_client()
+    r2_key = job_key(workspace_id, job_id)
+
+    # Read existing job
+    job = None
+    try:
+        response = s3.get_object(Bucket=BUCKET, Key=r2_key)
+        job = json.loads(response["Body"].read().decode("utf-8"))
+    except Exception:
+        pass
+    if job is None:
+        return  # job not found — skip, non-fatal
+
+    # Only add phase_timings, touch nothing else
+    job["phase_timings"] = timings
+
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=r2_key,
+        Body=json.dumps(job),
+        ContentType="application/json",
+    )
+
+
 def update_job_status(
     job_id: str,
     status: str,
@@ -58,6 +88,7 @@ def update_job_status(
     stage: str = "",
     stems: list[str] | None = None,
     error: str | None = None,
+    error_code: str | None = None,
     bpm: float | None = None,
     key: str | None = None,
     key_raw: str | None = None,
@@ -65,6 +96,7 @@ def update_job_status(
     peaks: dict | None = None,
     workspace_id: str | None = None,
     user_id: str | None = None,
+    phase_timings: dict | None = None,
 ):
     """Update the job status JSON in R2."""
     s3 = get_s3_client()
@@ -95,6 +127,8 @@ def update_job_status(
         job["stems"] = stems
     if error is not None:
         job["error"] = error
+    if error_code is not None:
+        job["error_code"] = error_code
     if bpm is not None:
         job["bpm"] = bpm
     if key is not None:
@@ -109,6 +143,8 @@ def update_job_status(
         job["workspaceId"] = workspace_id
     if user_id is not None:
         job["userId"] = user_id
+    if phase_timings is not None:
+        job["phase_timings"] = phase_timings
     if status == "completed":
         import time
         job["completedAt"] = int(time.time() * 1000)

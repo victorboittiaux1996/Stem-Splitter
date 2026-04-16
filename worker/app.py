@@ -11,19 +11,209 @@ import modal
 import os
 import time
 import glob
+import threading  # parallel inference thread-local state
 
 app = modal.App("stem-splitter")
 
 VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 INSTRUMENT_MODEL = "BS-Roformer-SW.ckpt"
 
+_COLD_START = True  # True only on first invocation per container lifetime
+
+# Cached Separator instances — loaded once per container, reused across invocations.
+# Key insight: on a warm container model weights are already in VRAM, so every call
+# after the first skips the 20-35s load_model penalty for each model.
+_sep_vocal: "object | None" = None
+_sep_instru: "object | None" = None
+
+# Thread-local storage for per-thread tqdm progress state during parallel inference.
+# Each inference thread stores {"start", "end", "stage", "job_id", "ws", "last_write"} here.
+_tqdm_tls = threading.local()
+_tqdm_orig_update = None  # baseline captured on first job; detects stale patches from crashed containers
+
+# ─── bgutil PO token provider sidecar ───────────────────────────────────────
+# Node.js subprocess that listens on 127.0.0.1:4416 and serves PO tokens to yt-dlp.
+# Needed for YouTube's 2024+ anti-bot layer — without PO tokens, web/mweb/web_safari
+# clients are rate-limited immediately on datacenter IPs.
+# Kill switch: set USE_BGUTIL=false to skip sidecar entirely.
+
+_bgutil_proc = None
+
+
+def _bgutil_healthy() -> bool:
+    """Return True if bgutil sidecar is up and listening on port 4416."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 4416), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def ensure_bgutil_provider():
+    """Start the bgutil PO token provider sidecar if not already running."""
+    global _bgutil_proc
+    if os.environ.get("USE_BGUTIL", "true").lower() == "false":
+        return
+    if _bgutil_proc and _bgutil_proc.poll() is None and _bgutil_healthy():
+        return
+    import subprocess
+    import atexit
+    _bgutil_proc = subprocess.Popen(
+        ["npm", "start"],
+        cwd="/opt/bgutil-server/server",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    # Wait up to 15s for the sidecar to bind (health-check loop).
+    # bgutil fetches initial data from Google on first start, takes 5-12s on cold container.
+    import time as _time
+    for _ in range(75):
+        if _bgutil_healthy():
+            print("[bgutil] sidecar ready on :4416")
+            return
+        _time.sleep(0.2)
+    print("[bgutil] WARNING: sidecar did not start within 15s — proceeding without PO tokens")
+    atexit.register(lambda: _bgutil_proc and _bgutil_proc.terminate())
+
+
+# ─── YouTube client fallback chain ──────────────────────────────────────────
+# web_safari leads (cookies honored, PO token via bgutil).
+# tv_simply second (cookie-compatible content, no PO token needed).
+# ios DROPPED — bgutil cannot generate iOSGuard tokens.
+# android_sdkless replaces deprecated android client.
+
+YT_CLIENT_CHAIN = ["web_safari", "tv_simply", "mweb", "android_sdkless"]
+
+_CHROME_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def _is_youtube_url(url: str) -> bool:
+    return "youtube.com" in url or "youtu.be" in url or url.startswith("ytsearch:")
+
+
+# ─── Cookie jar management ──────────────────────────────────────────────────
+# Reads COOKIES_TXT_1 / COOKIES_TXT_2 / COOKIES_TXT_3 from env (Modal Secret
+# youtube-cookies-jar). Picks one deterministically by hashing the job_id so
+# retries reuse the same jar. Falls back to None if no cookies are configured.
+
+def _get_cookies_path(job_id: str) -> "str | None":
+    """Write the selected cookie jar to /tmp and return its path."""
+    jars = []
+    for i in range(1, 4):
+        val = os.environ.get(f"COOKIES_TXT_{i}", "").strip()
+        if val:
+            jars.append((i, val))
+    if not jars:
+        return None
+    # Hash job_id to pick a stable jar (same job always uses the same jar)
+    idx = hash(job_id) % len(jars)
+    jar_num, content = jars[idx]
+    path = f"/tmp/yt-cookies-{jar_num}.txt"
+    if not os.path.exists(path):
+        with open(path, "w") as f:
+            f.write(content)
+        os.chmod(path, 0o600)
+    return path
+
+
+# ─── Core yt-dlp runner ─────────────────────────────────────────────────────
+
+class YtDlpError(Exception):
+    def __init__(self, message: str, code: str, is_terminal: bool, stderr: str = ""):
+        super().__init__(message)
+        self.code = code
+        self.is_terminal = is_terminal
+        self.stderr = stderr
+
+
+def _run_ytdlp_download(url: str, output_template: str, cookies_path: "str | None",
+                        client: str, proxy: "str | None" = None) -> None:
+    """Run yt-dlp for a single client attempt. Raises YtDlpError on failure."""
+    import subprocess
+
+    cmd = [
+        "yt-dlp",
+        "--format", "bestaudio/best",
+        "-o", output_template,
+        "--no-warnings",
+        "--socket-timeout", "30",
+        "--retries", "3",
+        "--fragment-retries", "3",
+        "--concurrent-fragments", "4",   # parallel DASH fragment downloads
+        "--http-chunk-size", "10485760",  # 10 MB chunks — bypasses YouTube bandwidth throttling
+        "--buffer-size", "16K",           # reduce syscall overhead on large files
+        "--user-agent", _CHROME_UA,
+        "--extractor-args", f"youtube:player_client={client}",
+    ]
+
+    # bgutil PO token provider (YouTube only, kill-switch aware)
+    if _is_youtube_url(url) and os.environ.get("USE_BGUTIL", "true").lower() != "false" and _bgutil_healthy():
+        cmd += ["--extractor-args", "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"]
+
+    if cookies_path:
+        cmd += ["--cookies", cookies_path]
+
+    if proxy:
+        cmd += ["--proxy", proxy]
+
+    cmd.append(url)
+
+    try:
+        subprocess.run(cmd, timeout=120, check=True, capture_output=True)
+    except subprocess.TimeoutExpired:
+        raise YtDlpError("Download timed out after 120s", "network", False)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+        code, is_terminal = classify_error(stderr)
+        raise YtDlpError(f"yt-dlp failed (client={client})", code, is_terminal, stderr)
+
+
+def _run_ytdlp_chain(url: str, output_template: str, cookies_path: "str | None",
+                     proxy: "str | None" = None) -> None:
+    """Walk YT_CLIENT_CHAIN until success or a terminal error."""
+    last_error = None
+    chain = YT_CLIENT_CHAIN if _is_youtube_url(url) else ["default"]
+
+    for client in chain:
+        try:
+            _run_ytdlp_download(url, output_template, cookies_path, client, proxy)
+            return  # success
+        except YtDlpError as e:
+            if e.is_terminal:
+                raise  # private/removed/geo-blocked — no point trying other clients
+            print(f"[yt-dlp] client={client} failed ({e.code}), trying next")
+            last_error = e
+
+    if last_error:
+        raise last_error
+
+# yt-dlp version pinned — update monthly after staging smoke test
+_YT_DLP_VERSION = "2026.3.17"
+
+# Shared yt-dlp hardening commands: Node.js 20 + bgutil PO token provider + Deno 2.x
+# bgutil-ytdlp-pot-provider: Node.js HTTP sidecar that supplies PO tokens to yt-dlp
+# Deno: required by yt-dlp to solve YT's 2026 n-challenge JS cipher
+_YT_HARDENING_CMDS = [
+    "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
+    "apt-get install -y --no-install-recommends nodejs",
+    "git clone --depth 1 --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-server && cd /opt/bgutil-server/server && npm install",
+    # Deno 2.x for yt-dlp n-challenge solver
+    "curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh",
+]
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg", "libsndfile1", "git")
+    .apt_install("ffmpeg", "libsndfile1", "git", "curl", "ca-certificates", "gnupg", "unzip")
+    .run_commands(*_YT_HARDENING_CMDS)
     .pip_install(
         "audio-separator[gpu]==0.42.1", "boto3", "fastapi[standard]",
         "soundfile", "numpy", "librosa", "essentia",
-        "nnAudio==0.3.3", "einops", "tqdm", "yt-dlp", "torchaudio",
+        "nnAudio==0.3.3", "einops", "tqdm", f"yt-dlp=={_YT_DLP_VERSION}", "torchaudio",
+        "bgutil-ytdlp-pot-provider==1.3.1",
     )
     .run_commands(
         "git clone https://github.com/deezer/skey.git /opt/skey",
@@ -38,13 +228,23 @@ image = (
 )
 
 # Lightweight CPU-only image for URL metadata fetching (no GPU, no ML libs)
+# Same YT hardening as the GPU image (bgutil + Deno) so url_info uses the same client stack
 url_info_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("yt-dlp", "fastapi[standard]")
+    .apt_install("curl", "ca-certificates", "gnupg", "unzip", "git")
+    .run_commands(*_YT_HARDENING_CMDS)
+    .pip_install(f"yt-dlp=={_YT_DLP_VERSION}", "fastapi[standard]", "bgutil-ytdlp-pot-provider==1.3.1", "boto3")
+    .add_local_python_source("storage")
 )
 
 
-@app.function(image=url_info_image, timeout=60)
+@app.function(
+    image=url_info_image,
+    timeout=60,
+    secrets=[
+        modal.Secret.from_name("youtube-cookies-jar"),
+    ],
+)
 @modal.web_endpoint(method="GET")
 def url_info(url: str = "", playlist: str = ""):
     """Fetch metadata (duration + title) for a URL using yt-dlp.
@@ -60,15 +260,40 @@ def url_info(url: str = "", playlist: str = ""):
     import subprocess
     import json
 
-    # Playlist mode: extract all track URLs + metadata
-    if playlist == "1":
+    import subprocess
+    import json
+
+    # Start bgutil sidecar for YouTube metadata fetches
+    if _is_youtube_url(url):
+        try:
+            ensure_bgutil_provider()
+        except Exception as _e:
+            print(f"[bgutil] startup failed (non-fatal): {_e}")
+
+    cookies_path = _get_cookies_path("url-info") if _is_youtube_url(url) else None
+
+    def _yt_base_cmd():
+        """Shared yt-dlp flags for all url_info calls."""
         cmd = [
             "yt-dlp",
+            "--no-warnings",
+            "--socket-timeout", "15",
+            "--user-agent", _CHROME_UA,
+        ]
+        if _is_youtube_url(url):
+            cmd += ["--extractor-args", "youtube:player_client=web_safari"]
+            if _bgutil_healthy() and os.environ.get("USE_BGUTIL", "true").lower() != "false":
+                cmd += ["--extractor-args", "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"]
+        if cookies_path:
+            cmd += ["--cookies", cookies_path]
+        return cmd
+
+    # Playlist mode: extract all track URLs + metadata
+    if playlist == "1":
+        cmd = _yt_base_cmd() + [
             "--flat-playlist",
             "--dump-json",
             "--no-download",
-            "--no-warnings",
-            "--socket-timeout", "10",
             url,
         ]
         try:
@@ -92,18 +317,16 @@ def url_info(url: str = "", playlist: str = ""):
         except subprocess.TimeoutExpired:
             return {"error": "Playlist fetch timed out — too many tracks?", "isPlaylist": True, "tracks": []}
         except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode("utf-8", errors="replace")[:300] if e.stderr else ""
-            return {"error": f"Could not fetch playlist: {stderr}", "isPlaylist": True, "tracks": []}
+            stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+            code, _ = classify_error(stderr)
+            return {"error": f"Could not fetch playlist", "error_code": code, "isPlaylist": True, "tracks": []}
         except Exception as e:
-            return {"error": str(e), "isPlaylist": True, "tracks": []}
+            return {"error": str(e), "error_code": "unknown", "isPlaylist": True, "tracks": []}
 
     # Single track mode
-    cmd = [
-        "yt-dlp",
+    cmd = _yt_base_cmd() + [
         "--dump-json",
         "--no-download",
-        "--no-warnings",
-        "--socket-timeout", "10",
         url,
     ]
 
@@ -118,10 +341,11 @@ def url_info(url: str = "", playlist: str = ""):
     except subprocess.TimeoutExpired:
         return {"error": "Metadata fetch timed out", "duration": 0, "title": ""}
     except subprocess.CalledProcessError as e:
-        stderr = e.stderr.decode("utf-8", errors="replace")[:300] if e.stderr else ""
-        return {"error": f"Could not fetch URL info: {stderr}", "duration": 0, "title": ""}
+        stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+        code, _ = classify_error(stderr)
+        return {"error": "Could not fetch URL info", "error_code": code, "duration": 0, "title": ""}
     except Exception as e:
-        return {"error": str(e), "duration": 0, "title": ""}
+        return {"error": str(e), "error_code": "unknown", "duration": 0, "title": ""}
 
 
 def compute_peaks(wav_path: str, num_peaks: int = 1000) -> list[float]:
@@ -260,12 +484,67 @@ def _resolve_spotify_to_ytsearch(url: str) -> str:
     return f"ytsearch:{query}"
 
 
-def download_from_url(url: str, output_dir: str) -> str:
+def _redact_cookies(s: str) -> str:
+    """Strip cookie values from a string to prevent secret leaks in logs."""
+    import re
+    # Remove anything that looks like a Netscape cookies.txt line
+    s = re.sub(r'(\.youtube\.com|\.google\.com)\S+', '[REDACTED]', s)
+    # Remove long base64-ish tokens (cookie values are typically >20 chars of alphanumeric+_-)
+    s = re.sub(r'(?<==)[A-Za-z0-9_\-]{20,}', '[REDACTED]', s)
+    return s
+
+
+def classify_error(stderr: str) -> tuple[str, bool]:
+    """Parse yt-dlp stderr into a stable error code + terminal flag.
+
+    Returns (code, is_terminal).
+    is_terminal=True means retrying won't help (private, removed, geo-blocked, etc.).
+    is_terminal=False means the caller should retry (bot detection, rate limit, network).
+    """
+    import re
+    stderr = _redact_cookies(stderr)
+    s = stderr.lower()
+
+    patterns: list[tuple[str, str, bool]] = [
+        # bot_detected: not terminal — caller should retry with proxy
+        (r"sign in to confirm.*not a bot|http error 403|video unavailable.*confirm|"
+         r"this content isn't available|please sign in", "bot_detected", False),
+        # private
+        (r"private video|this video is private", "private", True),
+        # removed
+        (r"this video has been removed|video unavailable|the video is not available", "removed", True),
+        # geo_blocked
+        (r"not available in your country|geo.?restricted|not available.*region", "geo_blocked", True),
+        # age_restricted
+        (r"age.?restricted|confirm your age|inappropriate for some users", "age_restricted", True),
+        # rate_limited
+        (r"http error 429|too many requests|rate.?limit", "rate_limited", False),
+        # network
+        (r"network is unreachable|timed out|connection reset|name or service not known|"
+         r"ssl.*error|errno 111|errno 104", "network", False),
+        # unsupported
+        (r"unsupported url|not a valid url|no matching format", "unsupported", True),
+    ]
+
+    for pattern, code, terminal in patterns:
+        if re.search(pattern, s):
+            return (code, terminal)
+
+    return ("unknown", True)
+
+
+def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str:
     """Download audio from URL at best available quality.
 
     Dropbox links are downloaded directly via HTTP.
     Spotify links are resolved to YouTube search (DRM protection).
-    YouTube/SoundCloud/Deezer use yt-dlp with a 90-second timeout.
+    YouTube/SoundCloud/Deezer use yt-dlp with the full hardening stack:
+      - Authenticated cookies (Modal Secret youtube-cookies-jar)
+      - bgutil PO token provider sidecar
+      - Client fallback chain: web_safari → tv_simply → mweb → android_sdkless
+      - Residential proxy (YT_PROXY_URL) — used directly for YouTube when set,
+        since Modal datacenter IPs are always blocked by YouTube's anti-bot layer.
+        Skipping the primary path avoids wasting 30-60s on retries that always fail.
     """
     # Dropbox: direct HTTP download (yt-dlp doesn't support it)
     if 'dropbox.com' in url or 'dropboxusercontent.com' in url:
@@ -275,35 +554,55 @@ def download_from_url(url: str, output_dir: str) -> str:
     if 'spotify.com' in url:
         url = _resolve_spotify_to_ytsearch(url)
 
-    # All other platforms (including resolved Spotify → ytsearch): yt-dlp
-    import subprocess
+    # Start bgutil sidecar if needed (YouTube only, noop for other platforms)
+    if _is_youtube_url(url):
+        try:
+            ensure_bgutil_provider()
+        except Exception as _e:
+            print(f"[bgutil] startup failed (non-fatal): {_e}")
+
     output_template = os.path.join(output_dir, 'audio.%(ext)s')
+    cookies_path = _get_cookies_path(job_id) if _is_youtube_url(url) else None
+    proxy_url = os.environ.get("YT_PROXY_URL", "").strip()
 
-    cmd = [
-        'yt-dlp',
-        '--format', 'bestaudio/best',
-        '-o', output_template,
-        '--no-warnings', '--quiet',
-        '--socket-timeout', '30',
-        '--retries', '1',
-        '--fragment-retries', '1',
-        '--extractor-args', 'youtube:player_client=web,android',
-        '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        url,
-    ]
+    # For YouTube with proxy configured: go straight to proxy.
+    # Modal datacenter IPs are always bot-detected by YouTube — trying primary first
+    # wastes 30-60s on retries that are guaranteed to fail.
+    # For non-YouTube (SoundCloud, Deezer, etc.) or when proxy is not configured:
+    # try primary path first, fall back to proxy on non-terminal errors.
+    if _is_youtube_url(url) and proxy_url:
+        print(f"[yt-dlp] YouTube detected + proxy configured — using proxy directly")
+        try:
+            with _ytdlp_semaphore:
+                _run_ytdlp_chain(url, output_template, cookies_path, proxy=proxy_url)
+        except YtDlpError as err:
+            raise Exception(f"{err.code}:{err.args[0]}")
+    else:
+        # Primary path: direct Modal egress + client fallback chain
+        # Semaphore caps concurrent yt-dlp processes at 3 — prevents bot-signature burst patterns.
+        try:
+            with _ytdlp_semaphore:
+                _run_ytdlp_chain(url, output_template, cookies_path, proxy=None)
+        except YtDlpError as primary_err:
+            if primary_err.is_terminal:
+                # Private/removed/geo-blocked — proxy won't help
+                raise Exception(f"{primary_err.code}:{primary_err.args[0]}")
 
-    try:
-        subprocess.run(cmd, timeout=90, check=True, capture_output=True)
-    except subprocess.TimeoutExpired:
-        raise TimeoutError("Download timed out after 90 seconds — the source may be blocking this server's IP")
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr.decode('utf-8', errors='replace')[:500] if e.stderr else ''
-        raise Exception(f"Download failed: {stderr}")
+            # Non-terminal (bot_detected, rate_limited, network) → try proxy
+            if proxy_url:
+                print(f"[yt-dlp] primary failed ({primary_err.code}), retrying via residential proxy")
+                try:
+                    with _ytdlp_semaphore:
+                        _run_ytdlp_chain(url, output_template, cookies_path, proxy=proxy_url)
+                except YtDlpError as proxy_err:
+                    raise Exception(f"{proxy_err.code}:{proxy_err.args[0]}")
+            else:
+                raise Exception(f"{primary_err.code}:{primary_err.args[0]}")
 
     for f in os.listdir(output_dir):
         if f.startswith('audio.') and not f.endswith('.part'):
             return os.path.join(output_dir, f)
-    raise Exception(f"No audio file found after download from {url}")
+    raise Exception(f"unknown:No audio file found after download from {url}")
 
 
 def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
@@ -334,7 +633,71 @@ def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
     return patched, _orig
 
 
-@app.function(image=image, gpu="H100", timeout=600, keep_warm=0, secrets=[modal.Secret.from_name("r2-credentials")])
+def _make_parallel_tqdm_dispatch(orig):
+    """Return a thread-safe tqdm.update replacement for parallel inference.
+
+    Reads per-thread progress state from _tqdm_tls.state and writes to R2 at most
+    once per second. Threads without TLS state are silently ignored (safe for any
+    background threads that audio-separator may spawn internally).
+    """
+    from storage import update_job_status
+    import time as _t
+
+    def _dispatch(self, n=1):
+        orig(self, n)
+        state = getattr(_tqdm_tls, "state", None)
+        if state is None:
+            return  # non-instrumented thread — do nothing
+        if self.total and self.total > 0:
+            pct = int(state["start"] + (self.n / self.total) * (state["end"] - state["start"]))
+            now = _t.time()
+            last_write = state["last_write"]
+            if now - last_write[0] >= 1.0:
+                last_write[0] = now
+                try:
+                    update_job_status(
+                        state["job_id"], "processing", progress=pct,
+                        stage=state["stage"], workspace_id=state["ws"],
+                    )
+                except Exception:
+                    pass  # never let a progress write failure kill the job
+
+    return _dispatch
+
+
+def _assert_tqdm_clean(job_id):
+    """Detect and repair a stale tqdm.update patch from a previous crashed parallel job.
+
+    First call per container: captures tqdm.update as the clean baseline.
+    Subsequent calls: if tqdm.update differs from baseline, restores it and logs a warning.
+    This handles the edge case where a container-level OOM prevented the parallel
+    branch's finally block from running, leaving a stale patch in place.
+    """
+    global _tqdm_orig_update
+    try:
+        from tqdm import tqdm as _tqdm
+        if _tqdm_orig_update is None:
+            _tqdm_orig_update = _tqdm.update
+            return
+        if _tqdm.update is not _tqdm_orig_update:
+            print(f"[PAR] job={job_id} WARNING stale tqdm patch from previous job — restoring")
+            _tqdm.update = _tqdm_orig_update
+    except Exception:
+        pass
+
+
+@app.function(
+    image=image,
+    gpu="H100",
+    timeout=600,
+    keep_warm=0,  # NEVER increase without explicit cost approval — H100 = ~$95/day
+    secrets=[
+        modal.Secret.from_name("r2-credentials"),
+        modal.Secret.from_name("youtube-cookies-jar"),
+        modal.Secret.from_name("yt-proxy-url"),
+        modal.Secret.from_name("feature-flags"),
+    ],
+)
 @modal.web_endpoint(method="POST")
 def separate(request: dict):
     """Process a stem separation job.
@@ -350,6 +713,12 @@ def separate(request: dict):
     import logging
     logging.getLogger("audio_separator").setLevel(logging.WARNING)
 
+    global _COLD_START, _sep_vocal, _sep_instru
+    _cold = _COLD_START
+    _COLD_START = False
+    _job_start = time.time()
+    _timings: dict[str, float] = {}
+
     job_id = request.get("jobId", "test")
     mode = request.get("mode", "4stem")
     audio_b64 = request.get("audio_base64")
@@ -359,21 +728,52 @@ def separate(request: dict):
     overlap = request.get("overlap", 8)
     workspace_id = request.get("workspaceId") or None
     mdxc = {"overlap": overlap}
+    parallel_enabled = (
+        os.environ.get("PARALLEL_INFERENCE", "0").strip() == "1"
+        and mode in ("4stem", "6stem")  # 2stem skips the second model entirely
+        and job_id != "test"            # test path bypasses tqdm hook
+    )
+    _timings['parallel_mode'] = 1 if parallel_enabled else 0
+    _assert_tqdm_clean(job_id)
+
+    _container_id = os.environ.get("MODAL_TASK_ID", "local")
+    print(f"[TIMING] job={job_id} cold={int(_cold)} container={_container_id} phase=start")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Get input file
+        _t0 = time.time()
         if download_url:
             print(f"Downloading audio from URL: {download_url}")
             from storage import update_job_status
             update_job_status(job_id, "processing", progress=5, stage="Downloading audio", workspace_id=workspace_id)
             try:
-                input_path = download_from_url(download_url, tmpdir)
+                input_path = download_from_url(download_url, tmpdir, job_id=job_id)
                 print(f"Downloaded: {input_path}")
             except Exception as e:
-                error_msg = f"Failed to download audio: {e}"
-                print(f"ERROR: {error_msg}")
-                update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg, workspace_id=workspace_id)
-                return {"error": error_msg}
+                raw_error = str(e)
+                # download_from_url raises "error_code:detail" — parse it
+                _ERROR_MESSAGES = {
+                    "bot_detected": "YouTube is temporarily blocking this request. Try again or upload the audio file directly.",
+                    "private": "This video is private and cannot be imported.",
+                    "removed": "This video is no longer available.",
+                    "geo_blocked": "This video is geo-restricted and cannot be imported.",
+                    "age_restricted": "This video is age-restricted and cannot be imported.",
+                    "rate_limited": "Too many requests. Please wait a minute and try again.",
+                    "network": "Could not reach the source. Please try again.",
+                    "unsupported": "This URL is not supported.",
+                    "unknown": "Import failed. Please try again or upload the audio file. Contact hello@44stems.com if the problem persists.",
+                }
+                known_codes = set(_ERROR_MESSAGES.keys())
+                parts = raw_error.split(":", 1)
+                if len(parts) == 2 and parts[0] in known_codes:
+                    error_code = parts[0]
+                else:
+                    error_code, _ = classify_error(raw_error)
+                user_msg = _ERROR_MESSAGES.get(error_code, _ERROR_MESSAGES["unknown"])
+                print(f"ERROR download ({error_code}): {_redact_cookies(raw_error)}")
+                update_job_status(job_id, "failed", progress=0, stage="Error",
+                                  error=user_msg, error_code=error_code, workspace_id=workspace_id)
+                return {"error": user_msg}
         elif audio_b64:
             filename = request.get("filename", "input.mp3")
             ext = os.path.splitext(filename)[1] or ".mp3"
@@ -391,76 +791,340 @@ def separate(request: dict):
             return {"error": "No audio provided"}
 
 
+        _timings['download_input'] = time.time() - _t0
+        print(f"[TIMING] job={job_id} phase=download_input dur={_timings['download_input']:.2f}s")
+
         # Convert input to WAV 24-bit (forces audio-separator to output 24-bit)
+        _t0 = time.time()
         print("Converting input to WAV 24-bit...")
         input_path = ensure_wav24(input_path, tmpdir)
         print("Input converted to WAV 24-bit")
+        _timings['wav24_transcode'] = time.time() - _t0
+        print(f"[TIMING] job={job_id} phase=wav24_transcode dur={_timings['wav24_transcode']:.2f}s")
 
-        # Analyze BPM + key before separation (~3-4s)
+        import concurrent.futures as _cf
+
+        # Analyze BPM + key — sequential (S-KEY uses GPU, concurrent would cause H100 contention)
+        _t0 = time.time()
         from analyzer import analyze_track
         analysis = analyze_track(input_path)
+        _timings['analyze_track'] = time.time() - _t0
+        print(f"[TIMING] job={job_id} phase=analyze_track dur={_timings['analyze_track']:.2f}s")
 
         results = {}
         stem_names = []
 
-        # === VOCALS: MelBand RoFormer ===
-        vocal_dir = os.path.join(tmpdir, "vocals")
-        os.makedirs(vocal_dir)
+        if not parallel_enabled:
+            # === SEQUENTIAL PATH (default) ===
+            # === VOCALS: MelBand RoFormer ===
+            vocal_dir = os.path.join(tmpdir, "vocals")
+            os.makedirs(vocal_dir)
 
-        print(f"Extracting vocals (MelBand RoFormer, overlap={overlap})...")
-        sep_v = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
-        sep_v.load_model(model_filename=VOCAL_MODEL)
-        start = time.time()
-        if job_id != "test":
-            from tqdm import tqdm as _tqdm
-            _end_pct = 85 if mode == "2stem" else 50
-            _patched, _orig = _make_tqdm_hook(10, _end_pct, job_id, "Extracting vocals", workspace_id=workspace_id)
-            _tqdm.update = _patched
+            print(f"Extracting vocals (MelBand RoFormer, overlap={overlap})...")
+            _t0 = time.time()
+            if _sep_vocal is None:
+                _sep_vocal = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
+                _sep_vocal.load_model(model_filename=VOCAL_MODEL)
+                print(f"[TIMING] job={job_id} phase=sep_vocal_load_model cold_load=1")
+            else:
+                # Warm reuse — update output_dir and overlap on model_instance directly.
+                # mdxc_params['overlap'] is baked into model_instance.overlap at load_model() time
+                # (see audio_separator/separator/architectures/mdxc_separator.py:42), so we must
+                # patch it here to ensure the correct preset is used for this job.
+                # Modal: one job per container — no concurrent access to these globals.
+                _sep_vocal.output_dir = vocal_dir
+                _sep_vocal.mdxc_params = mdxc
+                if hasattr(_sep_vocal, "model_instance") and _sep_vocal.model_instance is not None:
+                    _sep_vocal.model_instance.overlap = mdxc.get("overlap", 8)
+                    _sep_vocal.model_instance.output_dir = vocal_dir  # must be patched: set at load_model time, old tmpdir is deleted
+                print(f"[TIMING] job={job_id} phase=sep_vocal_load_model cold_load=0 (cached, overlap={mdxc.get('overlap')})")
+            sep_v = _sep_vocal
+            _timings['sep_vocal_load_model'] = time.time() - _t0
+            print(f"[TIMING] job={job_id} phase=sep_vocal_load_model dur={_timings['sep_vocal_load_model']:.2f}s")
             try:
-                sep_v.separate(input_path)
-            finally:
-                _tqdm.update = _orig
-        else:
-            sep_v.separate(input_path)
-        vocal_time = time.time() - start
-        print(f"Vocals done in {vocal_time:.1f}s")
-
-        for f in os.listdir(vocal_dir):
-            if "(vocals)" in f.lower() and f.endswith(".wav"):
-                results["vocals"] = os.path.join(vocal_dir, f)
-                stem_names.append("vocals")
-                break
-
-        if mode == "2stem":
-            # Also grab instrumental
-            for f in os.listdir(vocal_dir):
-                if "(other)" in f.lower() and f.endswith(".wav"):
-                    results["instrumental"] = os.path.join(vocal_dir, f)
-                    stem_names.append("instrumental")
-                    break
-        else:
-            # === INSTRUMENTS: BS-RoFormer SW ===
-            inst_dir = os.path.join(tmpdir, "instruments")
-            os.makedirs(inst_dir)
-
-            print(f"Extracting instruments (BS-RoFormer SW, overlap={overlap})...")
-            sep_i = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
-            sep_i.load_model(model_filename=INSTRUMENT_MODEL)
+                import subprocess as _sp
+                _smi = _sp.run(
+                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                    capture_output=True, timeout=5,
+                )
+                print(f"[GPU] sm_util%,vram_used_mb,vram_total_mb: {_smi.stdout.decode().strip()}")
+            except Exception:
+                pass
             start = time.time()
             if job_id != "test":
                 from tqdm import tqdm as _tqdm
-                _patched, _orig = _make_tqdm_hook(50, 85, job_id, "Extracting instruments", workspace_id=workspace_id)
+                _end_pct = 85 if mode == "2stem" else 50
+                _patched, _orig = _make_tqdm_hook(10, _end_pct, job_id, "Extracting vocals", workspace_id=workspace_id)
                 _tqdm.update = _patched
                 try:
-                    sep_i.separate(input_path)
+                    sep_v.separate(input_path)
                 finally:
                     _tqdm.update = _orig
             else:
-                sep_i.separate(input_path)
-            inst_time = time.time() - start
-            print(f"Instruments done in {inst_time:.1f}s")
+                sep_v.separate(input_path)
+            vocal_time = time.time() - start
+            print(f"Vocals done in {vocal_time:.1f}s")
+            _timings['sep_vocal_infer'] = vocal_time
+            print(f"[TIMING] job={job_id} phase=sep_vocal_infer dur={vocal_time:.2f}s")
 
-            # Collect individual instrument stems
+            for f in os.listdir(vocal_dir):
+                if "(vocals)" in f.lower() and f.endswith(".wav"):
+                    results["vocals"] = os.path.join(vocal_dir, f)
+                    stem_names.append("vocals")
+                    break
+
+            if mode == "2stem":
+                # Also grab instrumental
+                for f in os.listdir(vocal_dir):
+                    if "(other)" in f.lower() and f.endswith(".wav"):
+                        results["instrumental"] = os.path.join(vocal_dir, f)
+                        stem_names.append("instrumental")
+                        break
+            else:
+                # === INSTRUMENTS: BS-RoFormer SW ===
+                inst_dir = os.path.join(tmpdir, "instruments")
+                os.makedirs(inst_dir)
+
+                print(f"Extracting instruments (BS-RoFormer SW, overlap={overlap})...")
+                _t0 = time.time()
+                if _sep_instru is None:
+                    _sep_instru = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
+                    _sep_instru.load_model(model_filename=INSTRUMENT_MODEL)
+                    print(f"[TIMING] job={job_id} phase=sep_instru_load_model cold_load=1")
+                else:
+                    # Warm reuse — same logic as sep_vocal: patch output_dir and model_instance.overlap directly.
+                    _sep_instru.output_dir = inst_dir
+                    _sep_instru.mdxc_params = mdxc
+                    if hasattr(_sep_instru, "model_instance") and _sep_instru.model_instance is not None:
+                        _sep_instru.model_instance.overlap = mdxc.get("overlap", 8)
+                        _sep_instru.model_instance.output_dir = inst_dir  # must be patched: set at load_model time, old tmpdir is deleted
+                    print(f"[TIMING] job={job_id} phase=sep_instru_load_model cold_load=0 (cached, overlap={mdxc.get('overlap')})")
+                sep_i = _sep_instru
+                _timings['sep_instru_load_model'] = time.time() - _t0
+                print(f"[TIMING] job={job_id} phase=sep_instru_load_model dur={_timings['sep_instru_load_model']:.2f}s")
+                start = time.time()
+                if job_id != "test":
+                    from tqdm import tqdm as _tqdm
+                    _patched, _orig = _make_tqdm_hook(50, 85, job_id, "Extracting instruments", workspace_id=workspace_id)
+                    _tqdm.update = _patched
+                    try:
+                        sep_i.separate(input_path)
+                    finally:
+                        _tqdm.update = _orig
+                else:
+                    sep_i.separate(input_path)
+                inst_time = time.time() - start
+                print(f"Instruments done in {inst_time:.1f}s")
+                _timings['sep_instru_infer'] = inst_time
+                print(f"[TIMING] job={job_id} phase=sep_instru_infer dur={inst_time:.2f}s")
+
+                # Collect individual instrument stems
+                inst_stems = {}
+                for f in glob.glob(os.path.join(inst_dir, "**", "*.wav"), recursive=True):
+                    fl = os.path.basename(f).lower()
+                    for key in ["drums", "bass", "other", "guitar", "piano"]:
+                        if f"({key})" in fl:
+                            inst_stems[key] = f
+
+                # Drums and Bass stay separate
+                if "drums" in inst_stems:
+                    results["drums"] = inst_stems["drums"]
+                    stem_names.append("drums")
+                if "bass" in inst_stems:
+                    results["bass"] = inst_stems["bass"]
+                    stem_names.append("bass")
+
+                if mode == "6stem":
+                    # Keep guitar, piano, other separate
+                    for key in ["guitar", "piano", "other"]:
+                        if key in inst_stems:
+                            results[key] = inst_stems[key]
+                            stem_names.append(key)
+                    print(f"6-stem mode: kept guitar/piano/other separate")
+                else:
+                    # 4-stem: merge guitar + piano + other → single "other" stem
+                    merge_files = [inst_stems[k] for k in ["other", "guitar", "piano"] if k in inst_stems]
+                    _t0_merge = time.time()
+                    if merge_files:
+                        import numpy as np
+                        import soundfile as sf
+
+                        merged = None
+                        sr = None
+                        for mf in merge_files:
+                            data, sample_rate = sf.read(mf)
+                            sr = sample_rate
+                            if merged is None:
+                                merged = data.astype(np.float64)
+                            else:
+                                if len(data) > len(merged):
+                                    merged = np.pad(merged, ((0, len(data) - len(merged)), (0, 0)))
+                                elif len(merged) > len(data):
+                                    data = np.pad(data, ((0, len(merged) - len(data)), (0, 0)))
+                                merged += data.astype(np.float64)
+
+                        peak = np.max(np.abs(merged))
+                        if peak > 0.95:
+                            merged = merged * (0.95 / peak)
+
+                        other_path = os.path.join(inst_dir, "merged_other.wav")
+                        sf.write(other_path, merged.astype(np.float32), sr, subtype='PCM_24')
+                        results["other"] = other_path
+                        stem_names.append("other")
+                        print(f"4-stem mode: merged {len(merge_files)} stems into 'other'")
+                    _timings['merge_stems'] = time.time() - _t0_merge
+                    print(f"[TIMING] job={job_id} phase=merge_stems dur={_timings['merge_stems']:.2f}s")
+
+        else:
+            # === PARALLEL INFERENCE (PARALLEL_INFERENCE=1, mode=4stem/6stem only) ===
+            # Both models run simultaneously on the same H100 via ThreadPoolExecutor.
+            # tqdm progress dispatched per-thread via threading.local() — zero contention.
+            _par_t0 = time.time()
+            print(f"[PAR] job={job_id} mode={mode} overlap={overlap} enabled=1")
+
+            vocal_dir = os.path.join(tmpdir, "vocals")
+            os.makedirs(vocal_dir)
+            inst_dir = os.path.join(tmpdir, "instruments")
+            os.makedirs(inst_dir)
+
+            # --- Init vocal separator ---
+            _t0 = time.time()
+            if _sep_vocal is None:
+                _sep_vocal = Separator(output_dir=vocal_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
+                _sep_vocal.load_model(model_filename=VOCAL_MODEL)
+                print(f"[TIMING] job={job_id} phase=sep_vocal_load_model cold_load=1")
+            else:
+                _sep_vocal.output_dir = vocal_dir
+                _sep_vocal.mdxc_params = mdxc
+                if hasattr(_sep_vocal, "model_instance") and _sep_vocal.model_instance is not None:
+                    _sep_vocal.model_instance.overlap = mdxc.get("overlap", 8)
+                    _sep_vocal.model_instance.output_dir = vocal_dir
+                print(f"[TIMING] job={job_id} phase=sep_vocal_load_model cold_load=0 (cached, overlap={mdxc.get('overlap')})")
+            sep_v = _sep_vocal
+            _timings['sep_vocal_load_model'] = time.time() - _t0
+
+            # --- Init instru separator ---
+            _t0 = time.time()
+            if _sep_instru is None:
+                _sep_instru = Separator(output_dir=inst_dir, output_format="WAV", normalization_threshold=0.9, mdxc_params=mdxc)
+                _sep_instru.load_model(model_filename=INSTRUMENT_MODEL)
+                print(f"[TIMING] job={job_id} phase=sep_instru_load_model cold_load=1")
+            else:
+                _sep_instru.output_dir = inst_dir
+                _sep_instru.mdxc_params = mdxc
+                if hasattr(_sep_instru, "model_instance") and _sep_instru.model_instance is not None:
+                    _sep_instru.model_instance.overlap = mdxc.get("overlap", 8)
+                    _sep_instru.model_instance.output_dir = inst_dir
+                print(f"[TIMING] job={job_id} phase=sep_instru_load_model cold_load=0 (cached, overlap={mdxc.get('overlap')})")
+            sep_i = _sep_instru
+            _timings['sep_instru_load_model'] = time.time() - _t0
+
+            try:
+                import subprocess as _sp2
+                _smi = _sp2.run(
+                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                    capture_output=True, timeout=5,
+                )
+                print(f"[PAR] job={job_id} phase=parallel_start vram: {_smi.stdout.decode().strip()}")
+            except Exception:
+                pass
+
+            # Per-thread timing captured via mutable containers (dict lookup is atomic)
+            _v_timing = [None]
+            _i_timing = [None]
+
+            def _run_vocal():
+                print(f"[PAR] job={job_id} thread=vocal started")
+                _t = time.time()
+                _tqdm_tls.state = {
+                    "start": 10, "end": 50, "stage": "Extracting vocals",
+                    "job_id": job_id, "ws": workspace_id, "last_write": [0.0],
+                }
+                try:
+                    sep_v.separate(input_path)
+                except BaseException as _e:
+                    print(f"[PAR] job={job_id} thread=vocal RAISED: {type(_e).__name__}: {_e}")
+                    raise
+                finally:
+                    try:
+                        del _tqdm_tls.state
+                    except AttributeError:
+                        pass
+                    _v_timing[0] = time.time() - _t
+                    print(f"[PAR] job={job_id} thread=vocal done dur={_v_timing[0]:.2f}s")
+
+            def _run_instru():
+                print(f"[PAR] job={job_id} thread=instru started")
+                _t = time.time()
+                _tqdm_tls.state = {
+                    "start": 50, "end": 85, "stage": "Extracting instruments",
+                    "job_id": job_id, "ws": workspace_id, "last_write": [0.0],
+                }
+                try:
+                    sep_i.separate(input_path)
+                except BaseException as _e:
+                    print(f"[PAR] job={job_id} thread=instru RAISED: {type(_e).__name__}: {_e}")
+                    raise
+                finally:
+                    try:
+                        del _tqdm_tls.state
+                    except AttributeError:
+                        pass
+                    _i_timing[0] = time.time() - _t
+                    print(f"[PAR] job={job_id} thread=instru done dur={_i_timing[0]:.2f}s")
+
+            # Install parallel tqdm dispatch (thread-safe via TLS), run both, always restore
+            _par_tqdm_orig = None
+            if job_id != "test":
+                from tqdm import tqdm as _tqdm
+                _par_tqdm_orig = _tqdm.update
+                _tqdm.update = _make_parallel_tqdm_dispatch(_par_tqdm_orig)
+
+            _par_first_exc = [None]
+            try:
+                with _cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="sep") as _pool:
+                    fut_v = _pool.submit(_run_vocal)
+                    fut_i = _pool.submit(_run_instru)
+                    _done, _pending = _cf.wait([fut_v, fut_i], return_when=_cf.FIRST_EXCEPTION)
+                    # Drain sibling even on failure — threads can't be killed mid-inference
+                    for _f in list(_pending) + list(_done):
+                        try:
+                            _f.result()
+                        except BaseException as _e:
+                            if _par_first_exc[0] is None:
+                                _par_first_exc[0] = _e
+            finally:
+                if _par_tqdm_orig is not None:
+                    from tqdm import tqdm as _tqdm
+                    _tqdm.update = _par_tqdm_orig  # GUARANTEED restored
+                # Always record timings — even on failure path (criterion 5)
+                _timings['sep_vocal_infer'] = _v_timing[0] or 0.0
+                _timings['sep_instru_infer'] = _i_timing[0] or 0.0
+                _timings['sep_parallel_wall'] = time.time() - _par_t0
+                _serial_sum = (_v_timing[0] or 0.0) + (_i_timing[0] or 0.0)
+                if _timings['sep_parallel_wall'] > 0:
+                    print(f"[PAR] job={job_id} phase=parallel_wall dur={_timings['sep_parallel_wall']:.2f}s serial_sum={_serial_sum:.2f}s speedup={_serial_sum/_timings['sep_parallel_wall']:.2f}x")
+
+            if _par_first_exc[0] is not None:
+                raise _par_first_exc[0]
+
+            try:
+                _smi2 = _sp2.run(
+                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                    capture_output=True, timeout=5,
+                )
+                print(f"[PAR] job={job_id} phase=parallel_end vram: {_smi2.stdout.decode().strip()}")
+            except Exception:
+                pass
+
+            # Collect vocals
+            for f in os.listdir(vocal_dir):
+                if "(vocals)" in f.lower() and f.endswith(".wav"):
+                    results["vocals"] = os.path.join(vocal_dir, f)
+                    stem_names.append("vocals")
+                    break
+
+            # Collect instrument stems
             inst_stems = {}
             for f in glob.glob(os.path.join(inst_dir, "**", "*.wav"), recursive=True):
                 fl = os.path.basename(f).lower()
@@ -468,7 +1132,6 @@ def separate(request: dict):
                     if f"({key})" in fl:
                         inst_stems[key] = f
 
-            # Drums and Bass stay separate
             if "drums" in inst_stems:
                 results["drums"] = inst_stems["drums"]
                 stem_names.append("drums")
@@ -477,7 +1140,6 @@ def separate(request: dict):
                 stem_names.append("bass")
 
             if mode == "6stem":
-                # Keep guitar, piano, other separate
                 for key in ["guitar", "piano", "other"]:
                     if key in inst_stems:
                         results[key] = inst_stems[key]
@@ -486,6 +1148,7 @@ def separate(request: dict):
             else:
                 # 4-stem: merge guitar + piano + other → single "other" stem
                 merge_files = [inst_stems[k] for k in ["other", "guitar", "piano"] if k in inst_stems]
+                _t0_merge = time.time()
                 if merge_files:
                     import numpy as np
                     import soundfile as sf
@@ -513,6 +1176,8 @@ def separate(request: dict):
                     results["other"] = other_path
                     stem_names.append("other")
                     print(f"4-stem mode: merged {len(merge_files)} stems into 'other'")
+                _timings['merge_stems'] = time.time() - _t0_merge
+                print(f"[TIMING] job={job_id} phase=merge_stems dur={_timings['merge_stems']:.2f}s")
 
         # Fail explicitly if no stems were produced
         if not results:
@@ -530,29 +1195,31 @@ def separate(request: dict):
             uploaded_bytes = [0]
             last_pct = [85]
 
-            def _upload_callback(bytes_transferred):
-                uploaded_bytes[0] += bytes_transferred
-                pct = 85 + int((uploaded_bytes[0] / total_bytes) * 14)  # 85→99
-                pct = min(pct, 99)
-                if pct > last_pct[0]:
-                    last_pct[0] = pct
-                    update_job_status(job_id, "processing", progress=pct, stage="Uploading stems", workspace_id=workspace_id)
-
             # Compute waveform peaks before upload (~1s)
+            _t0 = time.time()
             print("Computing waveform peaks...")
             stem_peaks = {}
             for stem_name, filepath in results.items():
                 stem_peaks[stem_name] = compute_peaks(filepath)
             print(f"Peaks computed for {len(stem_peaks)} stems")
+            _timings['compute_peaks'] = time.time() - _t0
+            print(f"[TIMING] job={job_id} phase=compute_peaks dur={_timings['compute_peaks']:.2f}s")
 
-            # Convert stems to MP3 320kbps
-            print("Converting stems to MP3 320kbps...")
+            # Convert stems to MP3 320kbps — all stems in parallel (one thread per stem)
+            _t0 = time.time()
+            print("Converting stems to MP3 320kbps (parallel)...")
             mp3_results = {}
-            for stem_name, filepath in results.items():
-                mp3_path = filepath.replace(".wav", ".mp3")
-                convert_to_mp3(filepath, mp3_path)
-                mp3_results[stem_name] = mp3_path
+            def _encode_stem(args):
+                name, wav_path = args
+                mp3_path = wav_path.replace(".wav", ".mp3")
+                convert_to_mp3(wav_path, mp3_path)
+                return name, mp3_path
+            with _cf.ThreadPoolExecutor(max_workers=len(results)) as _pool:
+                for stem_name, mp3_path in _pool.map(_encode_stem, results.items()):
+                    mp3_results[stem_name] = mp3_path
             print(f"MP3 conversion done for {len(mp3_results)} stems")
+            _timings['mp3_encode_total'] = time.time() - _t0
+            print(f"[TIMING] job={job_id} phase=mp3_encode_total dur={_timings['mp3_encode_total']:.2f}s")
 
             # Recompute total bytes (WAV + MP3) for accurate progress
             import os as _os
@@ -560,13 +1227,38 @@ def separate(request: dict):
             total_bytes += sum(_os.path.getsize(fp) for fp in mp3_results.values())
 
             from storage import stem_key as _stem_key
+            import threading as _threading
+            _t0 = time.time()
             update_job_status(job_id, "processing", progress=85, stage="Uploading stems", workspace_id=workspace_id)
+
+            # Build upload task list: (local_path, r2_key, content_type)
+            _upload_tasks = []
             for stem_name, filepath in results.items():
-                r2_key = _stem_key(workspace_id, job_id, stem_name, ".wav")
-                upload_to_r2(filepath, r2_key, callback=_upload_callback)
+                _upload_tasks.append((filepath, _stem_key(workspace_id, job_id, stem_name, ".wav"), "audio/wav"))
             for stem_name, filepath in mp3_results.items():
-                r2_key = _stem_key(workspace_id, job_id, stem_name, ".mp3")
-                upload_to_r2(filepath, r2_key, content_type="audio/mpeg", callback=_upload_callback)
+                _upload_tasks.append((filepath, _stem_key(workspace_id, job_id, stem_name, ".mp3"), "audio/mpeg"))
+
+            # Thread-safe progress counter for parallel uploads
+            _upload_lock = _threading.Lock()
+            def _safe_upload_callback(bytes_transferred):
+                with _upload_lock:
+                    uploaded_bytes[0] += bytes_transferred
+                pct = 85 + int((uploaded_bytes[0] / total_bytes) * 14)
+                pct = min(pct, 99)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job_status(job_id, "processing", progress=pct, stage="Uploading stems", workspace_id=workspace_id)
+
+            def _do_upload(args):
+                local_path, r2_key, ct = args
+                upload_to_r2(local_path, r2_key, content_type=ct, callback=_safe_upload_callback)
+
+            with _cf.ThreadPoolExecutor(max_workers=4) as _pool:
+                for _ in _pool.map(_do_upload, _upload_tasks):
+                    pass  # raises on first error
+
+            _timings['upload_r2_total'] = time.time() - _t0
+            print(f"[TIMING] job={job_id} phase=upload_r2_total dur={_timings['upload_r2_total']:.2f}s")
 
             # Write all data to R2 at progress=99 — NOT "completed" yet.
             # The PATCH callback will flip to "completed" AFTER tracking usage in Supabase.
@@ -579,6 +1271,7 @@ def separate(request: dict):
 
             # Notify Next.js to track usage minutes and flip status to "completed"
             # No retry — increment_usage is additive, retrying risks double-counting
+            _t0 = time.time()
             callback_ok = False
             if callback_url:
                 import urllib.request
@@ -619,6 +1312,9 @@ def separate(request: dict):
                 except Exception as e:
                     print(f"Callback failed — usage NOT tracked for job {job_id}: {type(e).__name__}: {e}")
 
+            _timings['callback_nextjs'] = time.time() - _t0
+            print(f"[TIMING] job={job_id} phase=callback_nextjs dur={_timings['callback_nextjs']:.2f}s")
+
             # Fallback: if callback failed (or no callback_url), write "completed" to R2
             # so the user still sees their stems — but usage won't be tracked
             if not callback_ok:
@@ -628,6 +1324,16 @@ def separate(request: dict):
                                       workspace_id=workspace_id)
                 except Exception as e:
                     print(f"Fallback R2 write also failed for job {job_id}: {e}")
+
+            # Write phase_timings to R2 — targeted write that only adds the timings key,
+            # never touching status, completedAt, or any other field set by the callback.
+            _timings['total_wall_time'] = time.time() - _job_start
+            print(f"[TIMING] job={job_id} phase=total_wall_time dur={_timings['total_wall_time']:.2f}s cold={int(_cold)}")
+            try:
+                from storage import write_phase_timings as _wpt
+                _wpt(job_id, _timings, workspace_id=workspace_id)
+            except Exception as _e:
+                print(f"[TIMING] phase_timings write failed (non-fatal): {_e}")
 
             return {"status": "completed", "stems": stem_names}
 
@@ -648,3 +1354,139 @@ def separate(request: dict):
             "bpm": analysis["bpm"], "key": analysis["key"], "key_raw": analysis["key_raw"],
             "duration": analysis["duration"], "peaks": stem_peaks,
         }
+
+
+# ─── Concurrency semaphore for yt-dlp calls ─────────────────────────────────
+# Prevents a burst of 30-50 parallel imports from triggering YT bot detection.
+# Excess requests queue naturally via Modal's scheduler.
+import threading as _threading
+_ytdlp_semaphore = _threading.Semaphore(3)
+
+
+# ─── Synthetic monitoring (Layer 6) ─────────────────────────────────────────
+
+# First YouTube video ever (jawed, "Me at the zoo", always available since 2005)
+_YT_PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+
+@app.function(
+    image=url_info_image,
+    schedule=modal.Cron("0 * * * *"),  # every hour on the hour
+    secrets=[
+        modal.Secret.from_name("r2-credentials"),
+        modal.Secret.from_name("youtube-cookies-jar"),
+        modal.Secret.from_name("yt-proxy-url"),
+        # Add when ready: modal.Secret.from_name("alerts-webhook")
+        # Create with: modal secret create alerts-webhook ALERTS_WEBHOOK_URL="https://..."
+    ],
+    timeout=120,
+)
+def yt_synthetic_probe():
+    """Hourly synthetic probe: download audio from a known-good public YT video.
+
+    Tests the full production path (primary + proxy fallback) rather than primary only.
+    Primary path (datacenter IP) will fail — probe uses proxy fallback as production does.
+    Alerts on 2 consecutive failures via the alerts-webhook Modal Secret.
+    """
+    import subprocess
+    import json
+
+    print(f"[probe] starting yt_synthetic_probe for {_YT_PROBE_URL}")
+
+    # Try bgutil sidecar (non-fatal if it doesn't start)
+    try:
+        ensure_bgutil_provider()
+    except Exception as _e:
+        print(f"[probe] bgutil startup failed (non-fatal): {_e}")
+
+    cookies_path = _get_cookies_path("synthetic-probe")
+    proxy_url = os.environ.get("YT_PROXY_URL", "").strip()
+
+    def _probe_cmd(proxy=None):
+        cmd = [
+            "yt-dlp",
+            "--list-formats",  # metadata only — no download bandwidth used
+            "--no-warnings",
+            "--socket-timeout", "20",
+            "--user-agent", _CHROME_UA,
+        ]
+        if _bgutil_healthy() and os.environ.get("USE_BGUTIL", "true").lower() != "false":
+            cmd += ["--extractor-args", "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"]
+        if cookies_path:
+            cmd += ["--cookies", cookies_path]
+        if proxy:
+            cmd += ["--proxy", proxy]
+        cmd.append(_YT_PROBE_URL)
+        return cmd
+
+    success = False
+    error_snippet = ""
+
+    # Primary path (datacenter IP) — expected to fail without bgutil+warmed cookies
+    try:
+        subprocess.run(_probe_cmd(), timeout=30, capture_output=True, check=True)
+        print("[probe] OK via primary path")
+        success = True
+    except Exception as exc:
+        stderr = getattr(exc, "stderr", b"")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        print(f"[probe] primary failed ({classify_error(stderr)[0]}), trying proxy")
+
+        # Proxy fallback — this is what production uses
+        if proxy_url:
+            try:
+                subprocess.run(_probe_cmd(proxy=proxy_url), timeout=40, capture_output=True, check=True)
+                print("[probe] OK via proxy fallback")
+                success = True
+            except Exception as proxy_exc:
+                ps = getattr(proxy_exc, "stderr", b"")
+                if isinstance(ps, bytes):
+                    ps = ps.decode("utf-8", errors="replace")
+                error_snippet = _redact_cookies(str(ps or str(proxy_exc)))[:200]
+                print(f"[probe] FAILED (proxy also failed): {error_snippet}")
+        else:
+            error_snippet = _redact_cookies(str(stderr or str(exc)))[:200]
+            print(f"[probe] FAILED (no proxy configured): {error_snippet}")
+
+    # R2 counter for consecutive failures
+    from storage import get_s3_client, BUCKET
+    s3 = get_s3_client()
+    counter_key = "synthetic/yt-fail-count"
+    fail_count = 0
+    try:
+        resp = s3.get_object(Bucket=BUCKET, Key=counter_key)
+        fail_count = int(resp["Body"].read().decode("utf-8"))
+    except Exception:
+        pass
+
+    if success:
+        # Reset counter
+        try:
+            s3.put_object(Bucket=BUCKET, Key=counter_key, Body=b"0", ContentType="text/plain")
+        except Exception:
+            pass
+        return
+
+    fail_count += 1
+    try:
+        s3.put_object(Bucket=BUCKET, Key=counter_key, Body=str(fail_count).encode(), ContentType="text/plain")
+    except Exception:
+        pass
+
+    if fail_count >= 2:
+        # Send alert
+        webhook_url = os.environ.get("ALERTS_WEBHOOK_URL", "").strip()
+        if webhook_url:
+            payload = json.dumps({
+                "text": f"44Stems YT probe FAILED x{fail_count} — error: {error_snippet}",
+            }).encode("utf-8")
+            try:
+                req = urllib.request.Request(webhook_url, data=payload, method="POST")
+                req.add_header("Content-Type", "application/json")
+                urllib.request.urlopen(req, timeout=10)
+                print(f"[probe] alert sent (fail_count={fail_count})")
+            except Exception as ae:
+                print(f"[probe] alert send failed: {ae}")
+        else:
+            # Fallback: log loudly so Modal logs capture it
+            print(f"[ALERT] YT synthetic probe failed {fail_count} times in a row. Set ALERTS_WEBHOOK_URL in Modal Secret alerts-webhook to receive notifications.")

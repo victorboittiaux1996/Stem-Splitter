@@ -17,6 +17,7 @@ export interface Job {
   completedAt?: number;
   stems?: string[];
   error?: string;
+  error_code?: string;
   fileName?: string;
   bpm?: number | null;
   key?: string | null;
@@ -49,6 +50,7 @@ export interface QueueItem {
   progress: number;
   stage: string;
   error: string | null;
+  errorCode: string | null;
   mode: SplitMode;
   outputFormat: OutputFormat;
   overlap?: number;
