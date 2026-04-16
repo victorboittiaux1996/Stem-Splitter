@@ -51,10 +51,12 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [isBusiness, setIsBusiness] = React.useState(false);
 
   React.useEffect(() => {
     if (!open || !targetPlan) {
       setPreview(null);
+      setIsBusiness(false);
       return;
     }
     setLoading(true);
@@ -90,7 +92,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
         const res = await fetch("/api/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan: targetPlan, billing: targetBilling }),
+          body: JSON.stringify({ plan: targetPlan, billing: targetBilling, isBusinessCustomer: isBusiness }),
         });
         const data = await res.json();
         if (!data.url) {
@@ -98,17 +100,25 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           setSubmitting(false);
           return;
         }
-        // Close our own modal and open Polar's embedded checkout iframe overlay.
-        // User stays on 44stems.com; Polar handles card entry + confirmation.
+        const checkoutId: string | undefined = data.checkoutId;
+        // Close our modal before opening the Polar embed so only one overlay is visible.
         onClose();
+        // PolarEmbedCheckout.create mounts a full-viewport fixed overlay (position:fixed; inset:0).
         const checkout = await PolarEmbedCheckout.create(data.url, { theme: "light" });
+        // { once: true } prevents duplicate navigation if the SDK emits "success" more than once.
         checkout.addEventListener("success", () => {
-          toast.success(`Welcome to ${PLANS[targetPlan].label}`);
-          window.dispatchEvent(new CustomEvent("usage-updated"));
-          onSuccess?.();
-        });
+          // Navigate back to /app so the existing useEffect (app/app/page.tsx:161-195)
+          // polls /api/checkout/status and refreshes the subscription cleanly.
+          const target = checkoutId
+            ? `/app?checkout=success&checkoutId=${encodeURIComponent(checkoutId)}`
+            : "/app?checkout=success";
+          window.location.href = target;
+        }, { once: true });
+        // Reset submitting if the user dismisses the overlay without paying,
+        // so the modal button is usable again when reopened.
+        checkout.addEventListener("close", () => setSubmitting(false), { once: true });
       } catch {
-        toast.error("Something went wrong");
+        toast.error("Checkout window failed to open");
         setSubmitting(false);
       }
       return;
@@ -201,6 +211,28 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                 <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
                   {preview.notice} Tax (VAT) is added at checkout based on your billing country.
                 </p>
+
+                {preview.kind === "new" && (
+                  <label
+                    htmlFor="business-customer-toggle"
+                    className="flex items-center gap-2"
+                    style={{ marginBottom: 16, fontSize: 12, color: C.textMuted, cursor: "pointer", userSelect: "none" }}
+                  >
+                    <input
+                      id="business-customer-toggle"
+                      type="checkbox"
+                      checked={isBusiness}
+                      onChange={(e) => setIsBusiness(e.target.checked)}
+                      disabled={submitting}
+                      style={{
+                        width: 14, height: 14, margin: 0,
+                        accentColor: C.accent,
+                        cursor: submitting ? "not-allowed" : "pointer",
+                      }}
+                    />
+                    <span>I invoice as a business (VAT / SIRET)</span>
+                  </label>
+                )}
 
                 <div className="flex items-center gap-[8px]">
                   <button

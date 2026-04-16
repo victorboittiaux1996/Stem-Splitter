@@ -17,6 +17,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const _t0 = Date.now();
   const expectedSecret = process.env.MODAL_CALLBACK_SECRET?.trim();
   if (!expectedSecret) console.warn("MODAL_CALLBACK_SECRET not set — PATCH /api/jobs is unprotected");
   const secret = request.headers.get("x-modal-secret");
@@ -27,16 +28,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const updates = await request.json();
     const wsId = (updates.workspaceId as string | null) ?? null;
+    const _tGetJob = Date.now();
     const existing = await getJobForWorkspace(wsId, id);
+    console.log(`[TIMING] PATCH /api/jobs/${id} phase=getJob dur=${Date.now() - _tGetJob}ms`);
     if (!existing) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     const key = jobKey(existing.workspaceId ?? wsId, id);
     const merged = { ...existing, ...updates };
     if (updates.status === "completed" && typeof merged.duration === "number" && merged.userId) {
-      try { await trackMinutesUsed(merged.userId, merged.duration); }
-      catch (err) { console.error("Failed to track usage:", err); }
+      const _tTrack = Date.now();
+      try {
+        await trackMinutesUsed(merged.userId, merged.duration);
+        console.log(`[TIMING] PATCH /api/jobs/${id} phase=trackMinutesUsed dur=${Date.now() - _tTrack}ms duration_s=${merged.duration}`);
+      } catch (err) {
+        console.error("Failed to track usage:", err);
+      }
     }
     if (updates.status === "completed") merged.completedAt = Date.now();
+    const _tWrite = Date.now();
     await writeJsonToR2(key, merged);
+    console.log(`[TIMING] PATCH /api/jobs/${id} phase=r2_write_completed dur=${Date.now() - _tWrite}ms total=${Date.now() - _t0}ms`);
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });

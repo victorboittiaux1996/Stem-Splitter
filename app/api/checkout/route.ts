@@ -10,7 +10,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { plan, billing = "monthly" } = await req.json() as { plan: string; billing?: string };
+    const { plan, billing = "monthly", isBusinessCustomer } = await req.json() as {
+      plan: string;
+      billing?: string;
+      isBusinessCustomer?: boolean;
+    };
     if (plan !== "pro" && plan !== "studio") {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
@@ -53,9 +57,21 @@ export async function POST(req: NextRequest) {
       `${req.headers.get("x-forwarded-proto") ?? "https"}://${req.headers.get("host")}`
     ).trim();
 
+    // Best-effort — never blocks checkout if profile row is missing / name is null.
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("name")
+      .eq("id", user.id)
+      .maybeSingle();
+    const customerName = profile?.name ?? undefined;
+
     const checkout = await polar.checkouts.create({
       products: [productId],
       customerEmail: user.email,
+      customerName,
+      externalCustomerId: user.id,
+      requireBillingAddress: true,
+      ...(typeof isBusinessCustomer === "boolean" ? { isBusinessCustomer } : {}),
       successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
     });
 
@@ -63,7 +79,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to get checkout URL" }, { status: 502 });
     }
 
-    return NextResponse.json({ url: checkout.url });
+    return NextResponse.json({ url: checkout.url, checkoutId: checkout.id });
   } catch (error) {
     console.error("Checkout error:", error);
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
