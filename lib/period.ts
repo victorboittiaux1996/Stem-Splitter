@@ -52,6 +52,20 @@ export function getDaysUntilPeriodEnd(anchorDate: Date, now: Date = new Date()):
   return Math.max(1, Math.ceil((nextPeriodStart.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 }
 
+/**
+ * Returns the period key for the billing period immediately before the current one.
+ * Used to compute rollover: how many minutes were unused in the previous period.
+ */
+export function getPreviousPeriodKey(anchorDate: Date, now: Date = new Date()): string {
+  const anchorDay = anchorDate.getDate();
+  const currentKey = computePeriodKey(anchorDate, now);
+  const currentStart = new Date(currentKey + "T00:00:00");
+
+  const prevM = currentStart.getMonth() === 0 ? 11 : currentStart.getMonth() - 1;
+  const prevY = currentStart.getMonth() === 0 ? currentStart.getFullYear() - 1 : currentStart.getFullYear();
+  return toDateString(periodStartInMonth(anchorDay, prevY, prevM));
+}
+
 // --- helpers ---
 
 function periodStartInMonth(anchorDay: number, year: number, month: number): Date {

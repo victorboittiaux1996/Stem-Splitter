@@ -1,6 +1,7 @@
 import { createClient } from "./server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS, type PlanId } from "@/lib/plans";
-import { computePeriodKey } from "@/lib/period";
+import { computePeriodKey, getPreviousPeriodKey } from "@/lib/period";
 
 export function userWorkspaceId(userId: string): string {
   return `ws-${userId}`;
@@ -39,13 +40,37 @@ export async function checkUsage(userId: string, plan: PlanId, periodStart: stri
   const planConfig = PLANS[plan];
   const anchor = await getAnchorDate(userId, plan, periodStart);
   const periodKey = computePeriodKey(anchor);
+
+  // For paid plans: ensure the period row exists with computed rollover before reading.
+  // This handles the case where a user uploads at the start of a new period before any job completes.
+  // Idempotent — subsequent calls within the same period are no-ops.
+  if (planConfig.minutesNeverReset) {
+    const prevPeriodKey = getPreviousPeriodKey(anchor);
+    await supabaseAdmin.rpc("ensure_period_with_rollover", {
+      p_user_id: userId,
+      p_new_month: periodKey,
+      p_prev_month: prevPeriodKey,
+      p_plan_minutes: planConfig.minutesIncluded,
+    });
+  }
+
   const supabase = await createClient();
   const { data } = await supabase
     .from("usage")
-    .select("tracks_used")
+    .select("tracks_used, rollover_minutes")
     .eq("user_id", userId)
     .eq("month", periodKey)
     .maybeSingle();
+
   const minutesUsed = data?.tracks_used ?? 0;
-  return { allowed: minutesUsed < planConfig.minutesIncluded, minutesUsed, minutesIncluded: planConfig.minutesIncluded };
+  const rolloverMinutes = planConfig.minutesNeverReset ? (data?.rollover_minutes ?? 0) : 0;
+  const minutesAvailable = planConfig.minutesIncluded + rolloverMinutes;
+
+  return {
+    allowed: minutesUsed < minutesAvailable,
+    minutesUsed,
+    minutesIncluded: planConfig.minutesIncluded,
+    rolloverMinutes,
+    minutesAvailable,
+  };
 }

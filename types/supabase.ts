@@ -107,6 +107,36 @@ export type Database = {
         }
         Relationships: []
       }
+      share_links: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          job_id: string
+          user_id: string
+          view_count: number
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          job_id: string
+          user_id: string
+          view_count?: number
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          job_id?: string
+          user_id?: string
+          view_count?: number
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       subscriptions: {
         Row: {
           created_at: string | null
@@ -146,52 +176,28 @@ export type Database = {
         }
         Relationships: []
       }
-      share_links: {
-        Row: {
-          created_at: string
-          expires_at: string | null
-          id: string
-          job_id: string
-          user_id: string
-          view_count: number
-          workspace_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          job_id: string
-          user_id: string
-          view_count?: number
-          workspace_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          job_id?: string
-          user_id?: string
-          view_count?: number
-          workspace_id?: string | null
-        }
-        Relationships: []
-      }
       usage: {
         Row: {
           id: string
           month: string
+          plan_minutes: number | null
+          rollover_minutes: number | null
           tracks_used: number
           user_id: string
         }
         Insert: {
           id?: string
           month: string
+          plan_minutes?: number | null
+          rollover_minutes?: number | null
           tracks_used?: number
           user_id: string
         }
         Update: {
           id?: string
           month?: string
+          plan_minutes?: number | null
+          rollover_minutes?: number | null
           tracks_used?: number
           user_id?: string
         }
@@ -202,14 +208,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      increment_usage: {
+      ensure_period_with_rollover: {
         Args: {
+          p_new_month: string
+          p_plan_minutes: number
+          p_prev_month: string
           p_user_id: string
-          p_month: string
-          p_minutes: number
         }
         Returns: undefined
       }
+      increment_share_view_count: {
+        Args: { link_id: string }
+        Returns: undefined
+      }
+      increment_usage: {
+        Args: { p_minutes: number; p_month: string; p_user_id: string }
+        Returns: undefined
+      }
+      nanoid: { Args: { size?: number }; Returns: string }
     }
     Enums: {
       [_ in never]: never
