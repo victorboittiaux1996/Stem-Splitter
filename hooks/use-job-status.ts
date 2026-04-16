@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { Job } from "@/lib/types";
 
 const POLL_INTERVAL = 1000;
-const MAX_PCT_PER_SEC = 1;     // 1%/s — toujours 1 par 1, jamais de saut
-const FINISH_PCT_PER_SEC = 10; // accélération finale quand completed (~2-3s pour finir)
+const MAX_PCT_PER_SEC = 5;     // 5%/s — tracks real progress without lagging 30s behind
+const FINISH_PCT_PER_SEC = 100; // instant finish when completed
 
 export function useJobStatus(jobId: string | null, workspaceId?: string) {
   const [job, setJob] = useState<Job | null>(null);

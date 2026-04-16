@@ -468,7 +468,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   const [notifMarketing, setNotifMarketing] = React.useState(false);
   const [defaultStems, setDefaultStems] = React.useState<2 | 4 | 6>(4);
   const [defaultFormat, setDefaultFormat] = React.useState<"wav" | "mp3">("wav");
-  const [defaultQuality, setDefaultQuality] = React.useState<"fast" | "balanced" | "high">("fast");
 
   // Load preferences from localStorage on mount
   React.useEffect(() => {
@@ -478,7 +477,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
         const p = JSON.parse(saved);
         if (p.stems) setDefaultStems(p.stems);
         if (p.format) setDefaultFormat(p.format);
-        if (p.quality) setDefaultQuality(p.quality);
         if (typeof p.notifSplit === "boolean") setNotifSplitComplete(p.notifSplit);
         if (typeof p.notifUpdates === "boolean") setNotifProductUpdates(p.notifUpdates);
         if (typeof p.notifMarketing === "boolean") setNotifMarketing(p.notifMarketing);
@@ -490,11 +488,11 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   React.useEffect(() => {
     try {
       localStorage.setItem("44stems-preferences", JSON.stringify({
-        stems: defaultStems, format: defaultFormat, quality: defaultQuality,
+        stems: defaultStems, format: defaultFormat,
         notifSplit: notifSplitComplete, notifUpdates: notifProductUpdates, notifMarketing,
       }));
     } catch {}
-  }, [defaultStems, defaultFormat, defaultQuality, notifSplitComplete, notifProductUpdates, notifMarketing]);
+  }, [defaultStems, defaultFormat, notifSplitComplete, notifProductUpdates, notifMarketing]);
 
   return (
     <div className="px-[24px] pt-[24px] pb-[40px]">
@@ -803,40 +801,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                     }}
                   >
                     {fmt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Default quality card */}
-            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-              <SectionHeading C={C}>Default Processing Quality</SectionHeading>
-              <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
-                Higher quality uses more processing time per file
-              </div>
-              <div className="flex items-center gap-[8px]">
-                {([
-                  { id: "fast" as const,     label: "FAST",     desc: "Fastest, good quality" },
-                  { id: "balanced" as const,  label: "BALANCED", desc: "Recommended" },
-                  { id: "high" as const,      label: "HIGH",     desc: "Best quality, slower" },
-                ]).map(q => (
-                  <button
-                    key={q.id}
-                    onClick={() => setDefaultQuality(q.id)}
-                    className="flex flex-col items-center"
-                    style={{
-                      padding: "12px 20px",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: defaultQuality === q.id ? "#fff" : C.textSec,
-                      backgroundColor: defaultQuality === q.id ? C.accent : C.bgHover,
-                      cursor: "pointer",
-                      transition: "background-color 100ms",
-                      flex: 1,
-                    }}
-                  >
-                    <span style={{ letterSpacing: "0.06em" }}>{q.label}</span>
-                    <span style={{ fontSize: 11, fontWeight: 400, marginTop: 4, opacity: 0.7 }}>{q.desc}</span>
                   </button>
                 ))}
               </div>

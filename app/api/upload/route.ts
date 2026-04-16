@@ -9,15 +9,20 @@ const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
 const STEM_MODE_MAP: Record<string, number> = { "2stem": 2, "4stem": 4, "6stem": 6 };
 
 export async function POST(request: NextRequest) {
+  const _t0 = Date.now();
   try {
     // Auth + quota enforcement
+    const _tAuth = Date.now();
     const user = await getAuthUser();
+    console.log(`[TIMING] POST /api/upload phase=getAuthUser dur=${Date.now() - _tAuth}ms`);
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
+    const _tQuota = Date.now();
     const { plan, periodStart } = await getUserPlan(user.id);
     const { allowed } = await checkUsage(user.id, plan, periodStart);
+    console.log(`[TIMING] POST /api/upload phase=quota_check dur=${Date.now() - _tQuota}ms plan=${plan}`);
     if (!allowed) {
       return NextResponse.json(
         { error: "Processing limit reached. Upgrade your plan for more processing time." },
@@ -33,7 +38,7 @@ export async function POST(request: NextRequest) {
     ).trim();
 
     const body = await request.json();
-    const { url, mode = "4stem", filename, size, contentType, overlap: rawOverlap = 8, title = null } = body;
+    const { url, mode = "4stem", filename, size, contentType, title = null } = body;
 
     // Validate stem mode against plan
     const stemCountFromMode = STEM_MODE_MAP[mode] ?? 4;
@@ -43,7 +48,7 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
-    const overlap = typeof rawOverlap === "number" && [2, 8, 16].includes(rawOverlap) ? rawOverlap : 8;
+    const overlap = 8;
     const wsId = userWorkspaceId(user.id);
 
     // ── URL mode: { url, mode } ──────────────────────────────────────────────
@@ -65,11 +70,14 @@ export async function POST(request: NextRequest) {
       const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
       const key = jobKey(wsId, jobId);
 
+      const _tR2Write = Date.now();
       await writeJsonToR2(key, {
         id: jobId, status: "processing", mode, progress: 5,
         stage: "Downloading audio...", createdAt: Date.now(), fileName: (typeof title === "string" && title) ? title : url, workspaceId: wsId, userId: user.id,
       });
+      console.log(`[TIMING] POST /api/upload phase=r2_write_job dur=${Date.now() - _tR2Write}ms`);
 
+      const _tModal = Date.now();
       fetch(MODAL_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,6 +98,7 @@ export async function POST(request: NextRequest) {
           createdAt: Date.now(), workspaceId: wsId, userId: user.id,
         });
       });
+      console.log(`[TIMING] POST /api/upload phase=modal_dispatch_fired dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
 
       return NextResponse.json({ jobId });
     }
@@ -139,8 +148,11 @@ export async function POST(request: NextRequest) {
 
 // Step 3: called after browser finishes uploading to R2 — triggers Modal worker
 export async function PUT(request: NextRequest) {
+  const _t0 = Date.now();
   try {
+    const _tAuth = Date.now();
     const user = await getAuthUser();
+    console.log(`[TIMING] PUT /api/upload phase=getAuthUser dur=${Date.now() - _tAuth}ms`);
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
@@ -164,9 +176,11 @@ export async function PUT(request: NextRequest) {
 
     const wsIdPut = userWorkspaceId(user.id);
     const keyPut = jobKey(wsIdPut, jobId);
+    const _tR2Read = Date.now();
     const job = await readJsonFromR2<{
       id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null;
     }>(keyPut);
+    console.log(`[TIMING] PUT /api/upload phase=r2_read_job dur=${Date.now() - _tR2Read}ms`);
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
@@ -181,7 +195,9 @@ export async function PUT(request: NextRequest) {
     }
 
     // Verify the file was actually uploaded (not empty/corrupted)
+    const _tSizeCheck = Date.now();
     const fileSize = await getObjectSize(job.inputKey);
+    console.log(`[TIMING] PUT /api/upload phase=r2_size_check dur=${Date.now() - _tSizeCheck}ms size=${fileSize}`);
     if (fileSize < 1000) {
       const resolvedWsId = job.workspaceId ?? wsIdPut;
       await writeJsonToR2(jobKey(resolvedWsId ?? null, jobId), {
@@ -196,12 +212,15 @@ export async function PUT(request: NextRequest) {
     const resolvedWsId = job.workspaceId ?? wsIdPut;
     const finalKey = jobKey(resolvedWsId ?? null, jobId);
 
+    const _tR2Write2 = Date.now();
     await writeJsonToR2(finalKey, {
       id: job.id, status: "processing", mode: job.mode, progress: 5,
       stage: "Sending to GPU...", createdAt: job.createdAt, fileName: job.fileName,
       inputKey: job.inputKey, workspaceId: resolvedWsId, userId: user.id,
     });
+    console.log(`[TIMING] PUT /api/upload phase=r2_write_processing dur=${Date.now() - _tR2Write2}ms`);
 
+    const _tModal2 = Date.now();
     fetch(MODAL_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -222,6 +241,7 @@ export async function PUT(request: NextRequest) {
         createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
       });
     });
+    console.log(`[TIMING] PUT /api/upload phase=modal_dispatch_fired dur=${Date.now() - _tModal2}ms total=${Date.now() - _t0}ms`);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

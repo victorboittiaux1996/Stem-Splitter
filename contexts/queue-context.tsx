@@ -111,6 +111,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           progress: job.progress ?? 0,
           stage: job.stage ?? "",
           error: job.error ?? null,
+          errorCode: job.error_code ?? null,
           mode: mode as QueueConfig["mode"],
           outputFormat: (savedOutputFormat as QueueConfig["outputFormat"]) ?? "mp3",
           job: status === "completed" ? job : null,
@@ -135,6 +136,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           progress: 0,
           stage: "",
           error: hasUrl ? null : "File lost after page refresh — please re-add",
+          errorCode: null,
           mode: (p.mode || "4stem") as QueueConfig["mode"],
           outputFormat: (p.outputFormat as QueueConfig["outputFormat"]) ?? "mp3",
           job: null,
@@ -201,6 +203,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       progress: 0,
       stage: "",
       error: null,
+      errorCode: null,
       mode: config.mode,
       outputFormat: config.outputFormat,
       overlap: config.overlap,
@@ -224,6 +227,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       progress: 0,
       stage: "",
       error: null,
+      errorCode: null,
       mode: config.mode,
       outputFormat: config.outputFormat,
       overlap: config.overlap,
@@ -242,7 +246,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   const retry = useCallback((itemId: string) => {
     setItems(prev => prev.map(item =>
       item.id === itemId && item.status === "failed"
-        ? { ...item, status: "pending" as const, progress: 0, stage: "", error: null, jobId: null, job: null, stemDownloads: [] }
+        ? { ...item, status: "pending" as const, progress: 0, stage: "", error: null, errorCode: null, jobId: null, job: null, stemDownloads: [] }
         : item
     ));
   }, []);
@@ -335,12 +339,12 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           throw new Error(msg);
         }
 
-        progressTargetRef.current = 22;
-        updateItem(item.id, { status: "processing", progress: 22, stage: "Sending to GPU..." });
+        progressTargetRef.current = 5;
+        updateItem(item.id, { status: "processing", progress: 5, stage: "Sending to GPU..." });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
-      updateItem(item.id, { status: "failed", error: msg, stage: "" });
+      updateItem(item.id, { status: "failed", error: msg, errorCode: null, stage: "" });
       processingLockRef.current = false;
       setActiveItemId(null);
     }
@@ -390,7 +394,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) return;
         const job: Job = await res.json();
 
-        const mapped = job.status === "completed" ? 100 : Math.round(22 + (job.progress / 100) * 78);
+        const mapped = job.status === "completed" ? 100 : (job.progress ?? 0);
         if (mapped > progressTargetRef.current) progressTargetRef.current = mapped;
 
         updateItem(itemId, {
@@ -449,6 +453,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           updateItem(itemId, {
             status: "failed",
             error: job.error || "Processing failed",
+            errorCode: job.error_code ?? null,
             stage: "",
           });
 

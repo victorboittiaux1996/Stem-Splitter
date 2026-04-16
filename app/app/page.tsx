@@ -19,6 +19,7 @@ import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { useAuth } from "@/hooks/use-auth";
 import { useSubscription } from "@/hooks/use-subscription";
 import { PLANS } from "@/lib/plans";
+import { formatImportError, isTerminalError } from "@/lib/errors";
 import { toast } from "sonner";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
@@ -437,6 +438,7 @@ export default function AbletonDashboard() {
     [stemDownloads]
   );
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadErrorFromUrl, setUploadErrorFromUrl] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -710,7 +712,7 @@ export default function AbletonDashboard() {
   const handleNewSplit = useCallback(() => {
     setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
     setIsPlaying(false); setCurrentTime(0); setSoloTrack(null); setMutedTracks(new Set());
-    setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null);
+    setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null); setUploadErrorFromUrl(false);
     progressTargetRef.current = 0; progressDisplayRef.current = 0;
   }, []);
 
@@ -775,7 +777,9 @@ export default function AbletonDashboard() {
 
     // Single failed item with no others pending
     if (queueItems.length === 1 && queueItems[0].status === "failed" && incomplete.length === 0) {
-      setUploadError(queueItems[0].error || "Processing failed");
+      const failedItem = queueItems[0];
+      setUploadError(formatImportError(failedItem.errorCode));
+      setUploadErrorFromUrl(!!failedItem.url);
       setAppState("idle");
     }
 
@@ -1097,8 +1101,15 @@ export default function AbletonDashboard() {
                             <p className="truncate" style={{ fontSize: 14, color: "#FF3B30", maxWidth: 200 }}>{qi.fileName}</p>
                             <span style={{ fontSize: 12, color: "#FF3B30", letterSpacing: "0.03em" }}>ERROR</span>
                           </div>
-                          {qi.error && <p className="truncate mt-[2px]" style={{ fontSize: 12, color: C.textMuted }}>{qi.error}</p>}
-                          <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em", marginTop: 4 }}>RETRY</button>
+                          <p className="mt-[2px]" style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>{formatImportError(qi.errorCode)}</p>
+                          <div className="flex items-center gap-[10px] mt-[4px]">
+                            {!isTerminalError(qi.errorCode) && (
+                              <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em" }}>RETRY</button>
+                            )}
+                            {qi.url && (
+                              <button onClick={() => { setInputMode("file"); setView("split"); }} style={{ fontSize: 12, color: C.textMuted, letterSpacing: "0.03em" }}>UPLOAD INSTEAD</button>
+                            )}
+                          </div>
                         </>)}
                       </div>
                     ))}
@@ -1424,9 +1435,14 @@ export default function AbletonDashboard() {
 
                     {/* Upload error */}
                     {uploadError && (
-                      <div className="flex items-center gap-[10px] px-[14px] py-[10px] mt-[8px]" style={{ backgroundColor: "rgba(255,59,48,0.1)" }}>
+                      <div className="px-[14px] py-[10px] mt-[8px]" style={{ backgroundColor: "rgba(255,59,48,0.1)" }}>
                         <span style={{ fontSize: 14, color: "#FF3B30", fontWeight: 500 }}>{uploadError}</span>
-                        <button onClick={() => setUploadError(null)} style={{ fontSize: 13, color: "#FF3B30", textDecoration: "underline" }}>DISMISS</button>
+                        <div className="flex items-center gap-[12px] mt-[6px]">
+                          {uploadErrorFromUrl && (
+                            <button onClick={() => { setUploadErrorFromUrl(false); setUploadError(null); setInputMode("file"); }} style={{ fontSize: 13, color: C.accent, fontWeight: 600, letterSpacing: "0.03em" }}>UPLOAD FILE INSTEAD</button>
+                          )}
+                          <button onClick={() => { setUploadError(null); setUploadErrorFromUrl(false); }} style={{ fontSize: 13, color: "#FF3B30", textDecoration: "underline" }}>DISMISS</button>
+                        </div>
                       </div>
                     )}
 
