@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getJobForWorkspace, writeJsonToR2, jobKey } from "@/lib/r2";
 import { getAuthUser, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { computePeriodKey } from "@/lib/period";
+import { computePeriodKey, getPreviousPeriodKey } from "@/lib/period";
+import { PLANS, type PlanId } from "@/lib/plans";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
@@ -42,24 +43,43 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 }
 
-async function getUserAnchorDate(userId: string): Promise<Date> {
+async function getUserPlanAndAnchor(userId: string): Promise<{ plan: PlanId; anchor: Date }> {
   const [subResult, profileResult] = await Promise.all([
     supabaseAdmin.from("subscriptions").select("plan, status, period_start").eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("profiles").select("created_at").eq("id", userId).maybeSingle(),
   ]);
   const sub = subResult.data;
-  if (sub?.status === "active" && (sub.plan === "pro" || sub.plan === "studio") && sub.period_start) {
-    return new Date(sub.period_start + "T00:00:00");
+  const isPaidActive = sub?.status === "active" && (sub.plan === "pro" || sub.plan === "studio");
+  const plan: PlanId = isPaidActive ? (sub!.plan as PlanId) : "free";
+  let anchor: Date;
+  if (isPaidActive && sub!.period_start) {
+    anchor = new Date(sub!.period_start + "T00:00:00");
+  } else if (profileResult.data?.created_at) {
+    anchor = new Date(profileResult.data.created_at);
+  } else {
+    const now = new Date();
+    anchor = new Date(now.getFullYear(), now.getMonth(), 1);
   }
-  if (profileResult.data?.created_at) return new Date(profileResult.data.created_at);
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
+  return { plan, anchor };
 }
 
 async function trackMinutesUsed(userId: string, durationSeconds: number) {
   if (durationSeconds <= 0) return;
-  const anchor = await getUserAnchorDate(userId);
+  const { plan, anchor } = await getUserPlanAndAnchor(userId);
   const periodKey = computePeriodKey(anchor);
+
+  // For paid plans (minutesNeverReset=true), ensure the period row exists with correct rollover
+  // before incrementing. Idempotent — safe to call multiple times per period.
+  if (PLANS[plan].minutesNeverReset) {
+    const prevPeriodKey = getPreviousPeriodKey(anchor);
+    await supabaseAdmin.rpc("ensure_period_with_rollover", {
+      p_user_id: userId,
+      p_new_month: periodKey,
+      p_prev_month: prevPeriodKey,
+      p_plan_minutes: PLANS[plan].minutesIncluded,
+    });
+  }
+
   const { error } = await supabaseAdmin.rpc("increment_usage", {
     p_user_id: userId,
     p_month: periodKey,

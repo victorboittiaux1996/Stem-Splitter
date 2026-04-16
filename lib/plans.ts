@@ -123,9 +123,3 @@ export function formatMinutes(totalSeconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-/** Get remaining seconds from minutes used and plan limit */
-export function getRemainingSeconds(minutesUsed: number, plan: PlanId): number {
-  const limit = PLANS[plan].minutesIncluded;
-  const remainingMinutes = Math.max(0, limit - minutesUsed);
-  return remainingMinutes * 60;
-}

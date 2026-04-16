@@ -25,6 +25,8 @@ interface AccountViewProps {
   isPro?: boolean;
   minutesUsed?: number;
   minutesIncluded?: number;
+  rolloverMinutes?: number;
+  minutesAvailable?: number;
   remainingFormatted?: string;
   usagePercent?: number;
   daysUntilReset?: number;
@@ -451,7 +453,8 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
+  const effectiveMinutes = minutesAvailable ?? minutesIncluded;
   const memberSince = createdAt
     ? new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
     : "—";
@@ -645,7 +648,14 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
               </div>
 
               <div className="flex items-center justify-between">
-                <span style={{ fontSize: 12, color: C.textMuted }}>{`${minutesUsed.toFixed(1)} of ${minutesIncluded} min used`}</span>
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  {`${minutesUsed.toFixed(1)} of ${effectiveMinutes} min used`}
+                  {rolloverMinutes > 0 && (
+                    <span style={{ marginLeft: 6, color: C.accent }}>
+                      {`(${minutesIncluded} + ${rolloverMinutes.toFixed(1)} rollover)`}
+                    </span>
+                  )}
+                </span>
                 <span style={{ fontSize: 12, color: C.textMuted }}>Resets in {daysUntilReset} days</span>
               </div>
 

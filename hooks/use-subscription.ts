@@ -2,36 +2,42 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PLANS, formatMinutes, getRemainingSeconds, type PlanId } from "@/lib/plans";
+import { PLANS, formatMinutes, type PlanId } from "@/lib/plans";
 import { computePeriodKey, getDaysUntilPeriodEnd } from "@/lib/period";
 
 interface SubscriptionState {
   plan: PlanId;
   minutesUsed: number;
+  rolloverMinutes: number;
   daysUntilReset: number;
   loading: boolean;
 }
 
 const SUB_CACHE_KEY = "44stems-subscription";
 
-function getCachedSubscription(): { plan: PlanId; minutesUsed: number } {
-  if (typeof window === "undefined") return { plan: "free", minutesUsed: 0 };
+function getCachedSubscription(): { plan: PlanId; minutesUsed: number; rolloverMinutes: number } {
+  if (typeof window === "undefined") return { plan: "free", minutesUsed: 0, rolloverMinutes: 0 };
   try {
     const cached = localStorage.getItem(SUB_CACHE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
       const plan = parsed.plan === "pro" || parsed.plan === "studio" ? parsed.plan : "free";
       const minutes = Number(parsed.minutesUsed);
-      return { plan, minutesUsed: Number.isFinite(minutes) ? minutes : 0 };
+      const rollover = Number(parsed.rolloverMinutes);
+      return {
+        plan,
+        minutesUsed: Number.isFinite(minutes) ? minutes : 0,
+        rolloverMinutes: Number.isFinite(rollover) ? rollover : 0,
+      };
     }
   } catch {}
-  return { plan: "free", minutesUsed: 0 };
+  return { plan: "free", minutesUsed: 0, rolloverMinutes: 0 };
 }
 
 export function useSubscription(userId: string | undefined) {
   const [state, setState] = useState<SubscriptionState>(() => {
     const cached = getCachedSubscription();
-    return { plan: cached.plan, minutesUsed: cached.minutesUsed, daysUntilReset: 30, loading: true };
+    return { plan: cached.plan, minutesUsed: cached.minutesUsed, rolloverMinutes: cached.rolloverMinutes, daysUntilReset: 30, loading: true };
   });
 
   const fetchSubscription = useCallback(() => {
@@ -58,11 +64,12 @@ export function useSubscription(userId: string | undefined) {
       const periodKey = computePeriodKey(anchor);
       const daysUntilReset = getDaysUntilPeriodEnd(anchor);
 
-      supabase.from("usage").select("tracks_used").eq("user_id", userId).eq("month", periodKey).maybeSingle()
+      supabase.from("usage").select("tracks_used, rollover_minutes").eq("user_id", userId).eq("month", periodKey).maybeSingle()
         .then(({ data }) => {
           const minutesUsed = data?.tracks_used ?? 0;
-          localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed }));
-          setState({ plan, minutesUsed, daysUntilReset, loading: false });
+          const rolloverMinutes = PLANS[plan].minutesNeverReset ? (data?.rollover_minutes ?? 0) : 0;
+          localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed, rolloverMinutes }));
+          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, loading: false });
         });
     }).catch(() => setState(prev => ({ ...prev, loading: false })));
   }, [userId]);
@@ -75,8 +82,10 @@ export function useSubscription(userId: string | undefined) {
   }, [fetchSubscription]);
 
   const planConfig = PLANS[state.plan];
-  const remainingSeconds = getRemainingSeconds(state.minutesUsed, state.plan);
-  const usagePercent = planConfig.minutesIncluded > 0 ? Math.min(100, (state.minutesUsed / planConfig.minutesIncluded) * 100) : 0;
+  const minutesAvailable = planConfig.minutesIncluded + state.rolloverMinutes;
+  const remainingMinutes = Math.max(0, minutesAvailable - state.minutesUsed);
+  const remainingSeconds = remainingMinutes * 60;
+  const usagePercent = minutesAvailable > 0 ? Math.min(100, (state.minutesUsed / minutesAvailable) * 100) : 0;
 
   return {
     ...state,
@@ -84,9 +93,11 @@ export function useSubscription(userId: string | undefined) {
     planLabel: planConfig.label,
     isPro: state.plan === "pro" || state.plan === "studio",
     minutesIncluded: planConfig.minutesIncluded,
+    rolloverMinutes: state.rolloverMinutes,
+    minutesAvailable,
     remainingFormatted: formatMinutes(remainingSeconds),
     usagePercent,
-    overLimit: state.minutesUsed >= planConfig.minutesIncluded,
+    overLimit: state.minutesUsed >= minutesAvailable,
     batchLimit: planConfig.batchLimit,
     urlImport: planConfig.urlImport,
     stems: planConfig.stems,

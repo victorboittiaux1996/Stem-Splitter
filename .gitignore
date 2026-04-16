@@ -62,3 +62,4 @@ __pycache__/
 
 # handoff files (may contain tokens)
 HANDOFF.md
+.worktrees/
