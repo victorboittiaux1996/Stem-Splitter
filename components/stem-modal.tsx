@@ -6,6 +6,7 @@ import { RiPlayFill, RiStopFill, RiDownloadFill } from "@remixicon/react";
 import { motion } from "framer-motion";
 import { WaveformVariant } from "@/components/dashboard/waveform-variants";
 import { prefetchStemPeaks, _peakCache } from "@/components/stem-variants";
+import { downloadStem, downloadStemsZip } from "@/lib/download";
 import type { HistoryItem } from "@/lib/types";
 
 interface ThemeColors {
@@ -226,9 +227,13 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                 </div>
                 <span style={{ fontSize: 14, color: C.textMuted }}>{fmt.toUpperCase()}</span>
                 {stemUrls[stem] ? (
-                  <a href={`${stemUrls[stem]}${stemUrls[stem].includes("?") ? "&" : "?"}format=${fmt}`} download={`${stem}${fmtExt}`} className="p-[4px]" style={{ color: C.textMuted }}>
+                  <button onClick={async () => {
+                    const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
+                    const label = stem.charAt(0).toUpperCase() + stem.slice(1);
+                    await downloadStem(stemUrls[stem], `${trackName} - ${label}${fmtExt}`, fmt);
+                  }} className="p-[4px]" style={{ color: C.textMuted }}>
                     <RiDownloadFill size={14}/>
-                  </a>
+                  </button>
                 ) : (
                   <button className="p-[4px]" style={{ color: C.textMuted, opacity: 0.3 }}>
                     <RiDownloadFill size={14}/>
@@ -243,17 +248,9 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
           <span style={{ fontSize: 14, color: C.textMuted }}>{currentIdx + 1} / {items.length}</span>
           <button onClick={async () => {
             if (Object.keys(stemUrls).length === 0) return;
-            const JSZip = (await import("jszip")).default;
-            const zip = new JSZip();
-            await Promise.all(Object.entries(stemUrls).map(async ([name, url]) => {
-              const dlUrl = `${url}${url.includes("?") ? "&" : "?"}format=${fmt}`;
-              const res = await fetch(dlUrl);
-              const blob = await res.blob();
-              zip.file(`${name}${fmtExt}`, blob);
-            }));
-            const content = await zip.generateAsync({ type: "blob" });
-            const a = document.createElement("a"); a.href = URL.createObjectURL(content);
-            a.download = `stems-${currentItem.id}.zip`; a.click();
+            const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
+            const stemList = Object.entries(stemUrls).map(([name, url]) => ({ name, url }));
+            await downloadStemsZip(stemList, trackName, fmt);
           }} className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
             style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent, opacity: Object.keys(stemUrls).length > 0 ? 1 : 0.4 }}>
             <RiDownloadFill size={12}/>

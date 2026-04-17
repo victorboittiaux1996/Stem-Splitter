@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getJobForWorkspace, getPresignedUrl, listStemsForWorkspace, stemKey } from "@/lib/r2";
 import { Logo } from "@/components/website/logo";
 import Link from "next/link";
+import { ShareDownloadButtons } from "./download-buttons";
 
 const F = "var(--font-futura), sans-serif";
 const C = {
@@ -113,24 +114,15 @@ export default async function SharePage({ params }: Props) {
                 src={stem.wavUrl}
                 style={{ height: 32, flex: 2, accentColor: C.accent }}
               />
-              <div style={{ display: "flex", gap: 8 }}>
-                {stem.mp3Url && (
-                  <a
-                    href={stem.mp3Url}
-                    download={`${stem.name}.mp3`}
-                    style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", color: C.textSec, textDecoration: "none", padding: "5px 10px", backgroundColor: C.bgHover }}
-                  >
-                    MP3
-                  </a>
-                )}
-                <a
-                  href={stem.wavUrl}
-                  download={`${stem.name}.wav`}
-                  style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", textDecoration: "none", padding: "5px 10px", backgroundColor: C.accent, color: "#FFFFFF" }}
-                >
-                  WAV
-                </a>
-              </div>
+              <ShareDownloadButtons
+                wavUrl={stem.wavUrl}
+                mp3Url={stem.mp3Url}
+                stemName={stem.name}
+                trackName={fileName}
+                accent={C.accent}
+                textSec={C.textSec}
+                bgHover={C.bgHover}
+              />
             </div>
           ))}
         </div>

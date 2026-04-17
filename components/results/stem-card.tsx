@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { Play, Pause, Download, Mic2, Drum, Guitar, Waves, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { downloadStem } from "@/lib/download";
 
 const STEM_CONFIG: Record<string, { icon: typeof Mic2; color: string; label: string }> = {
   vocals: { icon: Mic2, label: "Vocals", color: "text-violet-400" },
@@ -109,11 +110,13 @@ export function StemCard({ name, url, index }: StemCardProps) {
         </div>
 
         {/* Download */}
-        <a href={url} download={`${name}.wav`}>
+        <button onClick={async () => {
+          await downloadStem(url, `${config.label}.wav`, "wav");
+        }}>
           <Button variant="ghost" size="icon" className="shrink-0">
             <Download className="h-4 w-4" />
           </Button>
-        </a>
+        </button>
       </div>
     </motion.div>
   );

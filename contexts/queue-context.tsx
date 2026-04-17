@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { nanoid } from "nanoid";
 import type { Job, QueueItem, QueueNotification, SplitMode, OutputFormat, StemDownload } from "@/lib/types";
 import { toast } from "sonner";
+import { downloadStemsZip } from "@/lib/download";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -424,6 +425,14 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
             stemDownloads,
             completedAt: Date.now(),
           });
+
+          // Auto-download ZIP
+          if (stemDownloads.length > 0) {
+            const trackName = activeItem.fileName.replace(/\.[^/.]+$/, "");
+            const prefs = (() => { try { return JSON.parse(localStorage.getItem("44stems-preferences") || "{}"); } catch { return {}; } })();
+            const fmt: "wav" | "mp3" = prefs.outputFormat === "mp3" ? "mp3" : "wav";
+            downloadStemsZip(stemDownloads, trackName, fmt).catch(console.error);
+          }
 
           // Toast notification
           toast.success(activeItem.fileName, {

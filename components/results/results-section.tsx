@@ -6,6 +6,7 @@ import { Download, Loader2, CheckCircle2 } from "lucide-react";
 import { MultiTrackPlayer } from "./multi-track-player";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import type { Job, StemDownload } from "@/lib/types";
+import { downloadStemsZip } from "@/lib/download";
 
 interface ResultsSectionProps {
   jobId: string;
@@ -18,27 +19,11 @@ export function ResultsSection({ jobId, stems, job }: ResultsSectionProps) {
 
   const downloadAll = async () => {
     setIsDownloadingAll(true);
-    const songTitle = job?.fileName ? job.fileName.replace(/\.[^/.]+$/, "") : null;
+    const trackName = job?.fileName ? job.fileName.replace(/\.[^/.]+$/, "") : "Track";
+    const prefs = (() => { try { return JSON.parse(localStorage.getItem("44stems-preferences") || "{}"); } catch { return {}; } })();
+    const fmt: "wav" | "mp3" = prefs.outputFormat === "mp3" ? "mp3" : "wav";
     try {
-      const JSZip = (await import("jszip")).default;
-      const zip = new JSZip();
-
-      await Promise.all(
-        stems.map(async (stem) => {
-          const response = await fetch(`${stem.url}&format=wav`);
-          const blob = await response.blob();
-          const label = stem.name.charAt(0).toUpperCase() + stem.name.slice(1);
-          zip.file(`${label}${songTitle ? " - " + songTitle : ""}.wav`, blob);
-        })
-      );
-
-      const content = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(content);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${songTitle ? songTitle + " - " : ""}Stems.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadStemsZip(stems, trackName, fmt);
     } catch (err) {
       console.error("Failed to create ZIP:", err);
     } finally {

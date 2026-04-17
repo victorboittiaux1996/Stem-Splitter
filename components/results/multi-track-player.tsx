@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import type { StemDownload } from "@/lib/types";
+import { downloadStem } from "@/lib/download";
 
 const STEM_CONFIG: Record<
   string,
@@ -254,11 +255,14 @@ export function MultiTrackPlayer({ stems, jobId, fileName }: MultiTrackPlayerPro
                 />
               </div>
 
-              <a href={stem.url} download={`${config.label}${songTitle ? " - " + songTitle : ""}.wav`}>
+              <button onClick={async () => {
+                const trackName = songTitle || "Track";
+                await downloadStem(stem.url, `${trackName} - ${config.label}.wav`, "wav");
+              }}>
                 <Button variant="ghost" size="icon" className="h-8 w-8">
                   <Download className="h-3.5 w-3.5" />
                 </Button>
-              </a>
+              </button>
             </motion.div>
           );
         })}
