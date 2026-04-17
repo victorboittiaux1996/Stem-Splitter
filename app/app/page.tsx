@@ -13,7 +13,7 @@ import Link from "next/link";
 import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
 import { detectPlatform, PLATFORMS } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
-import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiEqualizerFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { useAuth } from "@/hooks/use-auth";
@@ -305,7 +305,6 @@ export default function AbletonDashboard() {
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("wav");
   const [stemsOpen, setStemsOpen] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
-  const [extraOpen, setExtraOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("profile");
@@ -356,14 +355,6 @@ export default function AbletonDashboard() {
     return () => mq.removeEventListener("change", handler);
   }, []);
   const WORKSPACE_ID = user ? `ws-${user.id}` : "";
-  const [qualityPreset, setQualityPreset] = useState<"fast" | "balanced" | "high">(() => {
-    if (typeof window === "undefined") return "fast";
-    try {
-      const saved = localStorage.getItem("44stems-preferences");
-      if (saved) { const p = JSON.parse(saved); if (p.quality) return p.quality; }
-    } catch {}
-    return "fast";
-  });
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
@@ -509,7 +500,6 @@ export default function AbletonDashboard() {
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stemsRef = useRef<HTMLDivElement>(null);
   const formatRef = useRef<HTMLDivElement>(null);
-  const extraRef = useRef<HTMLDivElement>(null);
   const activityRef = useRef<HTMLDivElement>(null);
 
   const duration = 214; // mock duration
@@ -518,17 +508,16 @@ export default function AbletonDashboard() {
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!stemsOpen && !formatOpen && !extraOpen && !activityOpen) return;
+    if (!stemsOpen && !formatOpen && !activityOpen) return;
     const handler = (e: MouseEvent) => {
       if (stemsOpen && stemsRef.current && !stemsRef.current.contains(e.target as Node)) setStemsOpen(false);
       if (formatOpen && formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false);
-      if (extraOpen && extraRef.current && !extraRef.current.contains(e.target as Node)) setExtraOpen(false);
       if (activityOpen && activityRef.current && !activityRef.current.contains(e.target as Node)) setActivityOpen(false);
       if (profileOpen && profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [stemsOpen, formatOpen, extraOpen, activityOpen, profileOpen]);
+  }, [stemsOpen, formatOpen, activityOpen, profileOpen]);
 
   // Results playback simulation
   useEffect(() => {
@@ -676,8 +665,7 @@ export default function AbletonDashboard() {
     }
 
     const mode: SplitMode = stemCount === 2 ? "2stem" : stemCount === 6 ? "6stem" : "4stem";
-    const OVERLAP_MAP = { fast: 2, balanced: 8, high: 16 } as const;
-    const overlap = OVERLAP_MAP[qualityPreset];
+    const overlap = 8;
 
     if (isValidUrl && inputMode === "url") {
       if (playlistTracks.length > 0) {
@@ -707,7 +695,7 @@ export default function AbletonDashboard() {
     setPendingFiles([]);
     setAppState("processing");
     setUploadError(null);
-  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, qualityPreset, enqueue, enqueueUrl, totalDurationSec, remainingSeconds, playlistTracks, batchLimit, planLabel]);
+  }, [file, pendingFiles, stemCount, isValidUrl, inputMode, urlInput, outputFormat, enqueue, enqueueUrl, totalDurationSec, remainingSeconds, playlistTracks, batchLimit, planLabel]);
 
   const handleNewSplit = useCallback(() => {
     setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
@@ -1308,7 +1296,7 @@ export default function AbletonDashboard() {
                         <div className="w-[1px] h-[14px] mx-[6px]" style={{ backgroundColor: C.textMuted, opacity: 0.3 }} />
                         {/* Stems selector */}
                         <div className="relative" ref={stemsRef}>
-                          <button onClick={() => { setStemsOpen(!stemsOpen); setFormatOpen(false); setExtraOpen(false); }}
+                          <button onClick={() => { setStemsOpen(!stemsOpen); setFormatOpen(false); }}
                             className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
                             style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: stemsOpen ? C.bgHover : undefined }}>
                             {stemLabel}
@@ -1345,7 +1333,7 @@ export default function AbletonDashboard() {
                         </div>
                         {/* Format selector */}
                         <div className="relative" ref={formatRef}>
-                          <button onClick={() => { setFormatOpen(!formatOpen); setStemsOpen(false); setExtraOpen(false); }}
+                          <button onClick={() => { setFormatOpen(!formatOpen); setStemsOpen(false); }}
                             className="flex items-center gap-[4px] px-[8px] py-[6px] transition-colors"
                             style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em", backgroundColor: formatOpen ? C.bgHover : undefined }}>
                             {outputFormat.toUpperCase()}
@@ -1376,40 +1364,6 @@ export default function AbletonDashboard() {
                                     </button>
                                   );
                                 })}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                        {/* Gear popover */}
-                        <div className="relative" ref={extraRef}>
-                          <button onClick={() => { setExtraOpen(!extraOpen); setStemsOpen(false); setFormatOpen(false); }}
-                            className="p-[8px] transition-colors" style={{ color: extraOpen ? C.text : C.textMuted, backgroundColor: extraOpen ? C.bgHover : undefined }}>
-                            <RiEqualizerFill size={15}/>
-                          </button>
-                          <AnimatePresence>
-                            {extraOpen && (
-                              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
-                                transition={{ duration: 0.1 }} className="absolute left-0 top-full mt-[4px] z-30 w-[280px]"
-                                style={{ backgroundColor: C.bgCard }}>
-                                <div className="px-[16px] py-[12px]" style={{ backgroundColor: C.bgHover }}>
-                                  <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em" }}>ADVANCED SETTINGS</span>
-                                </div>
-                                <div className="px-[16px] py-[14px] space-y-[16px]">
-                                  <div className="space-y-[8px]">
-                                    <label style={{ fontSize: 13, fontWeight: 600, color: C.textMuted, letterSpacing: "0.04em" }}>PROCESSING QUALITY</label>
-                                    <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Higher quality uses more processing time per file</p>
-                                    <div className="flex gap-[4px]">
-                                      {([["fast", "FAST", "Fastest, good quality"], ["balanced", "BALANCED", "Recommended"], ["high", "HIGH", "Best quality, slower"]] as const).map(([val, label, desc]) => (
-                                        <button key={val} onClick={() => setQualityPreset(val as typeof qualityPreset)}
-                                          className="flex-1 flex flex-col items-center gap-[2px] py-[10px] transition-colors"
-                                          style={{ backgroundColor: qualityPreset === val ? C.accent : C.bgHover, color: qualityPreset === val ? C.accentText : C.text }}>
-                                          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.03em" }}>{label}</span>
-                                          <span style={{ fontSize: 11, opacity: 0.7 }}>{desc}</span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
                               </motion.div>
                             )}
                           </AnimatePresence>
