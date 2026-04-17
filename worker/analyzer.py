@@ -7,6 +7,7 @@ Segment: 60s at 25% of track (avoids drums-only intros)
 
 import sys
 import os
+import threading
 import numpy as np
 import librosa
 import torch
@@ -32,19 +33,29 @@ _skey_device = None
 _skey_hcqt = None
 _skey_chromanet = None
 _skey_crop_fn = None
+_skey_lock = threading.Lock()
+
+# BPM extractor (cached to avoid re-initializing Essentia on every call)
+_rhythm_extractor = None
 
 
 def _init_skey():
-    """Initialize S-KEY model (lazy, once per container)."""
+    """Initialize S-KEY model (lazy, once per container). Thread-safe via double-checked locking."""
     global _skey_ckpt, _skey_device, _skey_hcqt, _skey_chromanet, _skey_crop_fn
     if _skey_ckpt is not None:
         return
-    _skey_ckpt = load_checkpoint()
-    _skey_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    _skey_hcqt, _skey_chromanet, _skey_crop_fn = load_model_components(
-        _skey_ckpt, _skey_device
-    )
-    print(f"S-KEY initialized on {_skey_device}")
+    with _skey_lock:
+        if _skey_ckpt is not None:  # double-checked
+            return
+        ckpt = load_checkpoint()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        hcqt, chromanet, crop_fn = load_model_components(ckpt, device)
+        _skey_device = device
+        _skey_hcqt = hcqt
+        _skey_chromanet = chromanet
+        _skey_crop_fn = crop_fn
+        _skey_ckpt = ckpt  # written last — this is the guard
+        print(f"S-KEY initialized on {_skey_device}")
 
 
 def load_segment(path: str, sr: int = 22050, duration: int = 60, position_pct: float = 0.25):
@@ -84,11 +95,13 @@ def detect_key(audio_path: str) -> tuple[str, str]:
 
 def detect_bpm(audio_path: str) -> float:
     """Detect BPM using Essentia RhythmExtractor2013 (degara mode)."""
+    global _rhythm_extractor
+    if _rhythm_extractor is None:
+        _rhythm_extractor = es.RhythmExtractor2013(method="degara")
     y, sr = load_segment(audio_path, sr=22050, duration=60, position_pct=0.25)
     # Essentia needs 44100 Hz
     y_44 = librosa.resample(y, orig_sr=sr, target_sr=44100)
-    rhythm = es.RhythmExtractor2013(method="degara")
-    bpm, beats, confidence, estimates, intervals = rhythm(y_44.astype(np.float32))
+    bpm, beats, confidence, estimates, intervals = _rhythm_extractor(y_44.astype(np.float32))
     # Octave correction: normalize to 70-180 BPM range
     while bpm < 70:
         bpm *= 2

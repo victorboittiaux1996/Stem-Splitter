@@ -10,11 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { plan, billing = "monthly", isBusinessCustomer } = await req.json() as {
-      plan: string;
-      billing?: string;
-      isBusinessCustomer?: boolean;
-    };
+    const { plan, billing = "monthly" } = await req.json() as { plan: string; billing?: string };
     if (plan !== "pro" && plan !== "studio") {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
@@ -71,15 +67,14 @@ export async function POST(req: NextRequest) {
       customerName,
       externalCustomerId: user.id,
       requireBillingAddress: true,
-      ...(typeof isBusinessCustomer === "boolean" ? { isBusinessCustomer } : {}),
-      successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
+successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
     });
 
     if (!checkout.url) {
       return NextResponse.json({ error: "Failed to get checkout URL" }, { status: 502 });
     }
 
-    return NextResponse.json({ url: checkout.url, checkoutId: checkout.id });
+    return NextResponse.json({ url: checkout.url });
   } catch (error) {
     console.error("Checkout error:", error);
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });

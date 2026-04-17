@@ -313,7 +313,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           const xhr = new XMLHttpRequest();
           xhr.upload.addEventListener("progress", (e) => {
             if (e.lengthComputable) {
-              const p = Math.round((e.loaded / e.total) * 20);
+              const p = Math.round((e.loaded / e.total) * 5);
               updateItem(item.id, { progress: p });
               progressTargetRef.current = p;
             }

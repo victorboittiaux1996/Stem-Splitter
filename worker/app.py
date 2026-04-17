@@ -562,8 +562,24 @@ def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str
             print(f"[bgutil] startup failed (non-fatal): {_e}")
 
     output_template = os.path.join(output_dir, 'audio.%(ext)s')
-    cookies_path = _get_cookies_path(job_id) if _is_youtube_url(url) else None
     proxy_url = os.environ.get("YT_PROXY_URL", "").strip()
+
+    # Cookie handling:
+    # - For non-YouTube URLs: never use cookies (platforms don't need them).
+    # - For YouTube with proxy configured: skip cookies by default.
+    #   Residential proxy IP passes YT anti-bot without authentication — keeping
+    #   cookies out of the proxy path eliminates the weekly 5-7d expiry burden.
+    #   Override with USE_COOKIES=true to force cookies even when proxy is set
+    #   (useful if proxy alone starts failing age-gated content).
+    # - For YouTube without proxy (primary/fallback path): use cookies.
+    use_cookies_override = os.environ.get("USE_COOKIES", "").strip().lower()
+    if _is_youtube_url(url):
+        if proxy_url and use_cookies_override != "true":
+            cookies_path = None  # proxy alone is sufficient; no weekly expiry overhead
+        else:
+            cookies_path = _get_cookies_path(job_id)
+    else:
+        cookies_path = None
 
     # For YouTube with proxy configured: go straight to proxy.
     # Modal datacenter IPs are always bot-detected by YouTube — trying primary first
@@ -571,7 +587,7 @@ def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str
     # For non-YouTube (SoundCloud, Deezer, etc.) or when proxy is not configured:
     # try primary path first, fall back to proxy on non-terminal errors.
     if _is_youtube_url(url) and proxy_url:
-        print(f"[yt-dlp] YouTube detected + proxy configured — using proxy directly")
+        print(f"[yt-dlp] YouTube detected + proxy configured — using proxy directly (cookies={'yes' if cookies_path else 'no'})")
         try:
             with _ytdlp_semaphore:
                 _run_ytdlp_chain(url, output_template, cookies_path, proxy=proxy_url)
@@ -686,6 +702,87 @@ def _assert_tqdm_clean(job_id):
         pass
 
 
+def _preload_models_if_cold(input_key: "str | None", tmpdir: str) -> "str | None":
+    """Parallel preload of all 3 ML models + R2 download on cold container start.
+
+    Launches 4 threads simultaneously:
+      - S-KEY (17-24s load)
+      - Vocal separator (2-3s)
+      - Instru separator (2-3s)
+      - R2 download (1-3s, only when input_key is set)
+
+    Wall-clock cost = max(all loads) ≈ 17-24s instead of 25-30s sequential.
+    Gain: 6-11s on cold starts. Warm containers: all guards return immediately (no-op).
+
+    Returns the downloaded R2 file path if input_key was preloaded, else None.
+    Kill switch: set PRELOAD_MODELS=0 in Modal feature-flags secret.
+    """
+    # Kill switch enforced here (not at call site) so callers don't need to know the flag name
+    if os.environ.get("PRELOAD_MODELS", "1").strip() != "1":
+        return None
+
+    global _sep_vocal, _sep_instru
+
+    import concurrent.futures as _cf
+    import logging
+    from audio_separator.separator import Separator
+    import analyzer as _analyzer
+
+    logging.getLogger("audio_separator").setLevel(logging.WARNING)
+
+    _preload_dir = os.path.join(tmpdir, "preload")
+    os.makedirs(_preload_dir, exist_ok=True)
+
+    def _load_skey():
+        _analyzer._init_skey()
+
+    def _load_vocal():
+        global _sep_vocal
+        if _sep_vocal is not None:
+            return
+        v_dir = os.path.join(_preload_dir, "v")
+        os.makedirs(v_dir, exist_ok=True)
+        sep = Separator(output_dir=v_dir, output_format="WAV", normalization_threshold=0.9)
+        sep.load_model(model_filename=VOCAL_MODEL)
+        _sep_vocal = sep
+
+    def _load_instru():
+        global _sep_instru
+        if _sep_instru is not None:
+            return
+        i_dir = os.path.join(_preload_dir, "i")
+        os.makedirs(i_dir, exist_ok=True)
+        sep = Separator(output_dir=i_dir, output_format="WAV", normalization_threshold=0.9)
+        sep.load_model(model_filename=INSTRUMENT_MODEL)
+        _sep_instru = sep
+
+    def _download_r2():
+        from storage import download_from_r2
+        ext = os.path.splitext(input_key)[1] or ".mp3"
+        path = os.path.join(_preload_dir, f"input{ext}")
+        download_from_r2(input_key, path)
+        return path
+
+    _t0 = time.time()
+
+    with _cf.ThreadPoolExecutor(max_workers=4) as executor:
+        f_skey = executor.submit(_load_skey)
+        f_vocal = executor.submit(_load_vocal)
+        f_instru = executor.submit(_load_instru)
+        f_r2 = executor.submit(_download_r2) if input_key else None
+    # All threads done here (executor.shutdown(wait=True) on context exit)
+
+    elapsed = time.time() - _t0
+    # Re-raise any thread exceptions — print timing only on full success
+    f_skey.result()
+    f_vocal.result()
+    f_instru.result()
+    preloaded_path = f_r2.result() if f_r2 else None
+
+    print(f"[PRELOAD] cold preload complete in {elapsed:.2f}s")
+    return preloaded_path
+
+
 @app.function(
     image=image,
     gpu="H100",
@@ -740,6 +837,16 @@ def separate(request: dict):
     print(f"[TIMING] job={job_id} cold={int(_cold)} container={_container_id} phase=start")
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Parallel preload: models + R2 download in parallel on cold start
+        # _preload_models_if_cold handles the PRELOAD_MODELS kill switch internally
+        _preloaded_path = None
+        if _cold:
+            try:
+                _preloaded_path = _preload_models_if_cold(input_key, tmpdir)
+            except Exception as _e:
+                print(f"[PRELOAD] failed, falling back to sequential: {_e}")
+                _preloaded_path = None
+
         # Get input file
         _t0 = time.time()
         if download_url:
@@ -781,12 +888,15 @@ def separate(request: dict):
             with open(input_path, "wb") as f:
                 f.write(base64.b64decode(audio_b64))
         elif input_key:
-            # Download from R2
+            # Download from R2 — or reuse path already fetched by _preload_models_if_cold
             from storage import download_from_r2, update_job_status
-            ext = os.path.splitext(input_key)[1] or ".mp3"
-            input_path = os.path.join(tmpdir, f"input{ext}")
             update_job_status(job_id, "processing", progress=5, stage="Downloading audio", workspace_id=workspace_id)
-            download_from_r2(input_key, input_path)
+            if _preloaded_path:
+                input_path = _preloaded_path
+            else:
+                ext = os.path.splitext(input_key)[1] or ".mp3"
+                input_path = os.path.join(tmpdir, f"input{ext}")
+                download_from_r2(input_key, input_path)
         else:
             return {"error": "No audio provided"}
 
@@ -1375,8 +1485,7 @@ _YT_PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
         modal.Secret.from_name("r2-credentials"),
         modal.Secret.from_name("youtube-cookies-jar"),
         modal.Secret.from_name("yt-proxy-url"),
-        # Add when ready: modal.Secret.from_name("alerts-webhook")
-        # Create with: modal secret create alerts-webhook ALERTS_WEBHOOK_URL="https://..."
+        modal.Secret.from_name("alerts-webhook"),
     ],
     timeout=120,
 )
@@ -1475,14 +1584,30 @@ def yt_synthetic_probe():
 
     if fail_count >= 2:
         # Send alert
+        # Supported webhook formats (auto-detected from URL):
+        #   ntfy.sh:  https://ntfy.sh/<topic>  — plain-text POST body (push notification to phone)
+        #   Telegram: https://api.telegram.org/bot<token>/sendMessage?chat_id=<id>  — JSON
+        #   Slack/Discord: https://hooks.slack.com/... or https://discord.com/api/webhooks/...  — JSON {"text":"..."}
         webhook_url = os.environ.get("ALERTS_WEBHOOK_URL", "").strip()
         if webhook_url:
-            payload = json.dumps({
-                "text": f"44Stems YT probe FAILED x{fail_count} — error: {error_snippet}",
-            }).encode("utf-8")
+            msg = f"44Stems YT probe FAILED x{fail_count} — error: {error_snippet}"
             try:
-                req = urllib.request.Request(webhook_url, data=payload, method="POST")
-                req.add_header("Content-Type", "application/json")
+                if "ntfy.sh" in webhook_url:
+                    # ntfy.sh: plain-text POST body, priority header for high-urgency alerts
+                    req = urllib.request.Request(webhook_url, data=msg.encode("utf-8"), method="POST")
+                    req.add_header("Content-Type", "text/plain")
+                    req.add_header("Priority", "high")
+                    req.add_header("Title", "44Stems YT Alert")
+                elif "telegram" in webhook_url:
+                    # Telegram Bot API: POST to sendMessage endpoint
+                    payload = json.dumps({"text": msg}).encode("utf-8")
+                    req = urllib.request.Request(webhook_url, data=payload, method="POST")
+                    req.add_header("Content-Type", "application/json")
+                else:
+                    # Slack / Discord / generic JSON webhook
+                    payload = json.dumps({"text": msg, "content": msg}).encode("utf-8")
+                    req = urllib.request.Request(webhook_url, data=payload, method="POST")
+                    req.add_header("Content-Type", "application/json")
                 urllib.request.urlopen(req, timeout=10)
                 print(f"[probe] alert sent (fail_count={fail_count})")
             except Exception as ae:
