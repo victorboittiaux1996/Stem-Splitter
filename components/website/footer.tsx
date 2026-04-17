@@ -15,19 +15,37 @@ export function Footer() {
   const sections = [
     {
       title: "Product",
-      links: ["Stem Splitter", "Batch Processing", "API", "Pricing"],
+      links: [
+        { label: "Stem Splitter", href: "#" },
+        { label: "Batch Processing", href: "#" },
+        { label: "API", href: "#" },
+        { label: "Pricing", href: "/pricing" },
+      ],
     },
     {
       title: "Resources",
-      links: ["Documentation", "Blog", "Changelog", "Status"],
+      links: [
+        { label: "Documentation", href: "#" },
+        { label: "Blog", href: "#" },
+        { label: "Changelog", href: "#" },
+        { label: "Status", href: "#" },
+      ],
     },
     {
       title: "Company",
-      links: ["About", "Careers", "Contact"],
+      links: [
+        { label: "About", href: "#" },
+        { label: "Careers", href: "#" },
+        { label: "Contact", href: "mailto:hello@44stems.com" },
+      ],
     },
     {
       title: "Legal",
-      links: ["Privacy", "Terms", "Cookies"],
+      links: [
+        { label: "Privacy", href: "/privacy" },
+        { label: "Terms", href: "/terms" },
+        { label: "Cookies", href: "#" },
+      ],
     },
   ];
 
@@ -85,9 +103,9 @@ export function Footer() {
                 }}
               >
                 {section.links.map((link) => (
-                  <li key={link} style={{ marginBottom: "12px" }}>
+                  <li key={link.label} style={{ marginBottom: "12px" }}>
                     <a
-                      href="#"
+                      href={link.href}
                       style={{
                         fontFamily: fonts.body,
                         fontSize: "14px",
@@ -105,7 +123,7 @@ export function Footer() {
                           T.textSecondary;
                       }}
                     >
-                      {link}
+                      {link.label}
                     </a>
                   </li>
                 ))}
