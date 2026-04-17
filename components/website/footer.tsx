@@ -34,9 +34,8 @@ export function Footer() {
     {
       title: "Company",
       links: [
-        { label: "About", href: "#" },
-        { label: "Careers", href: "#" },
-        { label: "Contact", href: "mailto:hello@44stems.com" },
+        { label: "About", href: "/about" },
+        { label: "Contact", href: "/contact" },
       ],
     },
     {
@@ -44,7 +43,7 @@ export function Footer() {
       links: [
         { label: "Privacy", href: "/privacy" },
         { label: "Terms", href: "/terms" },
-        { label: "Cookies", href: "#" },
+        { label: "Cookies", href: "/cookies" },
       ],
     },
   ];
