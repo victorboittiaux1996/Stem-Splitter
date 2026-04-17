@@ -7,10 +7,9 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { StemModal } from "@/components/stem-modal";
-import { StemVariants } from "@/components/stem-variants";
 import { WelcomeModal } from "@/components/welcome-modal";
 import Link from "next/link";
-import type { Job, StemDownload, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
+import type { Job, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
 import { detectPlatform, PLATFORMS } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
@@ -24,10 +23,10 @@ import { toast } from "sonner";
 // Icon libraries installed: @phosphor-icons/react, @tabler/icons-react, @heroicons/react, @remixicon/react
 
 // ─── Types ───────────────────────────────────────────────────
-type AppState = "idle" | "file-selected" | "processing" | "complete";
+type AppState = "idle" | "file-selected" | "processing";
 type StemCount = 2 | 4 | 6;
 type OutputFormat = "wav" | "mp3";
-type View = "split" | "results" | "files" | "stats" | "games" | "settings";
+type View = "split" | "files" | "stats" | "games" | "settings";
 
 const F = "var(--font-futura), sans-serif";
 
@@ -423,11 +422,6 @@ export default function AbletonDashboard() {
   // Real API states
   const [jobId, setJobId] = useState<string | null>(null);
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
-  const [stemDownloads, setStemDownloads] = useState<StemDownload[]>([]);
-  const stemUrls = useMemo(
-    () => stemDownloads.length > 0 ? Object.fromEntries(stemDownloads.map(s => [s.name, s.url])) : undefined,
-    [stemDownloads]
-  );
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadErrorFromUrl, setUploadErrorFromUrl] = useState(false);
 
@@ -466,19 +460,12 @@ export default function AbletonDashboard() {
         setCurrentJob(job);
         setJobId(id);
         setStemCount((job.stems?.length === 2 ? 2 : job.stems?.length === 6 ? 6 : 4) as StemCount);
-        setAppState("complete");
-        setView("results");
+        setAppState("idle");
+        setView("split");
 
-        // Cache server-computed peaks + load stem download URLs
+        // Cache server-computed peaks
         if (job.peaks && Object.keys(job.peaks).length > 0) {
           stemPeaksCacheRef.current[id] = job.peaks;
-        }
-        const dlRes = await fetch(`/api/download/${id}`, { headers: { "x-workspace-id": wsId2 } });
-        if (dlRes.ok) {
-          const dlData = await dlRes.json();
-          if (dlData.stems) {
-            setStemDownloads(dlData.stems);
-          }
         }
       } catch (err) {
         console.error("Mock load failed:", err);
@@ -700,7 +687,7 @@ export default function AbletonDashboard() {
   const handleNewSplit = useCallback(() => {
     setFile(null); setPendingFiles([]); setAppState("idle"); setProgress(0); setStage("");
     setIsPlaying(false); setCurrentTime(0); setSoloTrack(null); setMutedTracks(new Set());
-    setJobId(null); setCurrentJob(null); setStemDownloads([]); setUploadError(null); setUploadErrorFromUrl(false);
+    setJobId(null); setCurrentJob(null); setUploadError(null); setUploadErrorFromUrl(false);
     progressTargetRef.current = 0; progressDisplayRef.current = 0;
   }, []);
 
@@ -749,17 +736,7 @@ export default function AbletonDashboard() {
         }
       }
 
-      if (queueItems.length === 1 && queueItems[0].status === "completed" && queueItems[0].job) {
-        // Single file → auto results
-        setCurrentJob(queueItems[0].job);
-        setStemDownloads(queueItems[0].stemDownloads);
-        if (queueItems[0].jobId) setJobId(queueItems[0].jobId);
-        setAppState("complete");
-        setView("results");
-      } else {
-        // Batch done → idle
-        setAppState("idle");
-      }
+      setAppState("idle");
       // refreshHistory() handled by "history-updated" event listener
     }
 
@@ -1448,7 +1425,7 @@ export default function AbletonDashboard() {
 
                     {/* Stem detail modal — Recent splits */}
                     <AnimatePresence>
-                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} />}
+                      {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} onShare={isPro && expandedFile ? () => handleShare(expandedFile) : null} />}
                     </AnimatePresence>
                   </>
                 )}
@@ -1456,69 +1433,10 @@ export default function AbletonDashboard() {
                 {/* Processing */}
                 {appState === "processing" && <ProcessingSection progress={progress} activeAgentIdx={activeAgentIdx} C={C} queueItems={queueItems} activeItemId={activeItemId} onMinimize={() => setAppState("idle")} />}
 
-                {/* Complete — Results view */}
-                {appState === "complete" && (
-                  <StemVariants
-                    stemCount={stemCount}
-                    stemMap={STEM_MAP}
-                    labels={LABELS}
-                    stemColors={stemColors}
-                    C={C}
-                    isDark={isDark}
-                    fileName={file?.name}
-                    onNewSplit={handleNewSplit}
-                    bpm={currentJob?.bpm}
-                    stemKey={currentJob?.key}
-                    keyRaw={currentJob?.key_raw}
-                    realStemList={currentJob?.stems}
-                    jobId={jobId || undefined}
-                    stemUrls={stemUrls}
-                    trackDuration={currentJob?.duration}
-                    precomputedPeaks={currentJob?.peaks}
-                    outputFormat={outputFormat}
-                    onShare={isPro && jobId ? () => handleShare(jobId) : null}
-                  />
-                )}
               </div>
             </div>
           )}
 
-          {/* ═══ RESULTS ═══ */}
-          {view === "results" && (
-            <div className="px-[24px] pt-[24px] pb-[40px] overflow-y-auto flex-1">
-              <div style={{ maxWidth: 900, margin: "0 auto" }}>
-                {currentJob?.status === "completed" ? (
-                  <StemVariants
-                    stemCount={stemCount}
-                    stemMap={STEM_MAP}
-                    labels={LABELS}
-                    stemColors={stemColors}
-                    C={C}
-                    isDark={isDark}
-                    fileName={file?.name}
-                    onNewSplit={() => { handleNewSplit(); setView("split"); }}
-                    bpm={currentJob?.bpm}
-                    stemKey={currentJob?.key}
-                    keyRaw={currentJob?.key_raw}
-                    realStemList={currentJob?.stems}
-                    jobId={jobId || undefined}
-                    stemUrls={stemUrls}
-                    trackDuration={currentJob?.duration}
-                    precomputedPeaks={currentJob?.peaks}
-                    outputFormat={outputFormat}
-                    onShare={isPro && jobId ? () => handleShare(jobId) : null}
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-[80px]">
-                    <div className="flex h-[48px] w-[48px] items-center justify-center" style={{ backgroundColor: C.bgHover }}>
-                      <svg width="22" height="22" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
-                    </div>
-                    <p style={{ fontSize: 15, color: C.textMuted, marginTop: 12, letterSpacing: "0.03em" }}>NO RESULTS YET — SPLIT A TRACK FIRST</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* ═══ MY FILES ═══ */}
           {view === "files" && (
@@ -1753,7 +1671,7 @@ export default function AbletonDashboard() {
 
               {/* Stem detail modal — Files */}
               <AnimatePresence>
-                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} />}
+                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} onShare={isPro && expandedFile ? () => handleShare(expandedFile) : null} />}
               </AnimatePresence>
             </>
           )}

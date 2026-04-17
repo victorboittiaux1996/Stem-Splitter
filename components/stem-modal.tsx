@@ -5,9 +5,49 @@ import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { RiPlayFill, RiStopFill, RiDownloadFill } from "@remixicon/react";
 import { motion } from "framer-motion";
 import { WaveformVariant } from "@/components/dashboard/waveform-variants";
-import { prefetchStemPeaks, _peakCache } from "@/components/stem-variants";
 import { downloadStem, downloadStemsZip } from "@/lib/download";
 import type { HistoryItem } from "@/lib/types";
+
+// ─── Audio peak utils (moved here from stem-variants) ────────
+export const _peakCache = new Map<string, number[]>();
+
+async function fetchAudioPeaks(url: string, peakCount = 1000): Promise<number[]> {
+  const res = await fetch(url);
+  const arrayBuffer = await res.arrayBuffer();
+  const ctx = new AudioContext();
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  await ctx.close();
+  const ch0 = audioBuffer.getChannelData(0);
+  let samples: Float32Array;
+  if (audioBuffer.numberOfChannels >= 2) {
+    const ch1 = audioBuffer.getChannelData(1);
+    samples = new Float32Array(ch0.length);
+    for (let i = 0; i < ch0.length; i++) samples[i] = (ch0[i] + ch1[i]) / 2;
+  } else {
+    samples = ch0;
+  }
+  const bucketSize = Math.floor(samples.length / peakCount);
+  const peaks = new Array<number>(peakCount);
+  let globalMax = 0;
+  for (let i = 0; i < peakCount; i++) {
+    const start = i * bucketSize;
+    const end = Math.min(start + bucketSize, samples.length);
+    let max = 0;
+    for (let j = start; j < end; j++) { const abs = Math.abs(samples[j]); if (abs > max) max = abs; }
+    peaks[i] = max;
+    if (max > globalMax) globalMax = max;
+  }
+  if (globalMax > 0) { for (let i = 0; i < peakCount; i++) peaks[i] = peaks[i] / globalMax; }
+  return peaks;
+}
+
+export function prefetchStemPeaks(urls: Record<string, string>) {
+  for (const url of Object.values(urls)) {
+    if (!_peakCache.has(url)) {
+      fetchAudioPeaks(url).then(p => _peakCache.set(url, p)).catch(() => {});
+    }
+  }
+}
 
 interface ThemeColors {
   bg: string;
@@ -38,9 +78,11 @@ interface StemModalProps {
   outputFormat?: "wav" | "mp3";
   /** Workspace ID for scoped API calls */
   workspaceId?: string;
+  /** Called when user clicks Share. Null = pro-gated (show disabled badge). Undefined = hide button. */
+  onShare?: (() => Promise<void>) | null;
 }
 
-export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks, outputFormat = "wav", workspaceId }: StemModalProps) {
+export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks, outputFormat = "wav", workspaceId, onShare }: StemModalProps) {
   const fmt = outputFormat;
   const fmtExt = fmt === "mp3" ? ".mp3" : ".wav";
   const currentItem = items.find(h => h.id === expandedFile);
@@ -246,6 +288,23 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
         {/* Footer */}
         <div className="flex items-center justify-between px-[24px] py-[12px]" style={{ backgroundColor: C.bgSubtle }}>
           <span style={{ fontSize: 14, color: C.textMuted }}>{currentIdx + 1} / {items.length}</span>
+          <div className="flex items-center gap-[8px]">
+          {onShare !== undefined && (
+            onShare ? (
+              <button onClick={() => onShare()}
+                className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
+                style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.text, backgroundColor: C.bgHover }}>
+                SHARE
+              </button>
+            ) : (
+              <button disabled
+                className="flex items-center gap-[6px] px-[12px] py-[7px]"
+                style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.textMuted, backgroundColor: C.bgHover, opacity: 0.6, cursor: "default" }}>
+                SHARE
+                <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.06em", marginLeft: 4, verticalAlign: "super" }}>PRO</span>
+              </button>
+            )
+          )}
           <button onClick={async () => {
             if (Object.keys(stemUrls).length === 0) return;
             const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
@@ -256,6 +315,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
             <RiDownloadFill size={12}/>
             DOWNLOAD .ZIP
           </button>
+          </div>
         </div>
       </motion.div>
     </motion.div>
