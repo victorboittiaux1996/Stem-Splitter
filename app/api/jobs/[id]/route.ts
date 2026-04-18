@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computePeriodKey, getPreviousPeriodKey } from "@/lib/period";
 import { PLANS, type PlanId } from "@/lib/plans";
 
+export const maxDuration = 30;
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
 const CHAT_ID = "597546295";
 
@@ -131,7 +133,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const _notifyStatus = updates.status as "completed" | "failed";
       const _mergedSnapshot = merged as Record<string, unknown>;
       after(async () => {
-        await new Promise(res => setTimeout(res, 10000));
+        await new Promise(res => setTimeout(res, 5000));
         const fresh = await getJobForWorkspace(_notifyWsId, id).catch(() => null);
         void notifyJob(_notifyStatus, (fresh ?? _mergedSnapshot) as Record<string, unknown>);
       });
