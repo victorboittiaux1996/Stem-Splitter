@@ -132,11 +132,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const _notifyWsId = existing.workspaceId ?? wsId;
       const _notifyStatus = updates.status as "completed" | "failed";
       const _mergedSnapshot = merged as Record<string, unknown>;
-      after(async () => {
-        await new Promise(res => setTimeout(res, 5000));
-        const fresh = await getJobForWorkspace(_notifyWsId, id).catch(() => null);
-        await notifyJob(_notifyStatus, (fresh ?? _mergedSnapshot) as Record<string, unknown>);
-      });
+      // phase_timings now included in Modal's PATCH payload — notify immediately, no delay needed
+      notifyJob(_notifyStatus, _mergedSnapshot as Record<string, unknown>).catch(() => {});
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabaseAdmin.from("jobs") as any).upsert({
         id,

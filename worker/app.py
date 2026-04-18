@@ -1381,6 +1381,9 @@ def separate(request: dict):
 
             # Notify Next.js to track usage minutes and flip status to "completed"
             # No retry — increment_usage is additive, retrying risks double-counting
+            # Compute wall time + cold flag now so they're included in the callback payload
+            _timings['total_wall_time'] = time.time() - _job_start
+            _timings['cold'] = int(_cold)
             _t0 = time.time()
             callback_ok = False
             if callback_url:
@@ -1393,6 +1396,7 @@ def separate(request: dict):
                     "status": "completed",
                     "duration": analysis["duration"],
                     "workspaceId": workspace_id,
+                    "phase_timings": _timings,
                 }).encode("utf-8")
 
                 try:
