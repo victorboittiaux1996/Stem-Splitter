@@ -841,11 +841,13 @@ def separate(request: dict):
         # _preload_models_if_cold handles the PRELOAD_MODELS kill switch internally
         _preloaded_path = None
         if _cold:
+            _t_warmup = time.time()
             try:
                 _preloaded_path = _preload_models_if_cold(input_key, tmpdir)
             except Exception as _e:
                 print(f"[PRELOAD] failed, falling back to sequential: {_e}")
                 _preloaded_path = None
+            _timings['warmup'] = time.time() - _t_warmup
 
         # Get input file
         _t0 = time.time()
