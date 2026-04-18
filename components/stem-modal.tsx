@@ -101,6 +101,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   const [stemUrls, setStemUrls] = useState<Record<string, string>>({});
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [sharing, setSharing] = useState(false);
   const audioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
 
@@ -298,10 +299,15 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
           <div className="flex items-center gap-[8px]">
           {onShare !== undefined && (
             onShare ? (
-              <button onClick={() => onShare()}
+              <button
+                disabled={sharing}
+                onClick={async () => { setSharing(true); try { await onShare(); } finally { setSharing(false); } }}
                 className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
-                style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.text, backgroundColor: C.bgHover }}>
-                SHARE
+                style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.text, backgroundColor: C.bgHover, opacity: sharing ? 0.6 : 1, cursor: sharing ? "default" : "pointer" }}>
+                {sharing ? (
+                  <span className="animate-spin" style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.text}`, borderTopColor: "transparent", borderRadius: "50%" }} />
+                ) : null}
+                {sharing ? "SHARING…" : "SHARE"}
               </button>
             ) : (
               <button disabled
