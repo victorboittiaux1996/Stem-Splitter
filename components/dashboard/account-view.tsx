@@ -214,15 +214,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   const [annual, setAnnual] = React.useState(false);
   const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
   const [cancelLoading, setCancelLoading] = React.useState(false);
-
-  // Auto-open the modal when the home/pricing CTA arrives with ?upgrade=...
-  React.useEffect(() => {
-    if (pendingPlanChange) {
-      setAnnual(pendingPlanChange.billing === "annual");
-      setModalTarget({ plan: pendingPlanChange.plan, billing: pendingPlanChange.billing });
-      onConsumePendingPlanChange?.();
-    }
-  }, [pendingPlanChange, onConsumePendingPlanChange]);
+  const [redirecting, setRedirecting] = React.useState(false);
 
   // Derive current plan from planLabel
   const currentPlan: PlanId =
@@ -231,9 +223,50 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
 
   const planTier = PLAN_ORDER.indexOf(currentPlan);
 
+  const redirectToCheckout = React.useCallback(async (plan: PlanId, billing: BillingPeriod, onSuccess?: () => void) => {
+    setRedirecting(true);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan, billing }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        onSuccess?.();
+        window.location.href = data.url;
+        return; // redirecting stays true — page is navigating away
+      }
+      toast.error(data.error || "Failed to start checkout");
+    } catch {
+      toast.error("Something went wrong");
+    }
+    setRedirecting(false); // only reached on error
+  }, []);
+
+  // Auto-redirect (free) or open modal (paid) when pricing CTA arrives with ?upgrade=...
+  React.useEffect(() => {
+    if (pendingPlanChange) {
+      const billing = pendingPlanChange.billing;
+      setAnnual(billing === "annual");
+      if (currentPlan === "free") {
+        // Consume only after successful redirect to avoid losing the pending change on fetch failure.
+        void redirectToCheckout(pendingPlanChange.plan, billing, onConsumePendingPlanChange);
+      } else {
+        setModalTarget({ plan: pendingPlanChange.plan, billing });
+        onConsumePendingPlanChange?.();
+      }
+    }
+  }, [pendingPlanChange, currentPlan, redirectToCheckout, onConsumePendingPlanChange]);
+
   const openChange = (plan: PlanId) => {
     if (plan === "free") return;
-    setModalTarget({ plan, billing: annual ? "annual" : "monthly" });
+    const billing: BillingPeriod = annual ? "annual" : "monthly";
+    if (currentPlan === "free") {
+      void redirectToCheckout(plan, billing);
+      return;
+    }
+    setModalTarget({ plan, billing });
   };
 
   const handleCancel = async () => {
@@ -382,7 +415,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
                       ? () => { void handleCancel(); }
                       : () => openChange(id)
                   }
-                  disabled={!isClickable || (ctaAction === "cancel" && cancelLoading)}
+                  disabled={!isClickable || (ctaAction === "cancel" && cancelLoading) || redirecting}
                   style={{
                     width: "100%",
                     padding: "10px 0",

@@ -83,6 +83,8 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
     if (!preview) return;
     setSubmitting(true);
 
+    // Defensive fallback: free users should not reach this modal, but if they do
+    // (e.g. stale pendingPlanChange), redirect to checkout instead of calling the wrong API.
     if (preview.kind === "new") {
       try {
         const res = await fetch("/api/checkout", {
@@ -91,18 +93,12 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           body: JSON.stringify({ plan: targetPlan, billing: targetBilling }),
         });
         const data = await res.json();
-        if (!data.url) {
-          toast.error(data.error || "Failed to start checkout");
-          setSubmitting(false);
-          return;
-        }
-        // Redirect to Polar checkout page. After payment, Polar redirects
-        // to /app?checkout=success&checkoutId=... via successUrl (server-side).
-        window.location.href = data.url;
+        if (data.url) { window.location.href = data.url; return; }
+        toast.error(data.error || "Failed to start checkout");
       } catch {
         toast.error("Something went wrong");
-        setSubmitting(false);
       }
+      setSubmitting(false);
       return;
     }
 
@@ -184,14 +180,8 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 )}
 
-                {preview.kind === "new" && (
-                  <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
-                    <Row label={`${targetCfg.label} (${targetBilling})`} value={fmt(preview.chargeMajor)} C={C} bold />
-                  </div>
-                )}
-
                 <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
-                  {preview.notice} Tax (VAT) is added at checkout based on your billing country.
+                  {preview.notice}
                 </p>
 
                 <div className="flex items-center gap-[8px]">

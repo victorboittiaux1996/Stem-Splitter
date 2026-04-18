@@ -4,11 +4,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { PlanId, BillingPeriod } from "@/lib/plans";
 import { polar, getProductId } from "@/lib/polar";
 
-// Estimated proration preview for a subscription change.
-// Prices and currency come from Polar itself (per-product pricing) so the modal
-// shows the actual billing currency (EUR, USD, etc) seen on the final invoice.
-// Final amount is computed by Polar at the moment of the API call — this preview
-// is a client-side approximation displayed in the confirmation modal.
+// Proration preview for a subscription change.
+// Prices and currency come from Polar (per-product pricing).
+// Math: credit = currentPrice × (daysRemaining / daysInPeriod), charge = targetPrice × ratio.
+// This is an approximation — Polar may use finer time granularity or different rounding.
 
 type Body = { plan: PlanId; billing: BillingPeriod };
 
@@ -80,7 +79,7 @@ export async function POST(req: NextRequest) {
         netMajor: toMajor(targetAmountMinor),
         perPeriodMajor: toMajor(targetAmountMinor),
         currency: targetCurrency,
-        notice: "Taxes may apply at checkout.",
+        notice: "Tax may apply based on your billing country.",
       });
     }
 
@@ -163,8 +162,8 @@ export async function POST(req: NextRequest) {
       perPeriodMajor: toMajor(targetAmountMinor),
       currency: displayCurrency,
       notice: canComputeCredit
-        ? "Estimated. Polar computes the exact prorated amount and applicable tax at the moment of confirmation."
-        : "A credit for unused time will appear on your next invoice (Polar applies it automatically).",
+        ? "Tax may apply based on your billing country."
+        : "A credit for unused time will be applied automatically.",
     });
   } catch (error) {
     console.error("Preview error:", error);
