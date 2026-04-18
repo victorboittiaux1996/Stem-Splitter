@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
 async function handleRecap(chatId: number | string, n: number) {
   const { data: rawJobs, error } = await jobsTable()
-    .select("status, mode, duration_seconds, error_code, phase_timings, cold_start, created_at, completed_at")
+    .select("status, mode, duration_seconds, error_code, phase_timings, cold_start, created_at, completed_at, file_name")
     .order("created_at", { ascending: false })
     .limit(n);
   const jobs = rawJobs as JobRow[] | null;
@@ -151,7 +151,18 @@ async function handleRecap(chatId: number | string, n: number) {
   }
   if (coldStarts > 0) msg += `🥶 Cold starts: ${coldStarts}/${completed.length}\n`;
   msg += `📁 ${modesStr}\n`;
-  msg += `📅 ${fmt(oldest)} → ${fmt(newest)}`;
+  msg += `📅 ${fmt(oldest)} → ${fmt(newest)}\n`;
+
+  // Per-job list (last 5 max to avoid message length issues)
+  const listed = jobs.slice(0, 5);
+  msg += "\n<b>Jobs:</b>\n";
+  for (const j of listed) {
+    const icon = j.status === "completed" ? "✅" : j.status === "failed" ? "❌" : "⏳";
+    const dur = j.duration_seconds != null ? ` ${j.duration_seconds.toFixed(1)}s` : "";
+    const name = (j.file_name ?? "unknown").slice(0, 35);
+    const t = new Date(j.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    msg += `${icon} ${t}${dur} · ${j.mode} · ${name}\n`;
+  }
 
   await sendMessage(chatId, msg);
 }
