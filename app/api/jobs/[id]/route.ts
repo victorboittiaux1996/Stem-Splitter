@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getJobForWorkspace, writeJsonToR2, jobKey } from "@/lib/r2";
 import { getAuthUser, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -21,41 +21,36 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
   if (!BOT_TOKEN) return;
   const fileName = (job.fileName as string | undefined) ?? "unknown";
   const mode = (job.mode as string | undefined) ?? "?";
-  const processingDur = typeof job.duration === "number" ? job.duration : null;
-  const trackDur = typeof job.audioDuration === "number" ? job.audioDuration
-    : typeof job.inputDuration === "number" ? job.inputDuration
-    : null;
+  const trackDur = typeof job.duration === "number" ? job.duration : null; // audio duration from Modal
   const errorCode = (job.error_code as string | undefined) ?? null;
   const phase = job.phase_timings as Record<string, number> | undefined;
-  const format = (job.format as string | undefined) ?? null;
+  const processingDur = phase?.total_wall_time ?? null; // actual GPU processing time
   const overlap = typeof job.overlap === "number" ? job.overlap : null;
   const bpm = typeof job.bpm === "number" ? job.bpm : null;
   const key = (job.key as string | undefined) ?? null;
 
-  let msg = status === "completed"
-    ? `✅ <b>Completed</b>\n`
-    : `❌ <b>Failed</b>\n`;
-
+  let msg = status === "completed" ? `✅ <b>Completed</b>\n` : `❌ <b>Failed</b>\n`;
   msg += `🎵 ${fileName}\n`;
 
-  // Settings line
+  // Settings
   const settings = [
     mode,
-    format ? format.toUpperCase() : null,
     overlap != null ? (OVERLAP_LABEL[overlap] ?? `overlap=${overlap}`) : null,
   ].filter(Boolean).join(" · ");
   if (settings) msg += `⚙️ ${settings}\n`;
 
   // Track info
   const trackInfo = [
-    trackDur != null ? `${fmtSeconds(trackDur)}` : null,
+    trackDur != null ? fmtSeconds(trackDur) : null,
     bpm != null ? `${Math.round(bpm)} BPM` : null,
     key ?? null,
   ].filter(Boolean).join(" · ");
   if (trackInfo) msg += `🎼 ${trackInfo}\n`;
 
-  if (status === "completed" && processingDur !== null) {
-    msg += `⏱ Processed in <b>${processingDur.toFixed(1)}s</b>\n`;
+  if (status === "completed") {
+    if (processingDur != null) {
+      msg += `⏱ <b>${fmtSeconds(processingDur)}</b> processing\n`;
+    }
     if (phase) {
       const steps: Array<[string, string]> = [
         ["download_input",   "download  "],
@@ -66,15 +61,15 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
         ["upload_r2_total",  "upload    "],
       ];
       const lines = steps
-        .map(([k, label]) => phase[k] != null ? `  ${label}  ${phase[k].toFixed(1)}s` : null)
+        .map(([k, label]) => phase[k] != null ? `  ${label}  ${fmtSeconds(phase[k])}` : null)
         .filter(Boolean);
       if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
       if (phase.cold === 1) msg += "🥶 Cold start\n";
     }
   }
 
-  if (status === "failed") {
-    if (errorCode) msg += `❌ <code>${errorCode}</code>\n`;
+  if (status === "failed" && errorCode) {
+    msg += `❌ <code>${errorCode}</code>\n`;
   }
 
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -130,8 +125,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     // Persist stats + notify on completion/failure (best-effort)
     if (updates.status === "completed" || updates.status === "failed") {
       const phaseTims = merged.phase_timings as Record<string, number> | undefined;
-      console.log(`[MONITOR] job=${id} status=${updates.status} phase_timings=${JSON.stringify(phaseTims ?? null)}`);
-      void notifyJob(updates.status as "completed" | "failed", merged as Record<string, unknown>);
+      console.log(`[MONITOR] job=${id} status=${updates.status} phase_timings_at_callback=${JSON.stringify(phaseTims ?? null)}`);
+      // Modal writes phase_timings to R2 *after* calling this callback — re-read after 10s
+      const _notifyWsId = existing.workspaceId ?? wsId;
+      const _notifyStatus = updates.status as "completed" | "failed";
+      const _mergedSnapshot = merged as Record<string, unknown>;
+      after(async () => {
+        await new Promise(res => setTimeout(res, 10000));
+        const fresh = await getJobForWorkspace(_notifyWsId, id).catch(() => null);
+        void notifyJob(_notifyStatus, (fresh ?? _mergedSnapshot) as Record<string, unknown>);
+      });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabaseAdmin.from("jobs") as any).upsert({
         id,
