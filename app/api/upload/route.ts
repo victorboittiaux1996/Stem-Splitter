@@ -4,6 +4,7 @@ import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jo
 import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/plans";
+import { sendTelegramAlert } from "@/lib/telegram";
 
 export const maxDuration = 300; // Modal processing can take up to 200s; after() keeps function alive
 
@@ -107,10 +108,12 @@ export async function POST(request: NextRequest) {
         }).then(async (res) => {
           const result = await res.json().catch(() => ({}));
           if (!res.ok || result.error) {
+            const errMsg = result.error || `GPU server error (${res.status})`;
             await writeJsonToR2(key, {
               id: jobId, status: "failed", mode, progress: 0,
-              stage: "Error", error: result.error || `GPU server error (${res.status})`, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
+              stage: "Error", error: errMsg, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
             });
+            sendTelegramAlert(`❌ <b>URL Import Failed</b>\n🔗 Modal error (${res.status})\n📋 <code>${errMsg}</code>\n🆔 job=${jobId}`).catch(() => {});
           }
         }).catch(async (err) => {
           console.error(`Modal webhook failed for job ${jobId}:`, err);
@@ -119,6 +122,7 @@ export async function POST(request: NextRequest) {
             stage: "Error", error: "Failed to reach processing server. Please try again.",
             createdAt: Date.now(), workspaceId: wsId, userId: user.id,
           });
+          sendTelegramAlert(`❌ <b>Modal Unreachable</b>\n🔗 URL import dispatch failed\n📋 <code>${String(err).slice(0, 200)}</code>\n🆔 job=${jobId}`).catch(() => {});
         });
         console.log(`[TIMING] POST /api/upload phase=modal_dispatch_done dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
       });
@@ -276,10 +280,12 @@ export async function PUT(request: NextRequest) {
       }).then(async (res) => {
         const result = await res.json().catch(() => ({}));
         if (!res.ok || result.error) {
+          const errMsg = result.error || `GPU server error (${res.status})`;
           await writeJsonToR2(finalKey, {
             id: job.id, status: "failed", mode: job.mode, progress: 0,
-            stage: "Error", error: result.error || `GPU server error (${res.status})`, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
+            stage: "Error", error: errMsg, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
           });
+          sendTelegramAlert(`❌ <b>File Upload Failed</b>\n🎵 ${job.fileName ?? "unknown"}\n📋 <code>${errMsg}</code>\n🆔 job=${job.id}`).catch(() => {});
         }
       }).catch(async (err) => {
         console.error(`Modal webhook failed for job ${job.id}:`, err);
@@ -288,6 +294,7 @@ export async function PUT(request: NextRequest) {
           stage: "Error", error: "Failed to reach processing server. Please try again.",
           createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
         });
+        sendTelegramAlert(`❌ <b>Modal Unreachable</b>\n🎵 ${job.fileName ?? "unknown"}\n📋 <code>${String(err).slice(0, 200)}</code>\n🆔 job=${job.id}`).catch(() => {});
       });
       console.log(`[TIMING] PUT /api/upload phase=modal_dispatch_fired dur=${Date.now() - _tModal2}ms total=${Date.now() - _t0}ms`);
     });

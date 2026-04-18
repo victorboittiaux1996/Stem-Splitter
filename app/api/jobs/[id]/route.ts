@@ -4,11 +4,10 @@ import { getAuthUser, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computePeriodKey, getPreviousPeriodKey } from "@/lib/period";
 import { PLANS, type PlanId } from "@/lib/plans";
+import { sendTelegramAlert } from "@/lib/telegram";
 
 export const maxDuration = 30;
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
-const CHAT_ID = "597546295";
 
 const OVERLAP_LABEL: Record<number, string> = { 2: "Fast", 8: "Balanced", 16: "High" };
 
@@ -20,7 +19,7 @@ function fmtSeconds(s: number) {
 }
 
 async function notifyJob(status: "completed" | "failed", job: Record<string, unknown>) {
-  if (!BOT_TOKEN) return;
+  if (!process.env.TELEGRAM_BOT_TOKEN?.trim()) return;
   const fileName = (job.fileName as string | undefined) ?? "unknown";
   const mode = (job.mode as string | undefined) ?? "?";
   const trackDur = typeof job.duration === "number" ? job.duration : null; // audio duration from Modal
@@ -80,12 +79,7 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
     msg += `❌ <code>${errorCode}</code>\n`;
   }
 
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: CHAT_ID, text: msg, parse_mode: "HTML" }),
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => {});
+  await sendTelegramAlert(msg);
 }
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
