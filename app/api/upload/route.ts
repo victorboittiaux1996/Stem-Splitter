@@ -56,6 +56,13 @@ export async function POST(request: NextRequest) {
       if (typeof url !== "string") {
         return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
       }
+      // Gate URL import by plan (Free plan cannot import from URLs)
+      if (!PLANS[plan].urlImport) {
+        return NextResponse.json(
+          { error: "URL import requires a Pro or Studio plan.", upgradeUrl: "/pricing" },
+          { status: 403 }
+        );
+      }
       // Validate URL — only allow http/https protocols to prevent SSRF
       try {
         const parsed = new URL(url);
@@ -78,7 +85,7 @@ export async function POST(request: NextRequest) {
       console.log(`[TIMING] POST /api/upload phase=r2_write_job dur=${Date.now() - _tR2Write}ms`);
 
       const _tModal = Date.now();
-      fetch(MODAL_WEBHOOK_URL, {
+      await fetch(MODAL_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap, workspaceId: wsId }),
@@ -98,7 +105,7 @@ export async function POST(request: NextRequest) {
           createdAt: Date.now(), workspaceId: wsId, userId: user.id,
         });
       });
-      console.log(`[TIMING] POST /api/upload phase=modal_dispatch_fired dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
+      console.log(`[TIMING] POST /api/upload phase=modal_dispatch_done dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
 
       return NextResponse.json({ jobId });
     }
