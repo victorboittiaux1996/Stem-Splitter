@@ -18,8 +18,8 @@ type JobRow = {
   bpm: number | null;
 };
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
 
 async function sendMessage(chatId: number | string, text: string) {
   if (!BOT_TOKEN) {
