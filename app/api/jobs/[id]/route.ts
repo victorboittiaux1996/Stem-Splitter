@@ -8,21 +8,54 @@ import { PLANS, type PlanId } from "@/lib/plans";
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
 const CHAT_ID = "597546295";
 
+const OVERLAP_LABEL: Record<number, string> = { 2: "Fast", 8: "Balanced", 16: "High" };
+
+function fmtSeconds(s: number) {
+  if (s < 60) return `${s.toFixed(0)}s`;
+  const m = Math.floor(s / 60);
+  const sec = Math.round(s % 60);
+  return `${m}m${sec > 0 ? `${sec}s` : ""}`;
+}
+
 async function notifyJob(status: "completed" | "failed", job: Record<string, unknown>) {
   if (!BOT_TOKEN) return;
   const fileName = (job.fileName as string | undefined) ?? "unknown";
   const mode = (job.mode as string | undefined) ?? "?";
-  const duration = typeof job.duration === "number" ? job.duration : null;
+  const processingDur = typeof job.duration === "number" ? job.duration : null;
+  const trackDur = typeof job.audioDuration === "number" ? job.audioDuration
+    : typeof job.inputDuration === "number" ? job.inputDuration
+    : null;
   const errorCode = (job.error_code as string | undefined) ?? null;
   const phase = job.phase_timings as Record<string, number> | undefined;
+  const format = (job.format as string | undefined) ?? null;
+  const overlap = typeof job.overlap === "number" ? job.overlap : null;
+  const bpm = typeof job.bpm === "number" ? job.bpm : null;
+  const key = (job.key as string | undefined) ?? null;
 
   let msg = status === "completed"
-    ? `✅ <b>Completed</b> — ${mode}\n`
-    : `❌ <b>Failed</b> — ${mode}\n`;
+    ? `✅ <b>Completed</b>\n`
+    : `❌ <b>Failed</b>\n`;
+
   msg += `🎵 ${fileName}\n`;
 
-  if (status === "completed" && duration !== null) {
-    msg += `⏱ <b>${duration.toFixed(1)}s</b> total\n`;
+  // Settings line
+  const settings = [
+    mode,
+    format ? format.toUpperCase() : null,
+    overlap != null ? (OVERLAP_LABEL[overlap] ?? `overlap=${overlap}`) : null,
+  ].filter(Boolean).join(" · ");
+  if (settings) msg += `⚙️ ${settings}\n`;
+
+  // Track info
+  const trackInfo = [
+    trackDur != null ? `${fmtSeconds(trackDur)}` : null,
+    bpm != null ? `${Math.round(bpm)} BPM` : null,
+    key ?? null,
+  ].filter(Boolean).join(" · ");
+  if (trackInfo) msg += `🎼 ${trackInfo}\n`;
+
+  if (status === "completed" && processingDur !== null) {
+    msg += `⏱ Processed in <b>${processingDur.toFixed(1)}s</b>\n`;
     if (phase) {
       const steps: Array<[string, string]> = [
         ["download_input",   "download  "],
@@ -33,15 +66,15 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
         ["upload_r2_total",  "upload    "],
       ];
       const lines = steps
-        .map(([k, label]) => phase[k] != null ? `  ${label}  ${(phase[k]).toFixed(1)}s` : null)
+        .map(([k, label]) => phase[k] != null ? `  ${label}  ${phase[k].toFixed(1)}s` : null)
         .filter(Boolean);
       if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
       if (phase.cold === 1) msg += "🥶 Cold start\n";
     }
   }
 
-  if (status === "failed" && errorCode) {
-    msg += `❌ <code>${errorCode}</code>\n`;
+  if (status === "failed") {
+    if (errorCode) msg += `❌ <code>${errorCode}</code>\n`;
   }
 
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
