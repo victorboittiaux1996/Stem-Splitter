@@ -129,7 +129,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (updates.status === "completed" || updates.status === "failed") {
       const phaseTims = merged.phase_timings as Record<string, number> | undefined;
       console.log(`[MONITOR] job=${id} status=${updates.status} phase_timings_at_callback=${JSON.stringify(phaseTims ?? null)}`);
-      // Modal writes phase_timings to R2 *after* calling this callback — re-read after 10s
       const _notifyStatus = updates.status as "completed" | "failed";
       const _mergedSnapshot = merged as Record<string, unknown>;
       // phase_timings now included in Modal's PATCH payload — notify immediately, no delay needed
