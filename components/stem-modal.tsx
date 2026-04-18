@@ -9,6 +9,7 @@ import { downloadStem, downloadStemsZip } from "@/lib/download";
 import type { HistoryItem } from "@/lib/types";
 
 // ─── Audio peak utils (moved here from stem-variants) ────────
+const PEAK_CACHE_MAX = 50;
 export const _peakCache = new Map<string, number[]>();
 
 async function fetchAudioPeaks(url: string, peakCount = 1000): Promise<number[]> {
@@ -44,7 +45,13 @@ async function fetchAudioPeaks(url: string, peakCount = 1000): Promise<number[]>
 export function prefetchStemPeaks(urls: Record<string, string>) {
   for (const url of Object.values(urls)) {
     if (!_peakCache.has(url)) {
-      fetchAudioPeaks(url).then(p => _peakCache.set(url, p)).catch(() => {});
+      fetchAudioPeaks(url).then(p => {
+        _peakCache.set(url, p);
+        if (_peakCache.size > PEAK_CACHE_MAX) {
+          const firstKey = _peakCache.keys().next().value;
+          if (firstKey) _peakCache.delete(firstKey);
+        }
+      }).catch(() => {});
     }
   }
 }

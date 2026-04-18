@@ -468,6 +468,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   const [notifMarketing, setNotifMarketing] = React.useState(false);
   const [defaultStems, setDefaultStems] = React.useState<2 | 4 | 6>(4);
   const [defaultFormat, setDefaultFormat] = React.useState<"wav" | "mp3">("wav");
+  const [autoDownloadZip, setAutoDownloadZip] = React.useState(true);
 
   // Load preferences from localStorage on mount
   React.useEffect(() => {
@@ -477,6 +478,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
         const p = JSON.parse(saved);
         if (p.stems) setDefaultStems(p.stems);
         if (p.format) setDefaultFormat(p.format);
+        if (typeof p.autoDownloadZip === "boolean") setAutoDownloadZip(p.autoDownloadZip);
         if (typeof p.notifSplit === "boolean") setNotifSplitComplete(p.notifSplit);
         if (typeof p.notifUpdates === "boolean") setNotifProductUpdates(p.notifUpdates);
         if (typeof p.notifMarketing === "boolean") setNotifMarketing(p.notifMarketing);
@@ -488,11 +490,11 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   React.useEffect(() => {
     try {
       localStorage.setItem("44stems-preferences", JSON.stringify({
-        stems: defaultStems, format: defaultFormat,
+        stems: defaultStems, format: defaultFormat, autoDownloadZip,
         notifSplit: notifSplitComplete, notifUpdates: notifProductUpdates, notifMarketing,
       }));
     } catch {}
-  }, [defaultStems, defaultFormat, notifSplitComplete, notifProductUpdates, notifMarketing]);
+  }, [defaultStems, defaultFormat, autoDownloadZip, notifSplitComplete, notifProductUpdates, notifMarketing]);
 
   return (
     <div className="px-[24px] pt-[24px] pb-[40px]">
@@ -803,6 +805,18 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                     {fmt.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Downloads card */}
+            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
+              <SectionHeading C={C}>Downloads</SectionHeading>
+              <div className="flex items-center justify-between" style={{ paddingTop: 12, paddingBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>Auto-download ZIP</div>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Automatically download the stems ZIP when a split completes</div>
+                </div>
+                <button onClick={() => setAutoDownloadZip(!autoDownloadZip)}><Toggle on={autoDownloadZip} C={C} /></button>
               </div>
             </div>
 

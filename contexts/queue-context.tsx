@@ -430,8 +430,11 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           if (stemDownloads.length > 0) {
             const trackName = activeItem.fileName.replace(/\.[^/.]+$/, "");
             const prefs = (() => { try { return JSON.parse(localStorage.getItem("44stems-preferences") || "{}"); } catch { return {}; } })();
-            const fmt: "wav" | "mp3" = prefs.outputFormat === "mp3" ? "mp3" : "wav";
-            downloadStemsZip(stemDownloads, trackName, fmt).catch(console.error);
+            const fmt: "wav" | "mp3" = prefs.format === "mp3" ? "mp3" : "wav";
+            const autoDownload = prefs.autoDownloadZip !== false; // default true
+            if (autoDownload) {
+              downloadStemsZip(stemDownloads, trackName, fmt).catch(console.error);
+            }
           }
 
           // Toast notification

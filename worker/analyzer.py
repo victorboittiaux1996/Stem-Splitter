@@ -37,6 +37,7 @@ _skey_lock = threading.Lock()
 
 # BPM extractor (cached to avoid re-initializing Essentia on every call)
 _rhythm_extractor = None
+_rhythm_lock = threading.Lock()
 
 
 def _init_skey():
@@ -97,7 +98,9 @@ def detect_bpm(audio_path: str) -> float:
     """Detect BPM using Essentia RhythmExtractor2013 (degara mode)."""
     global _rhythm_extractor
     if _rhythm_extractor is None:
-        _rhythm_extractor = es.RhythmExtractor2013(method="degara")
+        with _rhythm_lock:
+            if _rhythm_extractor is None:
+                _rhythm_extractor = es.RhythmExtractor2013(method="degara")
     y, sr = load_segment(audio_path, sr=22050, duration=60, position_pct=0.25)
     # Essentia needs 44100 Hz
     y_44 = librosa.resample(y, orig_sr=sr, target_sr=44100)

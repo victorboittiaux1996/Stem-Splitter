@@ -4,7 +4,14 @@
  * (e.g., API → 302 → R2 presigned URL).
  */
 export async function downloadBlob(url: string, filename: string): Promise<void> {
-  const res = await fetch(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
   const blob = await res.blob();
   const objUrl = URL.createObjectURL(blob);
