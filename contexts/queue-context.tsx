@@ -197,6 +197,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   // ─── Enqueue ────────────────────────────────────────────────────────────
 
   const enqueue = useCallback((files: File[], config: QueueConfig) => {
+    const batchId = nanoid(8);
     const newItems: QueueItem[] = files.map(f => ({
       id: nanoid(8),
       file: f,
@@ -215,6 +216,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       stemDownloads: [],
       addedAt: Date.now(),
       completedAt: null,
+      batchId,
     }));
     setItems(prev => [...prev, ...newItems]);
   }, []);
@@ -239,6 +241,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       stemDownloads: [],
       addedAt: Date.now(),
       completedAt: null,
+      batchId: nanoid(8),
     };
     setItems(prev => [...prev, item]);
   }, []);
@@ -276,7 +279,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch("/api/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-workspace-id": wsId },
-          body: JSON.stringify({ url: item.url, mode: item.mode, overlap, workspaceId: wsId, title: item.fileName }),
+          body: JSON.stringify({ url: item.url, mode: item.mode, overlap, workspaceId: wsId, title: item.fileName, batchId: item.batchId ?? null }),
         });
         if (!res.ok) {
           let msg = "Upload failed";
@@ -300,6 +303,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
             mode: item.mode,
             overlap,
             workspaceId: wsId,
+            batchId: item.batchId ?? null,
           }),
         });
         if (!initRes.ok) {

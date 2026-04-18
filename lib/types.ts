@@ -26,6 +26,7 @@ export interface Job {
   peaks?: Record<string, number[]>;
   workspaceId?: string;
   userId?: string;
+  batchId?: string | null;
 }
 
 export interface StemDownload {
@@ -59,6 +60,7 @@ export interface QueueItem {
   addedAt: number;
   completedAt: number | null;
   workspaceId?: string;
+  batchId?: string | null;
 }
 
 export interface QueueNotification {

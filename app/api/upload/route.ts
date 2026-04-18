@@ -41,7 +41,8 @@ export async function POST(request: NextRequest) {
     ).trim();
 
     const body = await request.json();
-    const { url, mode = "4stem", filename, size, contentType, title = null } = body;
+    const { url, mode = "4stem", filename, size, contentType, title = null, batchId: rawBatchId = null } = body;
+    const batchId = typeof rawBatchId === "string" && rawBatchId.length <= 32 ? rawBatchId : null;
 
     // Validate stem mode against plan
     const stemCountFromMode = STEM_MODE_MAP[mode] ?? 4;
@@ -84,14 +85,17 @@ export async function POST(request: NextRequest) {
       await writeJsonToR2(key, {
         id: jobId, status: "processing", mode, progress: 5,
         stage: "Downloading audio...", createdAt: Date.now(), fileName: (typeof title === "string" && title) ? title : url, workspaceId: wsId, userId: user.id,
+        batchId: (typeof batchId === "string" && batchId) ? batchId : null,
       });
       console.log(`[TIMING] POST /api/upload phase=r2_write_job dur=${Date.now() - _tR2Write}ms`);
 
       // Best-effort Supabase insert for monitoring queries
-      void supabaseAdmin.from("jobs").upsert({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      void (supabaseAdmin.from("jobs") as any).upsert({
         id: jobId, user_id: user.id, workspace_id: wsId,
         file_name: (typeof title === "string" && title) ? title : url,
         status: "processing", mode,
+        batch_id: (typeof batchId === "string" && batchId) ? batchId : null,
       });
 
       const _tModal = Date.now();
@@ -153,12 +157,15 @@ export async function POST(request: NextRequest) {
     await writeJsonToR2(key, {
       id: jobId, status: "uploading", mode, progress: 0,
       stage: "Uploading...", createdAt: Date.now(), fileName: sanitizedFilename, inputKey, overlap, workspaceId: wsId, userId: user.id,
+      batchId: (typeof batchId === "string" && batchId) ? batchId : null,
     });
 
     // Best-effort Supabase insert for monitoring queries
-    void supabaseAdmin.from("jobs").upsert({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (supabaseAdmin.from("jobs") as any).upsert({
       id: jobId, user_id: user.id, workspace_id: wsId,
       file_name: sanitizedFilename, status: "uploading", mode,
+      batch_id: (typeof batchId === "string" && batchId) ? batchId : null,
     });
 
     // Presigned PUT URL — valid 2 hours (large files on slow connections)
@@ -203,12 +210,18 @@ export async function PUT(request: NextRequest) {
     const keyPut = jobKey(wsIdPut, jobId);
     const _tR2Read = Date.now();
     const job = await readJsonFromR2<{
-      id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null;
+      id: string; mode: string; fileName: string; inputKey: string; createdAt: number; overlap?: number; workspaceId?: string | null; status?: string; batchId?: string | null;
     }>(keyPut);
     console.log(`[TIMING] PUT /api/upload phase=r2_read_job dur=${Date.now() - _tR2Read}ms`);
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
+
+    // Double-dispatch guard: only dispatch if job is still in uploading state
+    if (job.status === "processing" || job.status === "completed" || job.status === "failed") {
+      return NextResponse.json({ ok: true });
+    }
+
     if (!job.inputKey) {
       return NextResponse.json({ error: "Job has no inputKey — cannot trigger processing" }, { status: 400 });
     }
@@ -242,13 +255,16 @@ export async function PUT(request: NextRequest) {
       id: job.id, status: "processing", mode: job.mode, progress: 5,
       stage: "Sending to GPU...", createdAt: job.createdAt, fileName: job.fileName,
       inputKey: job.inputKey, workspaceId: resolvedWsId, userId: user.id,
+      batchId: job.batchId ?? null,
     });
     console.log(`[TIMING] PUT /api/upload phase=r2_write_processing dur=${Date.now() - _tR2Write2}ms`);
 
     // Best-effort status update for monitoring queries
-    void supabaseAdmin.from("jobs").upsert({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (supabaseAdmin.from("jobs") as any).upsert({
       id: job.id, user_id: user.id, workspace_id: resolvedWsId ?? wsIdPut,
       file_name: job.fileName, status: "processing", mode: job.mode,
+      batch_id: job.batchId ?? null,
     });
 
     const _tModal2 = Date.now();

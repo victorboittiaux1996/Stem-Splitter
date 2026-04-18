@@ -1,7 +1,13 @@
 {
   "functions": {
     "app/api/upload/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/stale-jobs",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

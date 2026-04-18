@@ -68,6 +68,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         error_code: merged.error_code ?? null,
         phase_timings: phaseTims ?? null,
         cold_start: phaseTims ? (phaseTims.cold === 1) : null,
+        batch_id: existing.batchId ?? null,
       }).then(() => {}).catch((err: unknown) => console.error("Supabase jobs upsert failed:", err));
     }
 
