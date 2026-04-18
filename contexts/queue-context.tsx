@@ -59,6 +59,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const lastProgressValueRef = useRef<number>(-1);
+  const lastProgressTimeRef = useRef<number>(0);
+  const STALE_TIMEOUT_MS = 10 * 60 * 1000;
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -382,6 +385,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
 
     if (!activeItemId) return;
 
+    // Reset stale tracking for new active item
+    lastProgressValueRef.current = -1;
+    lastProgressTimeRef.current = Date.now();
+
     const activeItem = items.find(i => i.id === activeItemId);
     if (!activeItem?.jobId || activeItem.status !== "processing") return;
 
@@ -398,6 +405,17 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
 
         const mapped = job.status === "completed" ? 100 : (job.progress ?? 0);
         if (mapped > progressTargetRef.current) progressTargetRef.current = mapped;
+
+        // Stale job detection: if progress hasn't changed in 10 minutes, mark failed
+        if (mapped !== lastProgressValueRef.current) {
+          lastProgressValueRef.current = mapped;
+          lastProgressTimeRef.current = Date.now();
+        } else if (job.status === "processing" && Date.now() - lastProgressTimeRef.current > STALE_TIMEOUT_MS) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          updateItem(itemId, { status: "failed", error: "Processing timed out — please try again", errorCode: null, stage: "" });
+          setActiveItemId(null);
+          return;
+        }
 
         updateItem(itemId, {
           job,

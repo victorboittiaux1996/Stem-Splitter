@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { nanoid } from "nanoid";
 import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jobKey } from "@/lib/r2";
 import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/supabase/auth-helpers";
@@ -85,27 +85,29 @@ export async function POST(request: NextRequest) {
       console.log(`[TIMING] POST /api/upload phase=r2_write_job dur=${Date.now() - _tR2Write}ms`);
 
       const _tModal = Date.now();
-      await fetch(MODAL_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap, workspaceId: wsId }),
-      }).then(async (res) => {
-        const result = await res.json().catch(() => ({}));
-        if (result.error) {
+      after(async () => {
+        await fetch(MODAL_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap, workspaceId: wsId }),
+        }).then(async (res) => {
+          const result = await res.json().catch(() => ({}));
+          if (result.error) {
+            await writeJsonToR2(key, {
+              id: jobId, status: "failed", mode, progress: 0,
+              stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
+            });
+          }
+        }).catch(async (err) => {
+          console.error(`Modal webhook failed for job ${jobId}:`, err);
           await writeJsonToR2(key, {
             id: jobId, status: "failed", mode, progress: 0,
-            stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
+            stage: "Error", error: "Failed to reach processing server. Please try again.",
+            createdAt: Date.now(), workspaceId: wsId, userId: user.id,
           });
-        }
-      }).catch(async (err) => {
-        console.error(`Modal webhook failed for job ${jobId}:`, err);
-        await writeJsonToR2(key, {
-          id: jobId, status: "failed", mode, progress: 0,
-          stage: "Error", error: "Failed to reach processing server. Please try again.",
-          createdAt: Date.now(), workspaceId: wsId, userId: user.id,
         });
+        console.log(`[TIMING] POST /api/upload phase=modal_dispatch_done dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
       });
-      console.log(`[TIMING] POST /api/upload phase=modal_dispatch_done dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
 
       return NextResponse.json({ jobId });
     }
@@ -228,27 +230,29 @@ export async function PUT(request: NextRequest) {
     console.log(`[TIMING] PUT /api/upload phase=r2_write_processing dur=${Date.now() - _tR2Write2}ms`);
 
     const _tModal2 = Date.now();
-    await fetch(MODAL_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl, overlap: job.overlap ?? 8, workspaceId: resolvedWsId }),
-    }).then(async (res) => {
-      const result = await res.json().catch(() => ({}));
-      if (result.error) {
+    after(async () => {
+      await fetch(MODAL_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl, overlap: job.overlap ?? 8, workspaceId: resolvedWsId }),
+      }).then(async (res) => {
+        const result = await res.json().catch(() => ({}));
+        if (result.error) {
+          await writeJsonToR2(finalKey, {
+            id: job.id, status: "failed", mode: job.mode, progress: 0,
+            stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
+          });
+        }
+      }).catch(async (err) => {
+        console.error(`Modal webhook failed for job ${job.id}:`, err);
         await writeJsonToR2(finalKey, {
           id: job.id, status: "failed", mode: job.mode, progress: 0,
-          stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
+          stage: "Error", error: "Failed to reach processing server. Please try again.",
+          createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
         });
-      }
-    }).catch(async (err) => {
-      console.error(`Modal webhook failed for job ${job.id}:`, err);
-      await writeJsonToR2(finalKey, {
-        id: job.id, status: "failed", mode: job.mode, progress: 0,
-        stage: "Error", error: "Failed to reach processing server. Please try again.",
-        createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
       });
+      console.log(`[TIMING] PUT /api/upload phase=modal_dispatch_fired dur=${Date.now() - _tModal2}ms total=${Date.now() - _t0}ms`);
     });
-    console.log(`[TIMING] PUT /api/upload phase=modal_dispatch_fired dur=${Date.now() - _tModal2}ms total=${Date.now() - _t0}ms`);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
