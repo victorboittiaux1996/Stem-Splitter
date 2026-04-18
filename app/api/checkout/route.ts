@@ -22,15 +22,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Account has no email address" }, { status: 400 });
     }
 
+    const productId = getProductId(plan, billing);
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL ??
+      `${req.headers.get("x-forwarded-proto") ?? "https"}://${req.headers.get("host")}`
+    ).trim();
+
+    // Fetch subscription + profile in parallel to minimize latency.
+    const [{ data: existingSub }, { data: profile }] = await Promise.all([
+      supabaseAdmin
+        .from("subscriptions")
+        .select("stripe_customer_id, plan, status")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("profiles")
+        .select("name")
+        .eq("id", user.id)
+        .maybeSingle(),
+    ]);
+
     // If user already has an active paid subscription, redirect to the Polar
     // customer portal so they can change plan / billing interval with proration.
     // Polar's checkout rejects a second active sub and shows an ugly error mid-payment.
-    const { data: existingSub } = await supabaseAdmin
-      .from("subscriptions")
-      .select("stripe_customer_id, plan, status")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
     const hasActivePaidSub =
       existingSub &&
       existingSub.stripe_customer_id &&
@@ -47,18 +61,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ url: session.customerPortalUrl });
     }
 
-    const productId = getProductId(plan, billing);
-    const appUrl = (
-      process.env.NEXT_PUBLIC_APP_URL ??
-      `${req.headers.get("x-forwarded-proto") ?? "https"}://${req.headers.get("host")}`
-    ).trim();
-
-    // Best-effort — never blocks checkout if profile row is missing / name is null.
-    const { data: profile } = await supabaseAdmin
-      .from("profiles")
-      .select("name")
-      .eq("id", user.id)
-      .maybeSingle();
     const customerName = profile?.name ?? undefined;
 
     const checkout = await polar.checkouts.create({

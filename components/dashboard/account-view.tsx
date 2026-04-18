@@ -214,7 +214,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   const [annual, setAnnual] = React.useState(false);
   const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
   const [cancelLoading, setCancelLoading] = React.useState(false);
-  const [redirecting, setRedirecting] = React.useState(false);
+  const [redirectingPlan, setRedirectingPlan] = React.useState<PlanId | null>(null);
 
   // Derive current plan from planLabel
   const currentPlan: PlanId =
@@ -224,7 +224,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   const planTier = PLAN_ORDER.indexOf(currentPlan);
 
   const redirectToCheckout = React.useCallback(async (plan: PlanId, billing: BillingPeriod, onSuccess?: () => void) => {
-    setRedirecting(true);
+    setRedirectingPlan(plan);
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
@@ -235,13 +235,13 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
       if (data.url) {
         onSuccess?.();
         window.location.href = data.url;
-        return; // redirecting stays true — page is navigating away
+        return; // stays in loading state — page is navigating away
       }
       toast.error(data.error || "Failed to start checkout");
     } catch {
       toast.error("Something went wrong");
     }
-    setRedirecting(false); // only reached on error
+    setRedirectingPlan(null); // only reached on error
   }, []);
 
   // Auto-redirect (free) or open modal (paid) when pricing CTA arrives with ?upgrade=...
@@ -415,7 +415,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
                       ? () => { void handleCancel(); }
                       : () => openChange(id)
                   }
-                  disabled={!isClickable || (ctaAction === "cancel" && cancelLoading) || redirecting}
+                  disabled={!isClickable || (ctaAction === "cancel" && cancelLoading) || redirectingPlan !== null}
                   style={{
                     width: "100%",
                     padding: "10px 0",
@@ -437,7 +437,11 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
                     transition: "opacity 0.15s",
                   }}
                 >
-                  {ctaAction === "cancel" && cancelLoading ? "Canceling…" : ctaLabel}
+                  {ctaAction === "cancel" && cancelLoading
+                    ? "Canceling…"
+                    : redirectingPlan === id && (ctaAction === "get" || ctaAction === "upgrade")
+                    ? "Redirecting…"
+                    : ctaLabel}
                 </button>
               )}
 
