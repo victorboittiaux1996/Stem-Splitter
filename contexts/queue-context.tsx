@@ -345,6 +345,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
+      console.error("[queue] processItem failed:", { id: item.id, fileName: item.fileName, error: msg });
       updateItem(item.id, { status: "failed", error: msg, errorCode: null, stage: "" });
       processingLockRef.current = false;
       setActiveItemId(null);

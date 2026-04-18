@@ -1066,7 +1066,7 @@ export default function AbletonDashboard() {
                             <p className="truncate" style={{ fontSize: 14, color: "#FF3B30", maxWidth: 200 }}>{qi.fileName}</p>
                             <span style={{ fontSize: 12, color: "#FF3B30", letterSpacing: "0.03em" }}>ERROR</span>
                           </div>
-                          <p className="mt-[2px]" style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>{formatImportError(qi.errorCode)}</p>
+                          <p className="mt-[2px]" style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>{qi.errorCode ? formatImportError(qi.errorCode) : (qi.error || formatImportError(null))}</p>
                           <div className="flex items-center gap-[10px] mt-[4px]">
                             {!isTerminalError(qi.errorCode) && (
                               <button onClick={() => retryItem(qi.id)} style={{ fontSize: 12, color: C.accent, letterSpacing: "0.03em" }}>RETRY</button>
