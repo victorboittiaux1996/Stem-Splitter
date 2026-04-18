@@ -135,7 +135,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       after(async () => {
         await new Promise(res => setTimeout(res, 5000));
         const fresh = await getJobForWorkspace(_notifyWsId, id).catch(() => null);
-        void notifyJob(_notifyStatus, (fresh ?? _mergedSnapshot) as Record<string, unknown>);
+        await notifyJob(_notifyStatus, (fresh ?? _mergedSnapshot) as Record<string, unknown>);
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabaseAdmin.from("jobs") as any).upsert({
