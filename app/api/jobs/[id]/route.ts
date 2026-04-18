@@ -65,6 +65,12 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
       const lines = steps
         .map(([k, label]) => phase[k] != null ? `  ${label}  ${fmtSeconds(phase[k])}` : null)
         .filter(Boolean);
+      if (phase.cold === 1) {
+        const loadVoc = phase.sep_vocal_load_model ?? 0;
+        const loadInst = phase.sep_instru_load_model ?? 0;
+        const coldLoad = loadVoc + loadInst;
+        if (coldLoad > 0) lines.push(`  load_model  ${fmtSeconds(coldLoad)}`);
+      }
       if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
       if (phase.cold === 1) msg += "🥶 Cold start\n";
     }
