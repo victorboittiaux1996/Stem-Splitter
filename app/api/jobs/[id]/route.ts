@@ -47,6 +47,30 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const _tWrite = Date.now();
     await writeJsonToR2(key, merged);
     console.log(`[TIMING] PATCH /api/jobs/${id} phase=r2_write_completed dur=${Date.now() - _tWrite}ms total=${Date.now() - _t0}ms`);
+
+    // Persist stats to Supabase for monitoring queries (best-effort)
+    if (updates.status === "completed" || updates.status === "failed") {
+      const phaseTims = merged.phase_timings as Record<string, number> | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabaseAdmin.from("jobs") as any).upsert({
+        id,
+        user_id: existing.userId ?? null,
+        workspace_id: existing.workspaceId ?? wsId ?? null,
+        file_name: existing.fileName ?? null,
+        status: merged.status,
+        mode: merged.mode ?? null,
+        format: merged.format ?? null,
+        stems_count: merged.stems_count ?? null,
+        bpm: merged.bpm ?? null,
+        key: merged.key ?? null,
+        completed_at: updates.status === "completed" ? new Date().toISOString() : null,
+        duration_seconds: typeof merged.duration === "number" ? merged.duration : null,
+        error_code: merged.error_code ?? null,
+        phase_timings: phaseTims ?? null,
+        cold_start: phaseTims ? (phaseTims.cold === 1) : null,
+      }).then(() => {}).catch((err: unknown) => console.error("Supabase jobs upsert failed:", err));
+    }
+
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });

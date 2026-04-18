@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { nanoid } from "nanoid";
 import { getPresignedUploadUrl, writeJsonToR2, readJsonFromR2, getObjectSize, jobKey } from "@/lib/r2";
 import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/supabase/auth-helpers";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/plans";
 
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
@@ -84,6 +85,13 @@ export async function POST(request: NextRequest) {
       });
       console.log(`[TIMING] POST /api/upload phase=r2_write_job dur=${Date.now() - _tR2Write}ms`);
 
+      // Best-effort Supabase insert for monitoring queries
+      void supabaseAdmin.from("jobs").upsert({
+        id: jobId, user_id: user.id, workspace_id: wsId,
+        file_name: (typeof title === "string" && title) ? title : url,
+        status: "processing", mode,
+      });
+
       const _tModal = Date.now();
       after(async () => {
         await fetch(MODAL_WEBHOOK_URL, {
@@ -143,6 +151,12 @@ export async function POST(request: NextRequest) {
     await writeJsonToR2(key, {
       id: jobId, status: "uploading", mode, progress: 0,
       stage: "Uploading...", createdAt: Date.now(), fileName: sanitizedFilename, inputKey, overlap, workspaceId: wsId, userId: user.id,
+    });
+
+    // Best-effort Supabase insert for monitoring queries
+    void supabaseAdmin.from("jobs").upsert({
+      id: jobId, user_id: user.id, workspace_id: wsId,
+      file_name: sanitizedFilename, status: "uploading", mode,
     });
 
     // Presigned PUT URL — valid 2 hours (large files on slow connections)
@@ -228,6 +242,12 @@ export async function PUT(request: NextRequest) {
       inputKey: job.inputKey, workspaceId: resolvedWsId, userId: user.id,
     });
     console.log(`[TIMING] PUT /api/upload phase=r2_write_processing dur=${Date.now() - _tR2Write2}ms`);
+
+    // Best-effort status update for monitoring queries
+    void supabaseAdmin.from("jobs").upsert({
+      id: job.id, user_id: user.id, workspace_id: resolvedWsId ?? wsIdPut,
+      file_name: job.fileName, status: "processing", mode: job.mode,
+    });
 
     const _tModal2 = Date.now();
     after(async () => {
