@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getJobForWorkspace, writeJsonToR2, jobKey } from "@/lib/r2";
 import { getAuthUser, userWorkspaceId } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -78,6 +78,7 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: CHAT_ID, text: msg, parse_mode: "HTML" }),
+    signal: AbortSignal.timeout(5000),
   }).catch(() => {});
 }
 
@@ -129,7 +130,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const phaseTims = merged.phase_timings as Record<string, number> | undefined;
       console.log(`[MONITOR] job=${id} status=${updates.status} phase_timings_at_callback=${JSON.stringify(phaseTims ?? null)}`);
       // Modal writes phase_timings to R2 *after* calling this callback — re-read after 10s
-      const _notifyWsId = existing.workspaceId ?? wsId;
       const _notifyStatus = updates.status as "completed" | "failed";
       const _mergedSnapshot = merged as Record<string, unknown>;
       // phase_timings now included in Modal's PATCH payload — notify immediately, no delay needed
