@@ -176,7 +176,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                     )}
                     <Row label={`${targetCfg.label} prorated until period end`} value={fmt(preview.chargeMajor)} C={C} />
                     <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
-                    <Row label="Estimated total today" value={fmt(preview.netMajor)} C={C} bold />
+                    <Row label="Total today" value={fmt(preview.netMajor)} C={C} bold />
                   </div>
                 )}
 

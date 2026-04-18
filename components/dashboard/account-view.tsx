@@ -358,8 +358,9 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
               ctaAction = "current";
             }
           } else if (isCurrent) {
-            ctaLabel = "Current plan";
-            ctaAction = "current";
+            // id is "pro" | "studio" here — allow billing period switch
+            ctaLabel = annual ? "Switch to annual" : "Switch to monthly";
+            ctaAction = "upgrade";
           } else if (canUpgrade) {
             ctaLabel = currentPlan === "free" ? `Get ${accent.label}` : `Upgrade to ${accent.label}`;
             ctaAction = currentPlan === "free" ? "get" : "upgrade";

@@ -90,12 +90,12 @@ export async function POST(req: NextRequest) {
       try {
         const polarSub = await polar.subscriptions.get({ id: sub.stripe_subscription_id });
         if (polarSub.recurringInterval === "year") currentBilling = "annual";
-        const amt = (polarSub as { amount?: number }).amount;
-        const cur = (polarSub as { currency?: string }).currency;
+        const amt = polarSub.amount;
+        const cur = polarSub.currency;
         if (typeof amt === "number") currentAmountMinor = amt;
         if (typeof cur === "string") currentCurrency = cur.toUpperCase();
-      } catch {
-        // fall through with monthly assumption + target currency
+      } catch (err) {
+        console.error("Preview: failed to fetch current subscription from Polar", err);
       }
     }
     // If Polar didn't give us the current sub amount (rate limit, transient error),
