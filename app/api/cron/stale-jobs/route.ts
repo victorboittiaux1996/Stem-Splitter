@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { readJsonFromR2, writeJsonToR2, jobKey } from "@/lib/r2";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+const TELEGRAM_CHAT_ID = "597546295";
+
+async function sendTelegramAlert(message: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message }),
+    });
+  } catch (e) {
+    console.error("[cron/stale-jobs] Telegram alert failed:", e);
+  }
+}
+
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
@@ -69,6 +85,13 @@ export async function GET(request: NextRequest) {
     );
 
     console.log(`[cron/stale-jobs] Cleaned ${cleaned}/${staleJobs.length} stale jobs`);
+
+    if (cleaned > 0) {
+      await sendTelegramAlert(
+        `⚠️ 44Stems: ${cleaned} job(s) bloqué(s) marqué(s) failed (>15 min en processing).\nVérifie Modal si un container tourne anormalement.`
+      );
+    }
+
     return NextResponse.json({ cleaned });
   } catch (err) {
     console.error("[cron/stale-jobs] Unexpected error:", err);
