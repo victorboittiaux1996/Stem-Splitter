@@ -5,6 +5,8 @@ import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/sup
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/plans";
 
+export const maxDuration = 300; // Modal processing can take up to 200s; after() keeps function alive
+
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
 const STEM_MODE_MAP: Record<string, number> = { "2stem": 2, "4stem": 4, "6stem": 6 };
@@ -100,10 +102,10 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap, workspaceId: wsId }),
         }).then(async (res) => {
           const result = await res.json().catch(() => ({}));
-          if (result.error) {
+          if (!res.ok || result.error) {
             await writeJsonToR2(key, {
               id: jobId, status: "failed", mode, progress: 0,
-              stage: "Error", error: result.error, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
+              stage: "Error", error: result.error || `GPU server error (${res.status})`, createdAt: Date.now(), workspaceId: wsId, userId: user.id,
             });
           }
         }).catch(async (err) => {
@@ -257,10 +259,10 @@ export async function PUT(request: NextRequest) {
         body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl, overlap: job.overlap ?? 8, workspaceId: resolvedWsId }),
       }).then(async (res) => {
         const result = await res.json().catch(() => ({}));
-        if (result.error) {
+        if (!res.ok || result.error) {
           await writeJsonToR2(finalKey, {
             id: job.id, status: "failed", mode: job.mode, progress: 0,
-            stage: "Error", error: result.error, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
+            stage: "Error", error: result.error || `GPU server error (${res.status})`, createdAt: job.createdAt, fileName: job.fileName, workspaceId: resolvedWsId, userId: user.id,
           });
         }
       }).catch(async (err) => {
