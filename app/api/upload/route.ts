@@ -221,7 +221,7 @@ export async function PUT(request: NextRequest) {
     console.log(`[TIMING] PUT /api/upload phase=r2_write_processing dur=${Date.now() - _tR2Write2}ms`);
 
     const _tModal2 = Date.now();
-    fetch(MODAL_WEBHOOK_URL, {
+    await fetch(MODAL_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jobId: job.id, mode: job.mode, inputKey: job.inputKey, callbackUrl, overlap: job.overlap ?? 8, workspaceId: resolvedWsId }),
