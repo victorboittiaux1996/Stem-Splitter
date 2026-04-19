@@ -49,29 +49,54 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
   if (trackInfo) msg += `🎼 ${trackInfo}\n`;
 
   if (status === "completed") {
-    if (processingDur != null) {
-      msg += `⏱ <b>${fmtSeconds(processingDur)}</b> processing\n`;
+    const dlCpu = phase?.download_cpu ?? 0;
+    const totalEnd2End = processingDur != null ? processingDur + dlCpu : null;
+    if (totalEnd2End != null) {
+      msg += dlCpu > 0
+        ? `⏱ <b>${fmtSeconds(totalEnd2End)}</b> total (${fmtSeconds(processingDur!)} GPU)\n`
+        : `⏱ <b>${fmtSeconds(processingDur!)}</b> processing\n`;
     }
     if (phase) {
-      const gpuSteps: Array<[string, string]> = [
-        ["download_cpu",     "dl_url     "],
-        ["download_input",   "download   "],
-        ["wav24_transcode",  "transcode  "],
-        ["sep_vocal_infer",  "infer_voc  "],
-        ["sep_instru_infer", "infer_inst "],
-        ["post_parallel",    "post_proc  "],
-        ["upload_mp3",       "upload_mp3 "],
+      const lines: string[] = [];
+
+      // Prep
+      const prep: Array<[string, string]> = [
+        ["download_cpu",    "dl_url    "],
+        ["download_input",  "dl_r2     "],
+        ["wav24_transcode", "transcode "],
       ];
-      const lines = gpuSteps
-        .map(([k, label]) => phase[k] != null ? `  ${label} ${fmtSeconds(phase[k])}` : null)
-        .filter(Boolean);
-      // Analyze runs on CPU in parallel with GPU — show it separately
+      const prepLines = prep
+        .map(([k, l]) => phase[k] != null ? `  ${l} ${fmtSeconds(phase[k])}` : null)
+        .filter((v): v is string => v != null);
+      if (prepLines.length) lines.push(...prepLines);
+
+      // GPU inference (parallel)
+      const hasInfer = phase.sep_vocal_infer != null || phase.sep_instru_infer != null;
+      if (hasInfer) {
+        lines.push(`  ─── GPU ∥ ───`);
+        if (phase.sep_vocal_infer != null) lines.push(`  infer_voc  ${fmtSeconds(phase.sep_vocal_infer)}`);
+        if (phase.sep_instru_infer != null) lines.push(`  infer_inst ${fmtSeconds(phase.sep_instru_infer)}`);
+        if (phase.sep_parallel_wall != null) lines.push(`  wall       ${fmtSeconds(phase.sep_parallel_wall)}`);
+      }
+
+      // Post-processing
+      const post: Array<[string, string]> = [
+        ["merge_stems",  "merge     "],
+        ["post_parallel", "post_proc "],
+        ["upload_mp3",   "upload_mp3"],
+      ];
+      const postLines = post
+        .map(([k, l]) => phase[k] != null ? `  ${l} ${fmtSeconds(phase[k])}` : null)
+        .filter((v): v is string => v != null);
+      if (postLines.length) lines.push(...postLines);
+
+      // CPU parallel (analyze runs during GPU inference)
       if (phase.analyze_track != null) {
-        lines.push(`  ─── parallel CPU ───`);
-        lines.push(`  analyze      ${fmtSeconds(phase.analyze_track)}`);
+        lines.push(`  ─── CPU ∥ ───`);
+        lines.push(`  analyze    ${fmtSeconds(phase.analyze_track)}`);
       }
       if (phase.cold === 1 && phase.warmup != null && phase.warmup > 0) {
-        lines.push(`  warmup       ${fmtSeconds(phase.warmup)}`);
+        lines.push(`  warmup     ${fmtSeconds(phase.warmup)}`);
       }
       if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
       if (phase.cold === 1) msg += "🥶 Cold start\n";

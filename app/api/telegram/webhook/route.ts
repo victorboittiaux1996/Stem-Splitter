@@ -215,19 +215,22 @@ async function handleTiming(chatId: number | string, n: number) {
   }
 
   const phases: Array<[string, string]> = [
-    ["download_cpu",      "dl_url     "],
-    ["download_input",    "download   "],
-    ["wav24_transcode",   "transcode  "],
-    ["sep_vocal_infer",   "infer_voc  "],
-    ["sep_instru_infer",  "infer_inst "],
-    ["post_parallel",     "post_proc  "],
-    ["upload_mp3",        "upload_mp3 "],
-    ["analyze_track",     "analyze ∥  "],
-    ["total_wall_time",   "TOTAL      "],
+    ["download_cpu",      "dl_url      "],
+    ["download_input",    "dl_r2       "],
+    ["wav24_transcode",   "transcode   "],
+    ["sep_vocal_infer",   "infer_voc ∥ "],
+    ["sep_instru_infer",  "infer_inst∥ "],
+    ["sep_parallel_wall", "gpu_wall    "],
+    ["merge_stems",       "merge       "],
+    ["post_parallel",     "post_proc   "],
+    ["upload_mp3",        "upload_mp3  "],
+    ["analyze_track",     "analyze  ∥  "],
+    ["callback_nextjs",   "callback    "],
+    ["total_wall_time",   "TOTAL       "],
   ];
 
   let msg = `<b>⏱ Phase timings — last ${jobs.length} jobs</b>\n<pre>`;
-  msg += "phase        avg    min    max\n";
+  msg += "phase         avg    min    max\n";
 
   for (const [phase, label] of phases) {
     const vals = jobs
