@@ -130,7 +130,9 @@ def analyze_track(audio_path: str) -> dict:
     """
     try:
         import concurrent.futures as _cf
+        import time as _time
 
+        _t0 = _time.time()
         duration_sec = librosa.get_duration(filename=audio_path)
 
         # Load audio segment once — shared between key + BPM (avoids double I/O)
@@ -177,8 +179,9 @@ def analyze_track(audio_path: str) -> dict:
 
         camelot, key_raw = key_result[0], key_result[1]
         bpm = bpm_result[0]
-        print(f"Analysis: {bpm} BPM, {camelot} ({key_raw}), {duration_sec:.1f}s")
-        return {"key": camelot, "key_raw": key_raw, "bpm": bpm, "duration": round(duration_sec, 1)}
+        _elapsed = round(_time.time() - _t0, 2)
+        print(f"Analysis: {bpm} BPM, {camelot} ({key_raw}), {duration_sec:.1f}s in {_elapsed}s")
+        return {"key": camelot, "key_raw": key_raw, "bpm": bpm, "duration": round(duration_sec, 1), "_elapsed": _elapsed}
     except Exception as e:
         print(f"Analysis failed: {e}")
         return {"key": None, "key_raw": None, "bpm": None, "duration": None}

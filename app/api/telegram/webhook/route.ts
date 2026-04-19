@@ -217,11 +217,11 @@ async function handleTiming(chatId: number | string, n: number) {
   const phases: Array<[string, string]> = [
     ["download_input",    "download   "],
     ["wav24_transcode",   "transcode  "],
-    ["analyze_track",     "analyze    "],
     ["sep_vocal_infer",   "infer_voc  "],
     ["sep_instru_infer",  "infer_inst "],
-    ["post_parallel",     "post_par   "],
-    ["upload_r2_total",   "upload_mp3 "],
+    ["post_parallel",     "post_proc  "],
+    ["upload_mp3",        "upload_mp3 "],
+    ["analyze_track",     "analyze ∥  "],
     ["total_wall_time",   "TOTAL      "],
   ];
 

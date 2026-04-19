@@ -256,7 +256,7 @@ def run_benchmark(
         "phase_sep_vocal_load_model", "phase_sep_vocal_infer",
         "phase_sep_instru_load_model", "phase_sep_instru_infer",
         "phase_merge_stems", "phase_post_parallel",
-        "phase_upload_r2_total",
+        "phase_upload_mp3",
         "phase_callback_nextjs", "phase_total_wall_time",
         "job_id", "workspace_id",
     ]
@@ -327,7 +327,7 @@ def run_benchmark(
                 "phase_sep_instru_infer": round(phase_timings.get("sep_instru_infer", 0), 2),
                 "phase_merge_stems": round(phase_timings.get("merge_stems", 0), 2),
                 "phase_post_parallel": round(phase_timings.get("post_parallel", 0), 2),
-                "phase_upload_r2_total": round(phase_timings.get("upload_r2_total", 0), 2),
+                "phase_upload_mp3": round(phase_timings.get("upload_mp3", 0), 2),
                 "phase_callback_nextjs": round(phase_timings.get("callback_nextjs", 0), 2),
                 "phase_total_wall_time": round(phase_timings.get("total_wall_time", 0), 2),
                 "job_id": job_id,

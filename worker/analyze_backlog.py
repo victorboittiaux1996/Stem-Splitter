@@ -125,7 +125,7 @@ def analyze(jobs: list[dict]) -> dict:
             "sep_vocal_load_model", "sep_vocal_infer",
             "sep_instru_load_model", "sep_instru_infer",
             "merge_stems", "post_parallel",
-            "upload_r2_total",
+            "upload_mp3",
             "callback_nextjs", "total_wall_time",
         ]
         print("\n  Phase medians (all instrumented):")

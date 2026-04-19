@@ -1435,14 +1435,15 @@ def separate(request: dict):
                     _mp3_up_futs.append(_mp3_pool.submit(upload_to_r2, _fp, _r2k, content_type="audio/mpeg"))
                 for _f in _mp3_up_futs:
                     _f.result()
-            _timings['upload_r2_total'] = time.time() - _t0
-            print(f"[TIMING] job={job_id} phase=upload_mp3 dur={_timings['upload_r2_total']:.2f}s")
+            _timings['upload_mp3'] = time.time() - _t0
+            print(f"[TIMING] job={job_id} phase=upload_mp3 dur={_timings['upload_mp3']:.2f}s")
 
             # Collect analyze_track result (was running on CPU during inference)
             analysis = _analyze_future.result()
             _analyze_executor.shutdown(wait=False)
-            _timings['analyze_track'] = time.time() - _t_analyze_start
-            print(f"[TIMING] job={job_id} phase=analyze_track dur={_timings['analyze_track']:.2f}s (ran in parallel with inference)")
+            # Use actual CPU time from analyzer, not wall time (which includes waiting for GPU)
+            _timings['analyze_track'] = analysis.get("_elapsed", time.time() - _t_analyze_start)
+            print(f"[TIMING] job={job_id} phase=analyze_track dur={_timings['analyze_track']:.2f}s (CPU, ran in parallel with inference)")
 
             # Write all data to R2 at progress=99 — NOT "completed" yet.
             # The PATCH callback will flip to "completed" AFTER tracking usage in Supabase.
@@ -1528,7 +1529,7 @@ def separate(request: dict):
         # Collect analyze result for test/direct mode
         analysis = _analyze_future.result()
         _analyze_executor.shutdown(wait=False)
-        _timings['analyze_track'] = time.time() - _t_analyze_start
+        _timings['analyze_track'] = analysis.get("_elapsed", time.time() - _t_analyze_start)
 
         # Compute peaks for direct mode too
         stem_peaks = {}
