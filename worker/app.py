@@ -18,6 +18,15 @@ app = modal.App("stem-splitter")
 VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 INSTRUMENT_MODEL = "BS-Roformer-SW.ckpt"
 
+# Modal H100 on-demand rate (bundles GPU + CPU + RAM).
+# Source: modal.com/pricing 2026-04 — $4.668/hr = $0.001297/sec.
+# Used to estimate cost per job from phase_timings.total_wall_time.
+# NOTE: this is an estimate — Modal billing is the truth source.
+# _CONTAINER_BOOT_T captures Python module-load time, which underestimates
+# actual billed boot by ~20-40s (misses image-pull phase we can't observe).
+H100_RATE_PER_SEC = 0.001297
+_CONTAINER_BOOT_T = time.time()
+
 _COLD_START = True  # True only on first invocation per container lifetime
 
 # Cached Separator instances — loaded once per container, reused across invocations.
@@ -1455,6 +1464,13 @@ def separate(request: dict):
             # Compute wall time + cold flag now so they're included in the callback payload
             _timings['total_wall_time'] = time.time() - _job_start
             _timings['cold'] = int(_cold)
+            # Billable seconds ≈ container_boot + job wall time (Modal bills the container
+            # from cold-boot until scaledown). container_boot underestimates by ~20-40s
+            # because it misses image-pull, but it's the best we can observe from Python.
+            _timings['container_boot'] = round(_job_start - _CONTAINER_BOOT_T, 3) if _cold else 0.0
+            _billable_seconds = _timings['total_wall_time'] + _timings['container_boot']
+            _modal_cost = round(_billable_seconds * H100_RATE_PER_SEC, 6)
+            _timings['modal_cost'] = _modal_cost
             _t0 = time.time()
             callback_ok = False
             if callback_url:
@@ -1468,6 +1484,7 @@ def separate(request: dict):
                     "duration": analysis["duration"],
                     "workspaceId": workspace_id,
                     "phase_timings": _timings,
+                    "modal_cost": _modal_cost,
                 }).encode("utf-8")
 
                 try:

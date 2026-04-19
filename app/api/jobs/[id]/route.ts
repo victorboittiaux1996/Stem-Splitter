@@ -26,6 +26,7 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
   const errorCode = (job.error_code as string | undefined) ?? null;
   const phase = job.phase_timings as Record<string, number> | undefined;
   const processingDur = phase?.total_wall_time ?? null; // actual GPU processing time
+  const modalCost = typeof job.modal_cost === "number" ? job.modal_cost : (phase?.modal_cost ?? null);
   const overlap = typeof job.overlap === "number" ? job.overlap : null;
   const bpm = typeof job.bpm === "number" ? job.bpm : null;
   const key = (job.key as string | undefined) ?? null;
@@ -101,6 +102,12 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
       if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
       if (phase.cold === 1) msg += "🥶 Cold start\n";
     }
+    if (modalCost != null) {
+      const costPerMin = trackDur != null && trackDur > 0 ? (modalCost / (trackDur / 60)) : null;
+      msg += `💰 <b>$${modalCost.toFixed(4)}</b>`;
+      if (costPerMin != null) msg += ` ($${costPerMin.toFixed(3)}/min audio)`;
+      msg += "\n";
+    }
   }
 
   if (status === "failed" && errorCode) {
@@ -161,6 +168,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const _mergedSnapshot = merged as Record<string, unknown>;
       // phase_timings now included in Modal's PATCH payload — notify immediately, no delay needed
       notifyJob(_notifyStatus, _mergedSnapshot as Record<string, unknown>).catch(() => {});
+      const modalCost = typeof updates.modal_cost === "number" ? updates.modal_cost : null;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabaseAdmin.from("jobs") as any).upsert({
         id,
@@ -179,6 +187,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         phase_timings: phaseTims ?? null,
         cold_start: phaseTims ? (phaseTims.cold === 1) : null,
         batch_id: existing.batchId ?? null,
+        modal_cost: modalCost,
       }).then(() => {}).catch((err: unknown) => console.error("Supabase jobs upsert failed:", err));
     }
 

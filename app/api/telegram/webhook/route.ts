@@ -16,6 +16,7 @@ type JobRow = {
   phase_timings: Record<string, number> | null;
   cold_start: boolean | null;
   bpm: number | null;
+  modal_cost: number | null;
 };
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     switch (command) {
       case "/ping":
       case "/start":
-        await sendMessage(chatId, "✅ <b>44Stems bot online</b>\n\nCommands:\n/recap [N] — last N jobs summary\n/errors [N] — recent failures\n/timing [N] — phase timing breakdown\n/live — currently processing");
+        await sendMessage(chatId, "✅ <b>44Stems bot online</b>\n\nCommands:\n/recap [N] — last N jobs summary\n/cost [N] — cost breakdown + margins\n/errors [N] — recent failures\n/timing [N] — phase timing breakdown\n/live — currently processing");
         break;
       case "/recap":
       case "/stats":
@@ -74,12 +75,16 @@ export async function POST(request: NextRequest) {
       case "/timing":
         await handleTiming(chatId, isNaN(arg) ? 5 : Math.min(arg, 20));
         break;
+      case "/cost":
+      case "/costs":
+        await handleCost(chatId, isNaN(arg) ? 10 : Math.min(arg, 50));
+        break;
       case "/live":
       case "/status":
         await handleLive(chatId);
         break;
       default:
-        await sendMessage(chatId, "Commands: /recap [N] · /errors [N] · /timing [N] · /live · /ping");
+        await sendMessage(chatId, "Commands: /recap [N] · /cost [N] · /errors [N] · /timing [N] · /live · /ping");
     }
   } catch (err) {
     console.error("Telegram command error:", err);
@@ -245,6 +250,89 @@ async function handleTiming(chatId: number | string, n: number) {
 
   const coldStarts = jobs.filter((j) => j.cold_start).length;
   msg += `</pre>🥶 Cold: ${coldStarts}/${jobs.length}`;
+
+  await sendMessage(chatId, msg);
+}
+
+function fmtCost(usd: number) {
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function fmtDuration(s: number) {
+  if (s < 60) return `${s.toFixed(0)}s`;
+  const m = Math.floor(s / 60);
+  const sec = Math.round(s % 60);
+  return `${m}m${sec > 0 ? `${sec}s` : ""}`;
+}
+
+async function handleCost(chatId: number | string, n: number) {
+  const { data: rawJobs, error } = await jobsTable()
+    .select("file_name, duration_seconds, modal_cost, phase_timings, cold_start, created_at, status")
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(n);
+  const jobs = rawJobs as Pick<JobRow, "file_name" | "duration_seconds" | "modal_cost" | "phase_timings" | "cold_start" | "created_at" | "status">[] | null;
+
+  if (error) {
+    await sendMessage(chatId, `❌ Query error: ${error.message}`);
+    return;
+  }
+  if (!jobs?.length) {
+    await sendMessage(chatId, "No completed jobs found.");
+    return;
+  }
+
+  let totalCost = 0;
+  let totalAudio = 0;
+  let totalWall = 0;
+  let coldCount = 0;
+  let costTracked = 0;
+
+  const lines: string[] = [];
+  for (const j of jobs) {
+    const name = (j.file_name ?? "?").slice(0, 22);
+    const audio = j.duration_seconds ?? 0;
+    const pt = j.phase_timings ?? {};
+    const wall = pt.total_wall_time ?? 0;
+    const boot = pt.container_boot ?? 0;
+    const cost = j.modal_cost ?? pt.modal_cost ?? null;
+    const cold = j.cold_start ? "❄" : "🔥";
+
+    totalAudio += audio;
+    totalWall += wall + boot;
+    if (j.cold_start) coldCount++;
+
+    if (cost != null) {
+      totalCost += cost;
+      costTracked++;
+      lines.push(`${cold} ${fmtCost(cost)} ${fmtDuration(audio)} ${name}`);
+    } else {
+      // Estimate for jobs without cost tracking
+      const est = (wall + boot) * 0.001297;
+      totalCost += est;
+      lines.push(`${cold} ~${fmtCost(est)} ${fmtDuration(audio)} ${name}`);
+    }
+  }
+
+  // Plan margins
+  const costPerMinAudio = totalAudio > 0 ? totalCost / (totalAudio / 60) : 0;
+  const proCostFor90min = costPerMinAudio * 90;
+  const studioCostFor250min = costPerMinAudio * 250;
+
+  let msg = `<b>💰 Cost breakdown — last ${jobs.length} jobs</b>\n`;
+  msg += `<pre>${lines.join("\n")}</pre>\n`;
+  msg += `<b>Totals:</b>\n`;
+  msg += `  Audio: ${fmtDuration(totalAudio)} (${(totalAudio / 60).toFixed(1)} min)\n`;
+  msg += `  GPU:   ${fmtDuration(totalWall)} (${(totalWall / 60).toFixed(1)} min)\n`;
+  msg += `  Cost:  <b>${fmtCost(totalCost)}</b>\n`;
+  msg += `  Ratio: ${totalAudio > 0 ? (totalWall / totalAudio).toFixed(2) : "?"}x GPU/audio\n`;
+  msg += `  🥶 Cold: ${coldCount}/${jobs.length}\n`;
+  if (costTracked < jobs.length) msg += `  ⚠️ ${jobs.length - costTracked} jobs estimated (pre-tracking)\n`;
+  msg += `\n<b>Unit economics:</b>\n`;
+  msg += `  Cost/min audio: <b>${fmtCost(costPerMinAudio)}</b>\n`;
+  msg += `  Pro 90min:  ${fmtCost(proCostFor90min)} cost / $7.99 rev → <b>${proCostFor90min < 7.99 ? "+" : ""}${fmtCost(7.99 - proCostFor90min)}</b> margin\n`;
+  msg += `  Studio 250min: ${fmtCost(studioCostFor250min)} cost / $15.99 rev → <b>${studioCostFor250min < 15.99 ? "+" : ""}${fmtCost(15.99 - studioCostFor250min)}</b> margin\n`;
 
   await sendMessage(chatId, msg);
 }
