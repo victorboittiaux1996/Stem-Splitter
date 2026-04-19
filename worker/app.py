@@ -902,6 +902,7 @@ def _preload_models_if_cold(input_key: "str | None", tmpdir: str) -> "str | None
     gpu="H100",
     timeout=600,
     keep_warm=0,  # NEVER increase without explicit cost approval — H100 = ~$95/day
+    scaledown_window=30,  # measured 2026-04-19: MP3 back-to-back gap 8s, WAV 21s → 30s covers both
     secrets=[
         modal.Secret.from_name("r2-credentials"),
         modal.Secret.from_name("youtube-cookies-jar"),
