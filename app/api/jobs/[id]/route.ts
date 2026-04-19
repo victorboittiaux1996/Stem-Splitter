@@ -54,6 +54,7 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
     }
     if (phase) {
       const gpuSteps: Array<[string, string]> = [
+        ["download_cpu",     "dl_url     "],
         ["download_input",   "download   "],
         ["wav24_transcode",  "transcode  "],
         ["sep_vocal_infer",  "infer_voc  "],

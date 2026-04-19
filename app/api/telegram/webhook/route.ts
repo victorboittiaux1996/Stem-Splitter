@@ -215,6 +215,7 @@ async function handleTiming(chatId: number | string, n: number) {
   }
 
   const phases: Array<[string, string]> = [
+    ["download_cpu",      "dl_url     "],
     ["download_input",    "download   "],
     ["wav24_transcode",   "transcode  "],
     ["sep_vocal_infer",   "infer_voc  "],
