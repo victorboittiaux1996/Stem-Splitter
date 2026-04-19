@@ -989,13 +989,14 @@ def separate(request: dict):
         print(f"[TIMING] job={job_id} phase=wav24_transcode dur={_timings['wav24_transcode']:.2f}s")
 
         import concurrent.futures as _cf
-
-        # Analyze BPM + key — sequential (S-KEY uses GPU, concurrent would cause H100 contention)
-        _t0 = time.time()
         from analyzer import analyze_track
-        analysis = analyze_track(input_path)
-        _timings['analyze_track'] = time.time() - _t0
-        print(f"[TIMING] job={job_id} phase=analyze_track dur={_timings['analyze_track']:.2f}s")
+
+        # Launch analyze_track on CPU in background — runs during GPU inference (no contention).
+        # S-KEY is now CPU-only (250K params), Essentia BPM was already CPU.
+        # Results only needed at upload time (update_job_status + callback).
+        _analyze_executor = _cf.ThreadPoolExecutor(max_workers=1)
+        _t_analyze_start = time.time()
+        _analyze_future = _analyze_executor.submit(analyze_track, input_path)
 
         results = {}
         stem_names = []
@@ -1369,6 +1370,7 @@ def separate(request: dict):
         if not results:
             error_msg = "No stems produced — input file may be corrupted or too short"
             print(f"ERROR: {error_msg}")
+            _analyze_executor.shutdown(wait=False, cancel_futures=True)
             if job_id != "test":
                 from storage import update_job_status
                 update_job_status(job_id, "failed", progress=0, stage="Error", error=error_msg, workspace_id=workspace_id)
@@ -1445,6 +1447,12 @@ def separate(request: dict):
 
             _timings['upload_r2_total'] = time.time() - _t0
             print(f"[TIMING] job={job_id} phase=upload_r2_total dur={_timings['upload_r2_total']:.2f}s")
+
+            # Collect analyze_track result (was running on CPU during inference)
+            analysis = _analyze_future.result()
+            _analyze_executor.shutdown(wait=False)
+            _timings['analyze_track'] = time.time() - _t_analyze_start
+            print(f"[TIMING] job={job_id} phase=analyze_track dur={_timings['analyze_track']:.2f}s (ran in parallel with inference)")
 
             # Write all data to R2 at progress=99 — NOT "completed" yet.
             # The PATCH callback will flip to "completed" AFTER tracking usage in Supabase.
@@ -1526,6 +1534,11 @@ def separate(request: dict):
                 print(f"[TIMING] phase_timings write failed (non-fatal): {_e}")
 
             return {"status": "completed", "stems": stem_names}
+
+        # Collect analyze result for test/direct mode
+        analysis = _analyze_future.result()
+        _analyze_executor.shutdown(wait=False)
+        _timings['analyze_track'] = time.time() - _t_analyze_start
 
         # Compute peaks for direct mode too
         stem_peaks = {}
