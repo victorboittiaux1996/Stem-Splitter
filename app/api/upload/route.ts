@@ -10,6 +10,7 @@ export const maxDuration = 300; // Modal processing can take up to 200s; after()
 
 const ALLOWED_EXTENSIONS = /\.(mp3|wav|flac|ogg|m4a|aac|aif|aiff|webm)$/i;
 const MODAL_WEBHOOK_URL = process.env.MODAL_WEBHOOK_URL!;
+const MODAL_DOWNLOAD_URL = process.env.MODAL_DOWNLOAD_URL!;
 const STEM_MODE_MAP: Record<string, number> = { "2stem": 2, "4stem": 4, "6stem": 6 };
 
 export async function POST(request: NextRequest) {
@@ -101,10 +102,46 @@ export async function POST(request: NextRequest) {
 
       const _tModal = Date.now();
       after(async () => {
+        // Step 1: CPU download — offloads the 45-80s download off the H100
+        let dlResult: { inputKey?: string; downloadDuration?: number; error?: string } = {};
+        try {
+          const dlRes = await fetch(MODAL_DOWNLOAD_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId, url, workspaceId: wsId }),
+            signal: AbortSignal.timeout(180_000),
+          });
+          dlResult = await dlRes.json().catch(() => ({}));
+          if (!dlRes.ok || dlResult.error) {
+            // download_audio already wrote "failed" to R2 — just alert
+            sendTelegramAlert(`❌ <b>URL Download Failed</b>\n🔗 CPU download error\n📋 <code>${dlResult.error ?? `HTTP ${dlRes.status}`}</code>\n🆔 job=${jobId}`).catch(() => {});
+            console.log(`[TIMING] POST /api/upload phase=cpu_download_failed dur=${Date.now() - _tModal}ms`);
+            return;
+          }
+        } catch (err) {
+          console.error(`CPU download failed for job ${jobId}:`, err);
+          await writeJsonToR2(key, {
+            id: jobId, status: "failed", mode, progress: 0,
+            stage: "Error", error: "Failed to reach download server. Please try again.",
+            createdAt: Date.now(), workspaceId: wsId, userId: user.id,
+          });
+          sendTelegramAlert(`❌ <b>CPU Download Unreachable</b>\n🔗 URL import download step failed\n📋 <code>${String(err).slice(0, 200)}</code>\n🆔 job=${jobId}`).catch(() => {});
+          return;
+        }
+        console.log(`[TIMING] POST /api/upload phase=cpu_download_done dur=${Date.now() - _tModal}ms key=${dlResult.inputKey}`);
+
+        // Step 2: GPU separate — audio already in R2, download_cpu saved ~45-80s of H100
+        // 110s timeout leaves room for R2 cleanup before Vercel kills the after() at 300s
         await fetch(MODAL_WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, mode, downloadUrl: url, callbackUrl, overlap, workspaceId: wsId }),
+          body: JSON.stringify({
+            jobId, mode,
+            inputKey: dlResult.inputKey,
+            callbackUrl, overlap, workspaceId: wsId,
+            downloadDuration: dlResult.downloadDuration,
+          }),
+          signal: AbortSignal.timeout(110_000),
         }).then(async (res) => {
           const result = await res.json().catch(() => ({}));
           if (!res.ok || result.error) {
@@ -122,7 +159,7 @@ export async function POST(request: NextRequest) {
             stage: "Error", error: "Failed to reach processing server. Please try again.",
             createdAt: Date.now(), workspaceId: wsId, userId: user.id,
           });
-          sendTelegramAlert(`❌ <b>Modal Unreachable</b>\n🔗 URL import dispatch failed\n📋 <code>${String(err).slice(0, 200)}</code>\n🆔 job=${jobId}`).catch(() => {});
+          sendTelegramAlert(`❌ <b>Modal Unreachable</b>\n🔗 URL import GPU dispatch failed\n📋 <code>${String(err).slice(0, 200)}</code>\n🆔 job=${jobId}`).catch(() => {});
         });
         console.log(`[TIMING] POST /api/upload phase=modal_dispatch_done dur=${Date.now() - _tModal}ms total=${Date.now() - _t0}ms`);
       });

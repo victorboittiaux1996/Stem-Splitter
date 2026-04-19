@@ -237,6 +237,19 @@ url_info_image = (
     .add_local_python_source("storage")
 )
 
+# CPU-only image for URL audio downloads — same YT stack as url_info_image but with ffmpeg
+# so yt-dlp can merge DASH video+audio streams (required for YouTube, SoundCloud, etc.)
+download_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg", "curl", "ca-certificates", "gnupg", "unzip", "git")
+    .run_commands(*_YT_HARDENING_CMDS)
+    .pip_install(
+        f"yt-dlp=={_YT_DLP_VERSION}", "fastapi[standard]",
+        "bgutil-ytdlp-pot-provider==1.3.1", "boto3",
+    )
+    .add_local_python_source("storage")
+)
+
 
 @app.function(
     image=url_info_image,
@@ -530,7 +543,22 @@ def classify_error(stderr: str) -> tuple[str, bool]:
         if re.search(pattern, s):
             return (code, terminal)
 
-    return ("unknown", True)
+    return ("unknown", False)
+
+
+# User-facing error messages for URL download failures — shared by download_audio (CPU)
+# and the legacy download path in separate() for audio_b64 / direct mode.
+_ERROR_MESSAGES = {
+    "bot_detected": "YouTube is temporarily blocking this request. Try again or upload the audio file directly.",
+    "private": "This video is private and cannot be imported.",
+    "removed": "This video is no longer available.",
+    "geo_blocked": "This video is geo-restricted and cannot be imported.",
+    "age_restricted": "This video is age-restricted and cannot be imported.",
+    "rate_limited": "Too many requests. Please wait a minute and try again.",
+    "network": "Could not reach the source. Please try again.",
+    "unsupported": "This URL is not supported.",
+    "unknown": "Import failed. Please try again or upload the audio file. Contact hello@44stems.com if the problem persists.",
+}
 
 
 def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str:
@@ -592,6 +620,8 @@ def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str
             with _ytdlp_semaphore:
                 _run_ytdlp_chain(url, output_template, cookies_path, proxy=proxy_url)
         except YtDlpError as err:
+            if err.code == "unknown" and err.stderr:
+                print(f"[yt-dlp] UNKNOWN error stderr (first 500 chars): {_redact_cookies(err.stderr[:500])}")
             raise Exception(f"{err.code}:{err.args[0]}")
     else:
         # Primary path: direct Modal egress + client fallback chain
@@ -619,6 +649,81 @@ def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str
         if f.startswith('audio.') and not f.endswith('.part'):
             return os.path.join(output_dir, f)
     raise Exception(f"unknown:No audio file found after download from {url}")
+
+
+@app.function(
+    image=download_image,
+    timeout=180,
+    cpu=1.0,
+    memory=512,
+    secrets=[
+        modal.Secret.from_name("r2-credentials"),
+        modal.Secret.from_name("youtube-cookies-jar"),
+        modal.Secret.from_name("yt-proxy-url"),
+        modal.Secret.from_name("feature-flags"),
+    ],
+)
+@modal.concurrent(max_inputs=5)
+@modal.web_endpoint(method="POST")
+def download_audio(request: dict):
+    """Download audio from a URL and upload to R2 on CPU (no GPU billed).
+
+    Called by Vercel before dispatching the GPU job — moves the 45-80s download
+    cost off the H100 and onto a cheap CPU container.
+
+    Input:  { "url": "...", "jobId": "...", "workspaceId": "..." }
+    Output: { "inputKey": "inputs/{jobId}.ext", "downloadDuration": float }
+         or { "error": "user-facing message" }  (status written to R2 before returning)
+    """
+    import tempfile
+    import time as _time
+    from storage import update_job_status, upload_to_r2
+
+    url = request.get("url", "")
+    job_id = request.get("jobId", "unknown")
+    workspace_id = request.get("workspaceId") or None
+
+    if not url:
+        update_job_status(job_id, "failed", progress=0, stage="Error",
+                          error="Missing url", workspace_id=workspace_id)
+        return {"error": "Missing url"}
+
+    # Write progress 5% so the frontend shows "Downloading audio" immediately
+    update_job_status(job_id, "processing", progress=5, stage="Downloading audio",
+                      workspace_id=workspace_id)
+
+    _ext_map = {
+        ".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac",
+        ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg",
+        ".webm": "audio/webm", ".aif": "audio/aiff", ".aiff": "audio/aiff",
+    }
+
+    _t0 = _time.time()
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = download_from_url(url, tmpdir, job_id=job_id)
+
+            ext = os.path.splitext(input_path)[1].lower() or ".mp3"
+            input_key = f"inputs/{job_id}{ext}"
+            content_type = _ext_map.get(ext, "audio/mpeg")
+            upload_to_r2(input_path, input_key, content_type=content_type)
+
+            download_duration = _time.time() - _t0
+            print(f"[DOWNLOAD] job={job_id} done in {download_duration:.2f}s key={input_key}")
+            return {"inputKey": input_key, "downloadDuration": download_duration}
+
+    except Exception as e:
+        raw_error = str(e)
+        parts = raw_error.split(":", 1)
+        if len(parts) == 2 and parts[0] in _ERROR_MESSAGES:
+            error_code = parts[0]
+        else:
+            error_code, _ = classify_error(raw_error)
+        user_msg = _ERROR_MESSAGES.get(error_code, _ERROR_MESSAGES["unknown"])
+        print(f"[DOWNLOAD] ERROR job={job_id} code={error_code}: {_redact_cookies(raw_error)}")
+        update_job_status(job_id, "failed", progress=0, stage="Error",
+                          error=user_msg, error_code=error_code, workspace_id=workspace_id)
+        return {"error": user_msg}
 
 
 def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
@@ -801,7 +906,6 @@ def separate(request: dict):
 
     Accepts: { "jobId": "...", "mode": "4stem"|"2stem", "inputKey": "..." }
     Or direct audio: { "audio_base64": "...", "filename": "...", "mode": "..." }
-    Or URL: { "downloadUrl": "...", "mode": "..." }
     """
     from audio_separator.separator import Separator
     import tempfile
@@ -820,7 +924,7 @@ def separate(request: dict):
     mode = request.get("mode", "4stem")
     audio_b64 = request.get("audio_base64")
     input_key = request.get("inputKey")
-    download_url = request.get("downloadUrl")
+    download_duration_cpu = request.get("downloadDuration")  # seconds spent in CPU download_audio
     callback_url = request.get("callbackUrl")  # PATCH /api/jobs/{jobId} on Next.js
     overlap = request.get("overlap", 8)
     workspace_id = request.get("workspaceId") or None
@@ -831,6 +935,8 @@ def separate(request: dict):
         and job_id != "test"            # test path bypasses tqdm hook
     )
     _timings['parallel_mode'] = 1 if parallel_enabled else 0
+    if download_duration_cpu is not None:
+        _timings['download_cpu'] = float(download_duration_cpu)
     _assert_tqdm_clean(job_id)
 
     _container_id = os.environ.get("MODAL_TASK_ID", "local")
@@ -851,39 +957,7 @@ def separate(request: dict):
 
         # Get input file
         _t0 = time.time()
-        if download_url:
-            print(f"Downloading audio from URL: {download_url}")
-            from storage import update_job_status
-            update_job_status(job_id, "processing", progress=5, stage="Downloading audio", workspace_id=workspace_id)
-            try:
-                input_path = download_from_url(download_url, tmpdir, job_id=job_id)
-                print(f"Downloaded: {input_path}")
-            except Exception as e:
-                raw_error = str(e)
-                # download_from_url raises "error_code:detail" — parse it
-                _ERROR_MESSAGES = {
-                    "bot_detected": "YouTube is temporarily blocking this request. Try again or upload the audio file directly.",
-                    "private": "This video is private and cannot be imported.",
-                    "removed": "This video is no longer available.",
-                    "geo_blocked": "This video is geo-restricted and cannot be imported.",
-                    "age_restricted": "This video is age-restricted and cannot be imported.",
-                    "rate_limited": "Too many requests. Please wait a minute and try again.",
-                    "network": "Could not reach the source. Please try again.",
-                    "unsupported": "This URL is not supported.",
-                    "unknown": "Import failed. Please try again or upload the audio file. Contact hello@44stems.com if the problem persists.",
-                }
-                known_codes = set(_ERROR_MESSAGES.keys())
-                parts = raw_error.split(":", 1)
-                if len(parts) == 2 and parts[0] in known_codes:
-                    error_code = parts[0]
-                else:
-                    error_code, _ = classify_error(raw_error)
-                user_msg = _ERROR_MESSAGES.get(error_code, _ERROR_MESSAGES["unknown"])
-                print(f"ERROR download ({error_code}): {_redact_cookies(raw_error)}")
-                update_job_status(job_id, "failed", progress=0, stage="Error",
-                                  error=user_msg, error_code=error_code, workspace_id=workspace_id)
-                return {"error": user_msg}
-        elif audio_b64:
+        if audio_b64:
             filename = request.get("filename", "input.mp3")
             ext = os.path.splitext(filename)[1] or ".mp3"
             input_path = os.path.join(tmpdir, f"input{ext}")
