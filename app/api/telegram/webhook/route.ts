@@ -220,7 +220,8 @@ async function handleTiming(chatId: number | string, n: number) {
     ["analyze_track",     "analyze    "],
     ["sep_vocal_infer",   "infer_voc  "],
     ["sep_instru_infer",  "infer_inst "],
-    ["upload_r2_total",   "upload_r2  "],
+    ["post_parallel",     "post_par   "],
+    ["upload_r2_total",   "upload_mp3 "],
     ["total_wall_time",   "TOTAL      "],
   ];
 

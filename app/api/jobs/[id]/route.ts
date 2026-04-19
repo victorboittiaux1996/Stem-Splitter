@@ -59,7 +59,8 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
         ["analyze_track",    "analyze   "],
         ["sep_vocal_infer",  "infer_voc "],
         ["sep_instru_infer", "infer_inst"],
-        ["upload_r2_total",  "upload    "],
+        ["post_parallel",    "post_par  "],
+        ["upload_r2_total",  "upload_mp3"],
       ];
       const lines = steps
         .map(([k, label]) => phase[k] != null ? `  ${label}  ${fmtSeconds(phase[k])}` : null)
