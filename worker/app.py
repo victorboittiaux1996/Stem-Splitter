@@ -994,7 +994,11 @@ def separate(request: dict):
         # Launch analyze_track on CPU in background — runs during GPU inference (no contention).
         # S-KEY is now CPU-only (250K params), Essentia BPM was already CPU.
         # Results only needed at upload time (update_job_status + callback).
+        # weakref.finalize guarantees shutdown even on uncaught exceptions (OOM, CUDA crash)
+        # without requiring a try/finally over hundreds of lines. shutdown() is idempotent.
+        import weakref as _weakref
         _analyze_executor = _cf.ThreadPoolExecutor(max_workers=1)
+        _weakref.finalize(_analyze_executor, _analyze_executor.shutdown, wait=False, cancel_futures=True)
         _t_analyze_start = time.time()
         _analyze_future = _analyze_executor.submit(analyze_track, input_path)
 
@@ -1378,75 +1382,61 @@ def separate(request: dict):
 
         # Upload to R2 for all real jobs (file mode via inputKey OR URL mode via downloadUrl)
         if job_id != "test":
-            from storage import upload_to_r2, update_job_status
+            from storage import upload_to_r2, update_job_status, stem_key as _stem_key
 
-            uploaded_bytes = [0]
-            last_pct = [85]
+            update_job_status(job_id, "processing", progress=85, stage="Processing stems", workspace_id=workspace_id)
 
-            # Compute waveform peaks before upload (~1s)
-            _t0 = time.time()
-            print("Computing waveform peaks...")
+            # === Post-processing: peaks ∥ mp3_encode ∥ wav_upload in parallel ===
+            # All three are CPU/IO-bound, zero GPU dependency.
+            # Before: peaks(3s) → mp3(5s) → upload(8s) = 16s sequential on H100
+            # After:  [peaks ∥ mp3 ∥ wav_upload](~5s) → mp3_upload(~4s) = ~9s
+            _t_post = time.time()
             stem_peaks = {}
-            for stem_name, filepath in results.items():
-                stem_peaks[stem_name] = compute_peaks(filepath)
-            print(f"Peaks computed for {len(stem_peaks)} stems")
-            _timings['compute_peaks'] = time.time() - _t0
-            print(f"[TIMING] job={job_id} phase=compute_peaks dur={_timings['compute_peaks']:.2f}s")
+            _mp3_paths = {}
 
-            # Convert stems to MP3 320kbps — all stems in parallel (one thread per stem)
+            print("Post-processing: peaks ∥ mp3_encode ∥ wav_upload...")
+            with _cf.ThreadPoolExecutor(max_workers=1 + len(results) * 2) as _post_pool:
+                # Peaks: single thread, loops stems (CPU-bound, ~3s)
+                def _run_peaks():
+                    for _n, _fp in results.items():
+                        stem_peaks[_n] = compute_peaks(_fp)
+                _f_peaks = _post_pool.submit(_run_peaks)
+
+                # MP3 encode: one thread per stem, parallel ffmpeg subprocesses (~5s → ~1.5s)
+                _mp3_futs = {}
+                for _name, _wav in results.items():
+                    _mp3 = _wav.replace(".wav", ".mp3")
+                    _mp3_futs[_name] = (_mp3, _post_pool.submit(convert_to_mp3, _wav, _mp3))
+
+                # WAV upload: one thread per stem, starts immediately (no dependency on peaks/mp3)
+                _wav_futs = []
+                for _name, _fp in results.items():
+                    _r2k = _stem_key(workspace_id, job_id, _name, ".wav")
+                    _wav_futs.append(_post_pool.submit(upload_to_r2, _fp, _r2k, content_type="audio/wav"))
+
+                # Wait for all parallel work
+                _f_peaks.result()
+                for _name, (_mp3, _fut) in _mp3_futs.items():
+                    _fut.result()
+                    _mp3_paths[_name] = _mp3
+                for _f in _wav_futs:
+                    _f.result()
+
+            _timings['post_parallel'] = time.time() - _t_post
+            print(f"[TIMING] job={job_id} phase=post_parallel dur={_timings['post_parallel']:.2f}s")
+
+            # Upload MP3s (needs encode done — guaranteed by pool above)
             _t0 = time.time()
-            print("Converting stems to MP3 320kbps (parallel)...")
-            mp3_results = {}
-            def _encode_stem(args):
-                name, wav_path = args
-                mp3_path = wav_path.replace(".wav", ".mp3")
-                convert_to_mp3(wav_path, mp3_path)
-                return name, mp3_path
-            with _cf.ThreadPoolExecutor(max_workers=len(results)) as _pool:
-                for stem_name, mp3_path in _pool.map(_encode_stem, results.items()):
-                    mp3_results[stem_name] = mp3_path
-            print(f"MP3 conversion done for {len(mp3_results)} stems")
-            _timings['mp3_encode_total'] = time.time() - _t0
-            print(f"[TIMING] job={job_id} phase=mp3_encode_total dur={_timings['mp3_encode_total']:.2f}s")
-
-            # Recompute total bytes (WAV + MP3) for accurate progress
-            import os as _os
-            total_bytes = sum(_os.path.getsize(fp) for fp in results.values())
-            total_bytes += sum(_os.path.getsize(fp) for fp in mp3_results.values())
-
-            from storage import stem_key as _stem_key
-            import threading as _threading
-            _t0 = time.time()
-            update_job_status(job_id, "processing", progress=85, stage="Uploading stems", workspace_id=workspace_id)
-
-            # Build upload task list: (local_path, r2_key, content_type)
-            _upload_tasks = []
-            for stem_name, filepath in results.items():
-                _upload_tasks.append((filepath, _stem_key(workspace_id, job_id, stem_name, ".wav"), "audio/wav"))
-            for stem_name, filepath in mp3_results.items():
-                _upload_tasks.append((filepath, _stem_key(workspace_id, job_id, stem_name, ".mp3"), "audio/mpeg"))
-
-            # Thread-safe progress counter for parallel uploads
-            _upload_lock = _threading.Lock()
-            def _safe_upload_callback(bytes_transferred):
-                with _upload_lock:
-                    uploaded_bytes[0] += bytes_transferred
-                pct = 85 + int((uploaded_bytes[0] / total_bytes) * 14)
-                pct = min(pct, 99)
-                if pct > last_pct[0]:
-                    last_pct[0] = pct
-                    update_job_status(job_id, "processing", progress=pct, stage="Uploading stems", workspace_id=workspace_id)
-
-            def _do_upload(args):
-                local_path, r2_key, ct = args
-                upload_to_r2(local_path, r2_key, content_type=ct, callback=_safe_upload_callback)
-
-            with _cf.ThreadPoolExecutor(max_workers=4) as _pool:
-                for _ in _pool.map(_do_upload, _upload_tasks):
-                    pass  # raises on first error
-
+            update_job_status(job_id, "processing", progress=92, stage="Uploading stems", workspace_id=workspace_id)
+            with _cf.ThreadPoolExecutor(max_workers=len(_mp3_paths)) as _mp3_pool:
+                _mp3_up_futs = []
+                for _name, _fp in _mp3_paths.items():
+                    _r2k = _stem_key(workspace_id, job_id, _name, ".mp3")
+                    _mp3_up_futs.append(_mp3_pool.submit(upload_to_r2, _fp, _r2k, content_type="audio/mpeg"))
+                for _f in _mp3_up_futs:
+                    _f.result()
             _timings['upload_r2_total'] = time.time() - _t0
-            print(f"[TIMING] job={job_id} phase=upload_r2_total dur={_timings['upload_r2_total']:.2f}s")
+            print(f"[TIMING] job={job_id} phase=upload_mp3 dur={_timings['upload_r2_total']:.2f}s")
 
             # Collect analyze_track result (was running on CPU during inference)
             analysis = _analyze_future.result()
