@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getJobForWorkspace, getPresignedUrl, listStemsForWorkspace, stemKey } from "@/lib/r2";
 import { Logo } from "@/components/website/logo";
@@ -18,6 +19,49 @@ const C = {
 
 interface Props {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: link } = await (supabase as any)
+    .from("share_links")
+    .select("job_id, workspace_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  let trackName = "Shared split";
+  let stemCount = 0;
+
+  if (link) {
+    const job = await getJobForWorkspace(link.workspace_id ?? null, link.job_id);
+    if (job?.fileName) trackName = job.fileName.replace(/\.[^/.]+$/, "");
+    const stemKeys = await listStemsForWorkspace(link.workspace_id ?? null, link.job_id);
+    stemCount = stemKeys.length;
+  }
+
+  const appUrl = (process.env.APP_URL ?? "https://44stems.com").trim();
+  const ogImageUrl = `${appUrl}/api/og/share?id=${id}`;
+  const description = `${stemCount} stem${stemCount !== 1 ? "s" : ""} · Split with AI on 44Stems`;
+
+  return {
+    title: `${trackName} — 44Stems`,
+    description,
+    openGraph: {
+      title: `${trackName} — 44Stems`,
+      description,
+      images: [{ url: ogImageUrl, width: 1200, height: 630, alt: trackName }],
+      type: "website",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${trackName} — 44Stems`,
+      description,
+      images: [ogImageUrl],
+    },
+  };
 }
 
 export default async function SharePage({ params }: Props) {
