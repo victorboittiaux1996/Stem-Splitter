@@ -18,16 +18,30 @@ app = modal.App("stem-splitter")
 VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 INSTRUMENT_MODEL = "BS-Roformer-SW.ckpt"
 
-# Modal H100 on-demand rate (bundles GPU + CPU + RAM).
-# Source: modal.com/pricing 2026-04 — $4.668/hr = $0.001297/sec.
-# Used to estimate cost per job from phase_timings.total_wall_time.
-# NOTE: this is an estimate — Modal billing is the truth source.
-# _CONTAINER_BOOT_T captures Python module-load time, which underestimates
-# actual billed boot by ~20-40s (misses image-pull phase we can't observe).
-H100_RATE_PER_SEC = 0.001297
+# Modal GPU on-demand rates (bundles GPU + CPU + RAM).
+# Source: modal.com/pricing verified 2026-04-19.
+# Used to compute cost per job from phase_timings.total_wall_time.
+# Each job pays for: container_boot + wall + scaledown_window (container stays
+# up SCALEDOWN_WINDOW_S after last request, billed). On bursts the 30s is
+# shared across jobs — slight over-estimate on warm back-to-back, but matches
+# bench reality (2026-04-19 self-report $2.39 + 45×30s×rate ≈ $3.34 vs
+# billing $3.40). Better to slightly over-estimate per job than to under-bill.
+SCALEDOWN_WINDOW_S = 30.0
+GPU_RATES_PER_SEC = {
+    "H100":      0.001097,  # $3.95/hr
+    "H200":      0.001261,  # $4.54/hr
+    "A100-80GB": 0.000694,  # $2.50/hr
+    "A100-40GB": 0.000583,  # $2.10/hr
+    "L40S":      0.000542,  # $1.95/hr
+    "L4":        0.000222,  # $0.80/hr
+    "A10":       0.000306,  # $1.10/hr (Modal label "A10", not "A10G")
+    "T4":        0.000164,  # $0.59/hr
+}
+H100_RATE_PER_SEC = GPU_RATES_PER_SEC["H100"]  # alias for prod separate()
 _CONTAINER_BOOT_T = time.time()
 
 _COLD_START = True  # True only on first invocation per container lifetime
+_LAST_JOB_END_T: float | None = None  # wall-clock end of last completed job on this container
 
 # Cached Separator instances — loaded once per container, reused across invocations.
 # Key insight: on a warm container model weights are already in VRAM, so every call
@@ -897,25 +911,17 @@ def _preload_models_if_cold(input_key: "str | None", tmpdir: str) -> "str | None
     return preloaded_path
 
 
-@app.function(
-    image=image,
-    gpu="H100",
-    timeout=600,
-    keep_warm=0,  # NEVER increase without explicit cost approval — H100 = ~$95/day
-    scaledown_window=30,  # measured 2026-04-19: MP3 back-to-back gap 8s, WAV 21s → 30s covers both
-    secrets=[
-        modal.Secret.from_name("r2-credentials"),
-        modal.Secret.from_name("youtube-cookies-jar"),
-        modal.Secret.from_name("yt-proxy-url"),
-        modal.Secret.from_name("feature-flags"),
-    ],
-)
-@modal.web_endpoint(method="POST")
-def separate(request: dict):
-    """Process a stem separation job.
+def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float = H100_RATE_PER_SEC):
+    """Process a stem separation job (GPU-agnostic pipeline).
 
     Accepts: { "jobId": "...", "mode": "4stem"|"2stem", "inputKey": "..." }
     Or direct audio: { "audio_base64": "...", "filename": "...", "mode": "..." }
+
+    Params:
+      gpu_label: GPU identifier for telemetry (e.g. "H100", "L40S", "A10")
+      rate_per_sec: $ per second for the GPU — used for self-report modal_cost
+
+    Called by the prod @app.function separate() and by each bench_* wrapper.
     """
     from audio_separator.separator import Separator
     import tempfile
@@ -924,11 +930,15 @@ def separate(request: dict):
     import logging
     logging.getLogger("audio_separator").setLevel(logging.WARNING)
 
-    global _COLD_START, _sep_vocal, _sep_instru
+    global _COLD_START, _LAST_JOB_END_T, _sep_vocal, _sep_instru
     _cold = _COLD_START
     _COLD_START = False
     _job_start = time.time()
-    _timings: dict[str, float] = {}
+    # Gap idle Modal-billable depuis la fin du job précédent sur ce container.
+    # Sur un warm, c'est typiquement le temps qu'a mis le user à uploader le fichier suivant.
+    # Sur un cold : 0 (rien avant nous sur ce container).
+    _idle_gap = 0.0 if _cold or _LAST_JOB_END_T is None else max(0.0, _job_start - _LAST_JOB_END_T)
+    _timings: dict[str, float] = {"gpu_label": gpu_label}
 
     job_id = request.get("jobId", "test")
     mode = request.get("mode", "4stem")
@@ -1393,57 +1403,70 @@ def separate(request: dict):
 
             update_job_status(job_id, "processing", progress=85, stage="Processing stems", workspace_id=workspace_id)
 
-            # === Post-processing: peaks ∥ mp3_encode ∥ wav_upload in parallel ===
-            # All three are CPU/IO-bound, zero GPU dependency.
-            # Before: peaks(3s) → mp3(5s) → upload(8s) = 16s sequential on H100
-            # After:  [peaks ∥ mp3 ∥ wav_upload](~5s) → mp3_upload(~4s) = ~9s
+            # === Post-processing: peaks ∥ wav_upload ∥ (mp3_encode → mp3_upload) pipelined ===
+            # All CPU/IO-bound, zero GPU dependency. Per-stem encode→upload pipeline
+            # means each MP3 starts uploading as soon as ffmpeg finishes on that stem,
+            # instead of waiting for all 4 encodes + a second pool.
+            # Before: [peaks ∥ mp3 ∥ wav_upload](~5s) → mp3_upload(~4s) = ~9s
+            # After:  [peaks ∥ wav_upload ∥ (encode→upload per stem)](~6s) = ~6s
             _t_post = time.time()
             stem_peaks = {}
-            _mp3_paths = {}
+            _sub_timings: dict[str, float] = {}  # max elapsed per sub-phase
 
-            print("Post-processing: peaks ∥ mp3_encode ∥ wav_upload...")
+            print("Post-processing: peaks ∥ wav_upload ∥ (mp3_encode → mp3_upload) per stem...")
+            update_job_status(job_id, "processing", progress=90, stage="Uploading stems", workspace_id=workspace_id)
             with _cf.ThreadPoolExecutor(max_workers=1 + len(results) * 2) as _post_pool:
                 # Peaks: single thread, loops stems (CPU-bound, ~3s)
-                def _run_peaks():
+                def _run_peaks() -> float:
+                    _t0 = time.time()
                     for _n, _fp in results.items():
                         stem_peaks[_n] = compute_peaks(_fp)
+                    return time.time() - _t0
                 _f_peaks = _post_pool.submit(_run_peaks)
 
-                # MP3 encode: one thread per stem, parallel ffmpeg subprocesses (~5s → ~1.5s)
-                _mp3_futs = {}
-                for _name, _wav in results.items():
-                    _mp3 = _wav.replace(".wav", ".mp3")
-                    _mp3_futs[_name] = (_mp3, _post_pool.submit(convert_to_mp3, _wav, _mp3))
+                # WAV upload: one thread per stem
+                def _upload_wav(fp: str, r2k: str) -> float:
+                    _t0 = time.time()
+                    upload_to_r2(fp, r2k, content_type="audio/wav")
+                    return time.time() - _t0
+                _wav_futs = [
+                    _post_pool.submit(_upload_wav, _fp, _stem_key(workspace_id, job_id, _name, ".wav"))
+                    for _name, _fp in results.items()
+                ]
 
-                # WAV upload: one thread per stem, starts immediately (no dependency on peaks/mp3)
-                _wav_futs = []
-                for _name, _fp in results.items():
-                    _r2k = _stem_key(workspace_id, job_id, _name, ".wav")
-                    _wav_futs.append(_post_pool.submit(upload_to_r2, _fp, _r2k, content_type="audio/wav"))
+                # MP3 pipeline: encode then immediately upload, per stem.
+                # Returns (encode_elapsed, upload_elapsed) so we can report each sub-phase.
+                def _encode_and_upload_mp3(name: str, wav_path: str) -> tuple[float, float]:
+                    mp3_path = wav_path.replace(".wav", ".mp3")
+                    _t0 = time.time()
+                    convert_to_mp3(wav_path, mp3_path)
+                    _encode_dur = time.time() - _t0
+                    _r2k = _stem_key(workspace_id, job_id, name, ".mp3")
+                    _t1 = time.time()
+                    upload_to_r2(mp3_path, _r2k, content_type="audio/mpeg")
+                    _upload_dur = time.time() - _t1
+                    return _encode_dur, _upload_dur
 
-                # Wait for all parallel work
-                _f_peaks.result()
-                for _name, (_mp3, _fut) in _mp3_futs.items():
-                    _fut.result()
-                    _mp3_paths[_name] = _mp3
-                for _f in _wav_futs:
-                    _f.result()
+                _mp3_futs = [
+                    _post_pool.submit(_encode_and_upload_mp3, _name, _wav)
+                    for _name, _wav in results.items()
+                ]
+
+                # Collect sub-phase maxes (slowest stem is what the user experiences)
+                _sub_timings['peaks'] = _f_peaks.result()
+                _sub_timings['wav_upload'] = max(_f.result() for _f in _wav_futs)
+                _mp3_pairs = [_f.result() for _f in _mp3_futs]
+                _sub_timings['mp3_encode'] = max(p[0] for p in _mp3_pairs)
+                _sub_timings['upload_mp3'] = max(p[1] for p in _mp3_pairs)
 
             _timings['post_parallel'] = time.time() - _t_post
-            print(f"[TIMING] job={job_id} phase=post_parallel dur={_timings['post_parallel']:.2f}s")
-
-            # Upload MP3s (needs encode done — guaranteed by pool above)
-            _t0 = time.time()
-            update_job_status(job_id, "processing", progress=92, stage="Uploading stems", workspace_id=workspace_id)
-            with _cf.ThreadPoolExecutor(max_workers=len(_mp3_paths)) as _mp3_pool:
-                _mp3_up_futs = []
-                for _name, _fp in _mp3_paths.items():
-                    _r2k = _stem_key(workspace_id, job_id, _name, ".mp3")
-                    _mp3_up_futs.append(_mp3_pool.submit(upload_to_r2, _fp, _r2k, content_type="audio/mpeg"))
-                for _f in _mp3_up_futs:
-                    _f.result()
-            _timings['upload_mp3'] = time.time() - _t0
-            print(f"[TIMING] job={job_id} phase=upload_mp3 dur={_timings['upload_mp3']:.2f}s")
+            _timings['peaks'] = _sub_timings['peaks']
+            _timings['wav_upload'] = _sub_timings['wav_upload']
+            _timings['mp3_encode'] = _sub_timings['mp3_encode']
+            _timings['upload_mp3'] = _sub_timings['upload_mp3']
+            print(f"[TIMING] job={job_id} phase=post_parallel dur={_timings['post_parallel']:.2f}s "
+                  f"(peaks={_sub_timings['peaks']:.2f}s ∥ wav_up={_sub_timings['wav_upload']:.2f}s ∥ "
+                  f"mp3_enc={_sub_timings['mp3_encode']:.2f}s→mp3_up={_sub_timings['upload_mp3']:.2f}s)")
 
             # Collect analyze_track result (ran on CPU during GPU inference)
             analysis = _analyze_future.result()
@@ -1465,13 +1488,36 @@ def separate(request: dict):
             # Compute wall time + cold flag now so they're included in the callback payload
             _timings['total_wall_time'] = time.time() - _job_start
             _timings['cold'] = int(_cold)
-            # Billable seconds ≈ container_boot + job wall time (Modal bills the container
-            # from cold-boot until scaledown). container_boot underestimates by ~20-40s
-            # because it misses image-pull, but it's the best we can observe from Python.
+            # Attribution du billing Modal, avec idle + scaledown répartis correctement.
+            # Modal facture le container en continu de cold-boot jusqu'à 30s après
+            # le dernier job.
+            #
+            # Pour un burst [cold → warm(gap g1) → warm(gap g2)] sur même container :
+            #   Modal facture : boot + wall_c + g1 + wall_w1 + g2 + wall_w2 + 30s
+            #
+            # Attribution par job :
+            #   - cold   : wall + boot + 30s (porte le scaledown final du burst)
+            #   - warm 1 : wall + g1 (gap idle depuis la fin du cold)
+            #   - warm 2 : wall + g2 (gap idle depuis la fin du warm 1)
+            # Somme = boot + Σwall + Σg + 30s = facture Modal exacte ✓
+            #
+            # modal_cost_idle isole le coût non-productif (gap upload user + scaledown final)
+            # pour visibilité Telegram.
             _timings['container_boot'] = round(_job_start - _CONTAINER_BOOT_T, 3) if _cold else 0.0
-            _billable_seconds = _timings['total_wall_time'] + _timings['container_boot']
-            _modal_cost = round(_billable_seconds * H100_RATE_PER_SEC, 6)
+            _gpu_seconds = _timings['total_wall_time'] + _timings['container_boot']
+            _modal_cost_gpu = round(_gpu_seconds * rate_per_sec, 6)
+            _idle_seconds = (SCALEDOWN_WINDOW_S if _cold else _idle_gap)
+            _modal_cost_idle = round(_idle_seconds * rate_per_sec, 6)
+            _modal_cost = round(_modal_cost_gpu + _modal_cost_idle, 6)
+            _billable_seconds = _gpu_seconds + _idle_seconds
+            _timings['modal_cost_gpu'] = _modal_cost_gpu
+            _timings['modal_cost_idle'] = _modal_cost_idle
+            _timings['idle_seconds'] = round(_idle_seconds, 2)
+            # Track end-of-job timestamp AFTER cost calc so next warm can compute its gap.
+            _LAST_JOB_END_T = time.time()
             _timings['modal_cost'] = _modal_cost
+            _timings['billable_seconds_selfreport'] = round(_billable_seconds, 3)
+            _timings['rate_per_sec'] = rate_per_sec
             _t0 = time.time()
             callback_ok = False
             if callback_url:
@@ -1538,7 +1584,10 @@ def separate(request: dict):
             except Exception as _e:
                 print(f"[TIMING] phase_timings write failed (non-fatal): {_e}")
 
-            return {"status": "completed", "stems": stem_names}
+            return {
+                "status": "completed", "stems": stem_names,
+                "phase_timings": _timings, "modal_cost": _modal_cost,
+            }
 
         # Collect analyze result for test/direct mode
         analysis = _analyze_future.result()
@@ -1561,7 +1610,32 @@ def separate(request: dict):
             "status": "completed", "stems": stem_names, "data": encoded,
             "bpm": analysis["bpm"], "key": analysis["key"], "key_raw": analysis["key_raw"],
             "duration": analysis["duration"], "peaks": stem_peaks,
+            "phase_timings": _timings,
         }
+
+
+# ─── Prod entry point (H100) ────────────────────────────────────────────────
+
+_SEPARATE_SECRETS = [
+    modal.Secret.from_name("r2-credentials"),
+    modal.Secret.from_name("youtube-cookies-jar"),
+    modal.Secret.from_name("yt-proxy-url"),
+    modal.Secret.from_name("feature-flags"),
+]
+
+
+@app.function(
+    image=image,
+    gpu="H100",
+    timeout=600,
+    keep_warm=0,  # NEVER increase without explicit cost approval — H100 = ~$95/day
+    scaledown_window=30,  # measured 2026-04-19: MP3 back-to-back gap 8s, WAV 21s → 30s covers both
+    secrets=_SEPARATE_SECRETS,
+)
+@modal.web_endpoint(method="POST")
+def separate(request: dict):
+    """Prod entry point — thin wrapper around _separate_core() on H100."""
+    return _separate_core(request, gpu_label="H100", rate_per_sec=GPU_RATES_PER_SEC["H100"])
 
 
 # ─── Concurrency semaphore for yt-dlp calls ─────────────────────────────────
