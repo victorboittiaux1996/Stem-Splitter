@@ -146,14 +146,16 @@ export default async function SharePage({ params }: Props) {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: C.bg, fontFamily: F }}>
       {/* Header */}
-      <header style={{ height: 56, display: "flex", alignItems: "center", borderBottom: "1px solid #E0E0E0", backgroundColor: C.bgCard, padding: "0 40px", justifyContent: "space-between" }}>
-        <Link href="/">
-          <Logo size="md" color={C.text} monochrome />
-        </Link>
-        <Link href="/pricing"
-          style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.accent, textDecoration: "none" }}>
-          GET PRO
-        </Link>
+      <header style={{ borderBottom: "1px solid #E0E0E0", backgroundColor: C.bgCard }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 40px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Link href="/">
+            <Logo size="md" color={C.text} monochrome />
+          </Link>
+          <Link href="/pricing"
+            style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.accent, textDecoration: "none" }}>
+            GET PRO
+          </Link>
+        </div>
       </header>
 
       <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 40px" }}>
