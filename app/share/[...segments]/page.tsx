@@ -1,10 +1,10 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getJobForWorkspace, getPresignedUrl, listStemsForWorkspace, stemKey } from "@/lib/r2";
 import { Logo } from "@/components/website/logo";
 import Link from "next/link";
-import { ShareDownloadButtons } from "./download-buttons";
+import { SharePlayerV2 } from "./share-player-v2";
 
 const F = "var(--font-futura), sans-serif";
 const C = {
@@ -18,54 +18,65 @@ const C = {
 } as const;
 
 interface Props {
-  params: Promise<{ id: string }>;
+  params: Promise<{ segments: string[] }>;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
+  try {
+    const { segments } = await params;
+    const id = segments[0];
 
-  const supabase = await createClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: link } = await (supabase as any)
-    .from("share_links")
-    .select("job_id, workspace_id")
-    .eq("id", id)
-    .maybeSingle();
+    const supabase = await createClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: link } = await (supabase as any)
+      .from("share_links")
+      .select("job_id, workspace_id")
+      .eq("id", id)
+      .maybeSingle();
 
-  let trackName = "Shared split";
-  let stemCount = 0;
+    let trackName = "Shared split";
+    let stemCount = 0;
 
-  if (link) {
-    const job = await getJobForWorkspace(link.workspace_id ?? null, link.job_id);
-    if (job?.fileName) trackName = job.fileName.replace(/\.[^/.]+$/, "");
-    const stemKeys = await listStemsForWorkspace(link.workspace_id ?? null, link.job_id);
-    stemCount = stemKeys.length;
+    if (link) {
+      const job = await getJobForWorkspace(link.workspace_id ?? null, link.job_id);
+      if (job?.fileName) trackName = job.fileName.replace(/\.[^/.]+$/, "");
+      const stemKeys = await listStemsForWorkspace(link.workspace_id ?? null, link.job_id);
+      stemCount = stemKeys.length;
+    }
+
+    const appUrl = (process.env.APP_URL ?? "https://44stems.com").trim();
+    const ogImageUrl = `${appUrl}/api/og/share?id=${id}`;
+    const description = `${stemCount} stem${stemCount !== 1 ? "s" : ""} · Split with AI on 44Stems`;
+
+    return {
+      title: `${trackName} — 44Stems`,
+      description,
+      openGraph: {
+        title: `${trackName} — 44Stems`,
+        description,
+        images: [{ url: ogImageUrl, width: 1200, height: 630, alt: trackName }],
+        type: "website",
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: `${trackName} — 44Stems`,
+        description,
+        images: [ogImageUrl],
+      },
+    };
+  } catch (e) {
+    console.error("[share/generateMetadata] failed:", e);
+    return {
+      title: "Shared split — 44Stems",
+      description: "Split with AI on 44Stems",
+    };
   }
-
-  const appUrl = (process.env.APP_URL ?? "https://44stems.com").trim();
-  const ogImageUrl = `${appUrl}/api/og/share?id=${id}`;
-  const description = `${stemCount} stem${stemCount !== 1 ? "s" : ""} · Split with AI on 44Stems`;
-
-  return {
-    title: `${trackName} — 44Stems`,
-    description,
-    openGraph: {
-      title: `${trackName} — 44Stems`,
-      description,
-      images: [{ url: ogImageUrl, width: 1200, height: 630, alt: trackName }],
-      type: "website",
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: `${trackName} — 44Stems`,
-      description,
-      images: [ogImageUrl],
-    },
-  };
 }
 
 export default async function SharePage({ params }: Props) {
-  const { id } = await params;
+  const { segments } = await params;
+  const id = segments[0];
+  const urlSlug = segments[1] ?? null;
 
   const supabase = await createClient();
 
@@ -79,7 +90,12 @@ export default async function SharePage({ params }: Props) {
 
   if (!link) notFound();
 
-  // Increment view count atomically (fire-and-forget — don't await to block render)
+  // Redirect to canonical URL with slug if missing or incorrect
+  if (link.slug && urlSlug !== link.slug) {
+    redirect(`/share/${id}/${link.slug}`);
+  }
+
+  // Increment view count atomically (fire-and-forget)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (supabase as any)
     .rpc("increment_share_view_count", { link_id: id })
@@ -98,7 +114,9 @@ export default async function SharePage({ params }: Props) {
     ? `workspaces/${wsId}/stems/${link.job_id}/`
     : `stems/${link.job_id}/`;
 
-  const stems = await Promise.all(
+  const STEM_ORDER = ["vocals", "drums", "bass", "guitar", "piano", "other", "instrumental"];
+
+  const stemsUnsorted = await Promise.all(
     stemKeys.map(async (key) => {
       const name = key.replace(stemsPrefix, "").replace(".wav", "");
       const wavUrl = await getPresignedUrl(key, 3600);
@@ -108,14 +126,29 @@ export default async function SharePage({ params }: Props) {
     })
   );
 
-  const fileName = job.fileName ?? "track";
+  const stems = stemsUnsorted.sort((a, b) => {
+    const ia = STEM_ORDER.indexOf(a.name);
+    const ib = STEM_ORDER.indexOf(b.name);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
+  const trackName = (job.fileName ?? "track").replace(/\.[^/.]+$/, "");
+  const bpm = job.bpm != null ? Math.round(job.bpm) : null;
+  const key = job.key ?? null;
+
+  // Build info line: "4 stems · 128 BPM · 10A"
+  const infoParts: string[] = [
+    `${stems.length} stem${stems.length !== 1 ? "s" : ""}`,
+  ];
+  if (bpm) infoParts.push(`${bpm} BPM`);
+  if (key) infoParts.push(key);
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: C.bg, fontFamily: F }}>
       {/* Header */}
       <header style={{ height: 56, display: "flex", alignItems: "center", borderBottom: "1px solid #E0E0E0", backgroundColor: C.bgCard, padding: "0 40px", justifyContent: "space-between" }}>
         <Link href="/">
-          <Logo />
+          <Logo size="md" color={C.text} monochrome />
         </Link>
         <Link href="/pricing"
           style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: C.accent, textDecoration: "none" }}>
@@ -123,53 +156,19 @@ export default async function SharePage({ params }: Props) {
         </Link>
       </header>
 
-      <main style={{ maxWidth: 800, margin: "0 auto", padding: "48px 40px" }}>
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 40px" }}>
         {/* Title */}
         <div style={{ marginBottom: 40 }}>
-          <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: C.textMuted, marginBottom: 8 }}>
-            Shared split
-          </p>
           <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text, marginBottom: 4 }}>
-            {fileName}
+            {trackName}
           </h1>
           <p style={{ fontSize: 13, color: C.textMuted }}>
-            {stems.length} stems · {link.view_count + 1} views
+            {infoParts.join(" · ")}
           </p>
         </div>
 
-        {/* Stems */}
-        <div style={{ backgroundColor: C.bgCard }}>
-          {stems.map((stem, i) => (
-            <div
-              key={stem.name}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-                padding: "16px 20px",
-                borderBottom: i < stems.length - 1 ? "1px solid #E8E8E8" : undefined,
-              }}
-            >
-              <span style={{ flex: 1, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em", color: C.text, textTransform: "capitalize" }}>
-                {stem.name}
-              </span>
-              <audio
-                controls
-                src={stem.wavUrl}
-                style={{ height: 32, flex: 2, accentColor: C.accent }}
-              />
-              <ShareDownloadButtons
-                wavUrl={stem.wavUrl}
-                mp3Url={stem.mp3Url}
-                stemName={stem.name}
-                trackName={fileName}
-                accent={C.accent}
-                textSec={C.textSec}
-                bgHover={C.bgHover}
-              />
-            </div>
-          ))}
-        </div>
+        {/* Players */}
+        <SharePlayerV2 stems={stems} trackName={trackName} peaks={job.peaks ?? {}} />
 
         {/* CTA */}
         <div style={{ marginTop: 48, padding: "32px", backgroundColor: C.bgCard, textAlign: "center" }}>

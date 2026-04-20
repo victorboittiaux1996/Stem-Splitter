@@ -102,8 +102,18 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [sharing, setSharing] = useState(false);
+  const [shareUsage, setShareUsage] = useState<{ used: number; total: number } | null>(null);
+  const [shareHover, setShareHover] = useState(false);
   const audioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
+
+  // Fetch share usage on mount
+  useEffect(() => {
+    if (onShare === undefined) return; // share button hidden
+    fetch("/api/share/usage").then(r => r.json()).then(d => {
+      if (d.used != null && d.total != null) setShareUsage(d);
+    }).catch(() => {});
+  }, [onShare]);
 
   // Load stem URLs when item changes — use cache if available
   useEffect(() => {
@@ -299,16 +309,28 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
           <div className="flex items-center gap-[8px]">
           {onShare !== undefined && (
             onShare ? (
-              <button
-                disabled={sharing}
-                onClick={async () => { setSharing(true); try { await onShare(); } finally { setSharing(false); } }}
-                className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
-                style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.text, backgroundColor: C.bgHover, opacity: sharing ? 0.6 : 1, cursor: sharing ? "default" : "pointer" }}>
-                {sharing ? (
-                  <span className="animate-spin" style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.text}`, borderTopColor: "transparent", borderRadius: "50%" }} />
-                ) : null}
-                {sharing ? "SHARING…" : "SHARE"}
-              </button>
+              <div className="relative" onMouseEnter={() => setShareHover(true)} onMouseLeave={() => setShareHover(false)}>
+                {(() => {
+                  const quotaExhausted = shareUsage != null && shareUsage.used >= shareUsage.total;
+                  return (
+                    <button
+                      disabled={sharing || quotaExhausted}
+                      onClick={async () => { setSharing(true); try { await onShare(); setShareUsage(prev => prev ? { ...prev, used: prev.used + 1 } : prev); } finally { setSharing(false); } }}
+                      className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
+                      style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: quotaExhausted ? C.textMuted : C.text, backgroundColor: C.bgHover, opacity: sharing || quotaExhausted ? 0.6 : 1, cursor: sharing || quotaExhausted ? "default" : "pointer" }}>
+                      {sharing ? (
+                        <span className="animate-spin" style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.text}`, borderTopColor: "transparent", borderRadius: "50%" }} />
+                      ) : null}
+                      {sharing ? "SHARING…" : "SHARE"}
+                    </button>
+                  );
+                })()}
+                {shareHover && shareUsage && (
+                  <div style={{ position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", color: shareUsage.used >= shareUsage.total ? "#FF3B30" : C.textMuted, backgroundColor: C.bgElevated, whiteSpace: "nowrap", pointerEvents: "none" }}>
+                    {shareUsage.used}/{shareUsage.total} this month
+                  </div>
+                )}
+              </div>
             ) : (
               <button disabled
                 className="flex items-center gap-[6px] px-[12px] py-[7px]"

@@ -36,16 +36,17 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public routes that don't require auth
-  const publicPaths = ["/", "/login", "/pricing", "/terms", "/privacy", "/cookies", "/about", "/contact", "/auth/callback", "/website-", "/v5-", "/v6", "/v7", "/speed-compare"];
+  const publicPaths = ["/", "/login", "/pricing", "/terms", "/privacy", "/cookies", "/about", "/contact", "/auth/callback", "/website-", "/v5-", "/v6", "/v7", "/speed-compare", "/share"];
   const isPublic = publicPaths.some((p) =>
     p === "/" ? request.nextUrl.pathname === "/" : request.nextUrl.pathname.startsWith(p)
   );
 
-  // Allow webhook callbacks (Modal worker + Polar payment webhooks + Telegram bot)
+  // Allow webhook callbacks (Modal worker + Polar payment webhooks + Telegram bot) + public API endpoints
   const isWebhook =
     (request.nextUrl.pathname.startsWith("/api/jobs/") && request.method === "PATCH") ||
     (request.nextUrl.pathname.startsWith("/api/webhooks/") && request.method === "POST") ||
-    (request.nextUrl.pathname === "/api/telegram/webhook" && request.method === "POST");
+    (request.nextUrl.pathname === "/api/telegram/webhook" && request.method === "POST") ||
+    (request.nextUrl.pathname.startsWith("/api/og/"));
 
   // Dev bypass — skip auth on localhost
   const isDev = request.nextUrl.hostname === "localhost" || request.nextUrl.hostname === "127.0.0.1";

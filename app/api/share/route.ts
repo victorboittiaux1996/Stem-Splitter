@@ -4,6 +4,16 @@ import { PLANS } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 import { getJobForWorkspace } from "@/lib/r2";
 
+function slugify(name: string): string {
+  return name
+    .replace(/\.[^/.]+$/, "") // strip extension
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[^a-z0-9]+/g, "-") // non-alphanum → dash
+    .replace(/^-+|-+$/g, "") // trim dashes
+    .slice(0, 80); // cap length
+}
+
 // POST /api/share — create a share link for a completed job
 export async function POST(request: NextRequest) {
   const user = await getAuthUser();
@@ -65,8 +75,9 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       job_id: jobId,
       workspace_id: wsId,
+      slug: slugify(job.fileName ?? "track"),
     })
-    .select("id")
+    .select("id, slug")
     .single();
 
   if (error || !data) {
@@ -79,5 +90,6 @@ export async function POST(request: NextRequest) {
     `${request.headers.get("x-forwarded-proto") ?? "https"}://${request.headers.get("host")}`
   ).trim();
 
-  return NextResponse.json({ id: data.id, url: `${appUrl}/share/${data.id}` });
+  const slug = data.slug ? `/${data.slug}` : "";
+  return NextResponse.json({ id: data.id, url: `${appUrl}/share/${data.id}${slug}` });
 }
