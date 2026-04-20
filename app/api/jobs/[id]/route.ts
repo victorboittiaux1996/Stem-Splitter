@@ -113,10 +113,17 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
       const gpuPowerLimit = phase.gpu_power_limit_w;
       if (gpuName) {
         const shortName = gpuName.replace("NVIDIA ", "").replace(" 80GB HBM3", "").replace(" 80GB HBM3e", "");
+        // Prefer post-inference metrics (captured under load)
+        const clockPost = phase.gpu_clock_post_mhz;
+        const tempPost = phase.gpu_temp_post_c;
+        const powerPost = phase.gpu_power_post_w;
         let gpuLine = `🖥 ${shortName}`;
-        if (gpuClock && gpuClockMax) gpuLine += ` ${gpuClock}/${gpuClockMax}MHz`;
-        if (gpuTemp) gpuLine += ` ${gpuTemp}°C`;
-        if (gpuPower && gpuPowerLimit) gpuLine += ` ${Math.round(gpuPower)}/${Math.round(gpuPowerLimit)}W`;
+        if (clockPost && gpuClockMax) gpuLine += ` ${clockPost}/${gpuClockMax}MHz`;
+        else if (gpuClock && gpuClockMax) gpuLine += ` ${gpuClock}/${gpuClockMax}MHz`;
+        if (tempPost) gpuLine += ` ${tempPost}°C`;
+        else if (gpuTemp) gpuLine += ` ${gpuTemp}°C`;
+        if (powerPost && gpuPowerLimit) gpuLine += ` ${Math.round(powerPost)}/${Math.round(gpuPowerLimit)}W`;
+        else if (gpuPower && gpuPowerLimit) gpuLine += ` ${Math.round(gpuPower)}/${Math.round(gpuPowerLimit)}W`;
         msg += gpuLine + "\n";
       }
     }

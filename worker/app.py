@@ -1342,12 +1342,21 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
             if _par_first_exc[0] is not None:
                 raise _par_first_exc[0]
 
+            # GPU diagnostics post-inference (captures clock under load)
             try:
                 _smi2 = _sp2.run(
-                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
-                    capture_output=True, timeout=5,
+                    ["nvidia-smi", "--query-gpu=clocks.current.graphics,clocks.current.memory,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=5,
                 )
-                print(f"[PAR] job={job_id} phase=parallel_end vram: {_smi2.stdout.decode().strip()}")
+                if _smi2.returncode == 0 and _smi2.stdout.strip():
+                    _p2 = [p.strip() for p in _smi2.stdout.strip().split(",")]
+                    _timings['gpu_clock_post_mhz'] = int(_p2[0]) if len(_p2) > 0 else 0
+                    _timings['gpu_mem_clock_post_mhz'] = int(_p2[1]) if len(_p2) > 1 else 0
+                    _timings['gpu_temp_post_c'] = int(_p2[2]) if len(_p2) > 2 else 0
+                    _timings['gpu_power_post_w'] = float(_p2[3]) if len(_p2) > 3 else 0
+                    _timings['gpu_util_post_pct'] = int(_p2[4]) if len(_p2) > 4 else 0
+                    print(f"[GPU POST-INFER] {_timings['gpu_clock_post_mhz']}MHz | {_timings['gpu_temp_post_c']}°C | {_timings['gpu_power_post_w']:.0f}W | util={_timings['gpu_util_post_pct']}%")
             except Exception:
                 pass
 
