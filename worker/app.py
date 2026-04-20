@@ -960,6 +960,32 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
     _assert_tqdm_clean(job_id)
 
     _container_id = os.environ.get("MODAL_TASK_ID", "local")
+
+    # ── GPU diagnostics (nvidia-smi) ──────────────────────────────────────
+    try:
+        import subprocess as _sp
+        _nvsmi = _sp.run(
+            ["nvidia-smi", "--query-gpu=name,uuid,clocks.current.graphics,clocks.max.graphics,clocks.current.memory,clocks.max.memory,temperature.gpu,power.draw,power.limit,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if _nvsmi.returncode == 0 and _nvsmi.stdout.strip():
+            _gpu_parts = [p.strip() for p in _nvsmi.stdout.strip().split(",")]
+            _timings['gpu_name'] = _gpu_parts[0] if len(_gpu_parts) > 0 else "?"
+            _timings['gpu_uuid'] = _gpu_parts[1] if len(_gpu_parts) > 1 else "?"
+            _timings['gpu_clock_mhz'] = int(_gpu_parts[2]) if len(_gpu_parts) > 2 else 0
+            _timings['gpu_clock_max_mhz'] = int(_gpu_parts[3]) if len(_gpu_parts) > 3 else 0
+            _timings['gpu_mem_clock_mhz'] = int(_gpu_parts[4]) if len(_gpu_parts) > 4 else 0
+            _timings['gpu_mem_clock_max_mhz'] = int(_gpu_parts[5]) if len(_gpu_parts) > 5 else 0
+            _timings['gpu_temp_c'] = int(_gpu_parts[6]) if len(_gpu_parts) > 6 else 0
+            _timings['gpu_power_w'] = float(_gpu_parts[7]) if len(_gpu_parts) > 7 else 0
+            _timings['gpu_power_limit_w'] = float(_gpu_parts[8]) if len(_gpu_parts) > 8 else 0
+            _timings['gpu_vram_mb'] = int(_gpu_parts[9]) if len(_gpu_parts) > 9 else 0
+            print(f"[GPU] {_timings['gpu_name']} | {_timings['gpu_clock_mhz']}/{_timings['gpu_clock_max_mhz']} MHz | {_timings['gpu_temp_c']}°C | {_timings['gpu_power_w']:.0f}/{_timings['gpu_power_limit_w']:.0f}W")
+    except Exception as _gpu_err:
+        print(f"[GPU] diagnostics failed: {_gpu_err}")
+    # ─────────────────────────────────────────────────────────────────────
+
     print(f"[TIMING] job={job_id} cold={int(_cold)} container={_container_id} phase=start")
 
     with tempfile.TemporaryDirectory() as tmpdir:

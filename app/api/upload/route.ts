@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
             inputKey: dlResult.inputKey,
             callbackUrl, overlap, workspaceId: wsId,
             downloadDuration: dlResult.downloadDuration,
+            transcoded: true,
           }),
           signal: AbortSignal.timeout(110_000),
         }).then(async (res) => {

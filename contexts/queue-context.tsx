@@ -13,6 +13,7 @@ interface QueueConfig {
   outputFormat: OutputFormat;
   overlap?: number;
   title?: string;
+  batchId?: string;
 }
 
 interface QueueContextValue {
@@ -80,7 +81,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     if (!raw) return;
     localStorage.removeItem(STORAGE_KEY);
 
-    let saved: { jobId: string | null; fileName: string; mode: string; outputFormat?: string; addedAt: number; status?: string; url?: string | null }[];
+    let saved: { jobId: string | null; fileName: string; mode: string; outputFormat?: string; addedAt: number; status?: string; url?: string | null; batchId?: string | null }[];
     try { saved = JSON.parse(raw); } catch { return; }
     if (!Array.isArray(saved) || saved.length === 0) return;
 
@@ -101,7 +102,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       // Restore items that have a jobId (processing/completed/failed)
       for (const r of results) {
         if (r.status !== "fulfilled" || !r.value.job) continue;
-        const { jobId, fileName, mode, outputFormat: savedOutputFormat, addedAt, job } = r.value;
+        const { jobId, fileName, mode, outputFormat: savedOutputFormat, addedAt, job, batchId: savedBatchId } = r.value;
         const status = job.status === "completed" ? "completed" as const
           : job.status === "failed" ? "failed" as const
           : "processing" as const;
@@ -122,6 +123,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           stemDownloads: [],
           addedAt,
           completedAt: status === "completed" ? Date.now() : null,
+          batchId: savedBatchId ?? undefined,
         });
       }
 
@@ -147,6 +149,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
           stemDownloads: [],
           addedAt: p.addedAt,
           completedAt: null,
+          batchId: p.batchId ?? undefined,
         });
       }
 
@@ -177,7 +180,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     if (!restoredRef.current) return; // don't persist until restore has run
     const active = items
       .filter(i => i.status === "processing" || i.status === "uploading" || i.status === "pending")
-      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt, status: i.status, url: i.url ?? null }));
+      .map(i => ({ jobId: i.jobId, fileName: i.fileName, mode: i.mode, addedAt: i.addedAt, status: i.status, url: i.url ?? null, batchId: i.batchId ?? null }));
     const serialized = JSON.stringify(active);
     if (serialized === lastPersistedRef.current) return;
     lastPersistedRef.current = serialized;
@@ -241,7 +244,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       stemDownloads: [],
       addedAt: Date.now(),
       completedAt: null,
-      batchId: nanoid(8),
+      batchId: config.batchId || nanoid(8),
     };
     setItems(prev => [...prev, item]);
   }, []);
@@ -265,6 +268,56 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   const markAllRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   }, []);
+
+  // ─── Batch-submit URL items to /api/upload/batch ───────────────────────
+
+  const processBatch = useCallback(async (batchItems: QueueItem[]) => {
+    const wsId = workspaceIdRef.current;
+    const mode = batchItems[0].mode;
+
+    // Mark all as uploading
+    for (const item of batchItems) {
+      updateItem(item.id, { status: "uploading", stage: "Downloading audio..." });
+    }
+
+    try {
+      const res = await fetch("/api/upload/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-workspace-id": wsId },
+        body: JSON.stringify({
+          urls: batchItems.map(item => ({ url: item.url!, title: item.fileName })),
+          mode,
+          batchId: batchItems[0].batchId ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        let msg = "Batch upload failed";
+        try { const d = await res.json(); msg = d.error || msg; } catch { /* */ }
+        for (const item of batchItems) {
+          updateItem(item.id, { status: "failed", error: msg, errorCode: null, stage: "" });
+        }
+        return;
+      }
+
+      const { jobIds } = await res.json() as { jobIds: string[] };
+
+      // Map jobIds back to items (same order as urls array)
+      for (let i = 0; i < batchItems.length; i++) {
+        updateItem(batchItems[i].id, {
+          jobId: jobIds[i],
+          status: "processing",
+          stage: "Processing...",
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Batch upload failed";
+      console.error("[queue] processBatch failed:", msg);
+      for (const item of batchItems) {
+        updateItem(item.id, { status: "failed", error: msg, errorCode: null, stage: "" });
+      }
+    }
+  }, [updateItem]);
 
   // ─── Process a single item (upload + trigger Modal) ─────────────────────
 
@@ -366,7 +419,43 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     if (activeItemId) return;
 
     const next = items.find(i => i.status === "pending");
-    if (!next) return;
+
+    // Also check for batch-submitted items that are "processing" but have no active poller
+    if (!next) {
+      const unpolled = items.find(i => i.status === "processing" && i.jobId);
+      if (unpolled) {
+        processingLockRef.current = true;
+        setActiveItemId(unpolled.id);
+        progressTargetRef.current = unpolled.progress ?? 0;
+        progressDisplayRef.current = unpolled.progress ?? 0;
+        setDisplayProgress(unpolled.progress ?? 0);
+        // No processItem needed — just start polling
+        processingLockRef.current = false;
+      }
+      return;
+    }
+
+    // Batch detection: if this is a URL item, check for siblings with same batchId
+    if (next.url && !next.file && next.batchId) {
+      const batchSiblings = items.filter(
+        i => i.status === "pending" && i.url && !i.file && i.batchId === next.batchId
+      );
+      if (batchSiblings.length > 1) {
+        // Batch-submit all URL items at once, then let polling pick them up
+        processingLockRef.current = true;
+        setActiveItemId(batchSiblings[0].id);
+        progressTargetRef.current = 0;
+        progressDisplayRef.current = 0;
+        setDisplayProgress(0);
+
+        processBatch(batchSiblings).then(() => {
+          processingLockRef.current = false;
+          // Clear activeItemId so next effect run picks up first processing item
+          setActiveItemId(null);
+        });
+        return;
+      }
+    }
 
     processingLockRef.current = true;
     setActiveItemId(next.id);
@@ -377,7 +466,7 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     processItem(next).then(() => {
       processingLockRef.current = false;
     });
-  }, [items, activeItemId, processItem]);
+  }, [items, activeItemId, processItem, processBatch]);
 
   // ─── Poll active job ────────────────────────────────────────────────────
 

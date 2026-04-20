@@ -104,6 +104,21 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
       }
       if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
       if (phase.cold === 1) msg += "🥶 Cold start\n";
+      // GPU diagnostics
+      const gpuName = (phase as Record<string, unknown>).gpu_name as string | undefined;
+      const gpuClock = phase.gpu_clock_mhz;
+      const gpuClockMax = phase.gpu_clock_max_mhz;
+      const gpuTemp = phase.gpu_temp_c;
+      const gpuPower = phase.gpu_power_w;
+      const gpuPowerLimit = phase.gpu_power_limit_w;
+      if (gpuName) {
+        const shortName = gpuName.replace("NVIDIA ", "").replace(" 80GB HBM3", "").replace(" 80GB HBM3e", "");
+        let gpuLine = `🖥 ${shortName}`;
+        if (gpuClock && gpuClockMax) gpuLine += ` ${gpuClock}/${gpuClockMax}MHz`;
+        if (gpuTemp) gpuLine += ` ${gpuTemp}°C`;
+        if (gpuPower && gpuPowerLimit) gpuLine += ` ${Math.round(gpuPower)}/${Math.round(gpuPowerLimit)}W`;
+        msg += gpuLine + "\n";
+      }
     }
     if (modalCost != null) {
       const costPerMin = trackDur != null && trackDur > 0 ? (modalCost / (trackDur / 60)) : null;

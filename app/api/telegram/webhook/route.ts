@@ -254,6 +254,19 @@ async function handleTiming(chatId: number | string, n: number) {
   const coldStarts = jobs.filter((j) => j.cold_start).length;
   msg += `</pre>🥶 Cold: ${coldStarts}/${jobs.length}`;
 
+  // GPU breakdown
+  const gpuCounts: Record<string, number> = {};
+  for (const j of jobs) {
+    const pt = j.phase_timings as Record<string, unknown> | null;
+    const name = (pt?.gpu_name as string | undefined) ?? "unknown";
+    const short = name.replace("NVIDIA ", "").replace(" 80GB HBM3", "").replace(" 80GB HBM3e", "");
+    gpuCounts[short] = (gpuCounts[short] ?? 0) + 1;
+  }
+  if (Object.keys(gpuCounts).length > 0 && !gpuCounts["unknown"]) {
+    const gpuStr = Object.entries(gpuCounts).map(([k, v]) => `${k}×${v}`).join("  ");
+    msg += `\n🖥 ${gpuStr}`;
+  }
+
   await sendMessage(chatId, msg);
 }
 

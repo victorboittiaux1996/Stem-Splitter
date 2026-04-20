@@ -662,8 +662,9 @@ export default function AbletonDashboard() {
           setUploadError(`Your ${planLabel} plan allows ${limit} tracks per batch. Upgrade for more.`);
           return;
         }
+        const sharedBatchId = crypto.randomUUID().slice(0, 8);
         for (const track of playlistTracks) {
-          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap, title: track.title });
+          if (track.url) enqueueUrl(track.url, { mode, outputFormat, overlap, title: track.title, batchId: sharedBatchId });
         }
       } else {
         // Single track
