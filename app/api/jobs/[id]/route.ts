@@ -82,9 +82,12 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
 
       // Post-processing
       const post: Array<[string, string]> = [
-        ["merge_stems",  "merge     "],
+        ["merge_stems",   "merge     "],
         ["post_parallel", "post_proc "],
-        ["upload_mp3",   "upload_mp3"],
+        ["peaks",         "  peaks    "],
+        ["wav_upload",    "  wav_up  ∥"],
+        ["mp3_encode",    "  mp3_enc ∥"],
+        ["upload_mp3",    "  mp3_up  ∥"],
       ];
       const postLines = post
         .map(([k, l]) => phase[k] != null ? `  ${l} ${fmtSeconds(phase[k])}` : null)
@@ -107,6 +110,15 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
       msg += `💰 <b>$${modalCost.toFixed(4)}</b>`;
       if (costPerMin != null) msg += ` ($${costPerMin.toFixed(3)}/min audio)`;
       msg += "\n";
+      const costGpu = typeof phase?.modal_cost_gpu === "number" ? phase.modal_cost_gpu : null;
+      const costIdle = typeof phase?.modal_cost_idle === "number" ? phase.modal_cost_idle : null;
+      const idleSec = typeof phase?.idle_seconds === "number" ? phase.idle_seconds : null;
+      if (costGpu != null && costIdle != null) {
+        msg += `   GPU  $${costGpu.toFixed(4)}\n`;
+        const idleLabel = phase?.cold === 1 ? "scaledown" : "gap user→next";
+        const idleSuffix = idleSec != null ? ` (${idleLabel} ${idleSec.toFixed(0)}s)` : "";
+        msg += `   idle $${costIdle.toFixed(4)}${idleSuffix}\n`;
+      }
     }
   }
 
