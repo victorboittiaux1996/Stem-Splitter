@@ -393,6 +393,15 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, p
   const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
   const [redirectingPlan, setRedirectingPlan] = React.useState<PlanId | null>(null);
 
+  // Reset the "Redirecting…" state when the page is restored from the browser
+  // bfcache (user clicked back from Polar checkout). Without this, the button
+  // stays stuck in loading after coming back.
+  React.useEffect(() => {
+    const reset = () => setRedirectingPlan(null);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
+
   // Derive current plan from planLabel
   const currentPlan: PlanId =
     planLabel === "Studio" ? "studio" :
