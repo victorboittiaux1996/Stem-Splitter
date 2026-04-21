@@ -82,6 +82,7 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [soloed, setSoloed] = useState<Set<string>>(new Set());
   const [zipping, setZipping] = useState(false);
+  const [downloadingStem, setDownloadingStem] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const audioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
@@ -213,10 +214,16 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
           if (!res.ok) throw new Error(`Failed to fetch ${s.name}: ${res.status}`);
           const blob = await res.blob();
           const label = s.name.charAt(0).toUpperCase() + s.name.slice(1);
-          zip.file(`${trackName} - ${label}.wav`, blob);
+          // STORE: audio is already compressed / incompressible — skip DEFLATE
+          // so finalize is ~5-10× faster on bulk exports.
+          zip.file(`${trackName} - ${label}.wav`, blob, { compression: "STORE" });
         })
       );
-      const content = await zip.generateAsync({ type: "blob" });
+      const content = await zip.generateAsync({
+        type: "blob",
+        compression: "STORE",
+        streamFiles: true,
+      });
       const objUrl = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = objUrl;
@@ -257,14 +264,26 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
           onClick={handleDownloadZip}
           disabled={zipping}
           style={{
-            display: "flex", alignItems: "center", gap: 5,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
             padding: "5px 12px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em",
             color: "#FFFFFF", backgroundColor: C.accent, border: "none",
             cursor: zipping ? "default" : "pointer", opacity: zipping ? 0.6 : 1,
+            // Locked width so the label swap (DOWNLOAD .ZIP ↔ BUILDING ZIP…)
+            // never resizes the button.
+            minWidth: 150,
           }}
         >
-          <RiDownloadFill size={11} />
-          {zipping ? "ZIPPING…" : "DOWNLOAD .ZIP"}
+          <span style={{ width: 11, height: 11, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            {zipping ? (
+              <span
+                className="animate-spin inline-block"
+                style={{ width: 11, height: 11, border: "1.5px solid #FFFFFF", borderTopColor: "transparent", borderRadius: "50%" }}
+              />
+            ) : (
+              <RiDownloadFill size={11} />
+            )}
+          </span>
+          {zipping ? "BUILDING ZIP…" : "DOWNLOAD .ZIP"}
         </button>
       </div>
 
@@ -351,18 +370,37 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
 
               {/* Download WAV */}
               <button
+                disabled={downloadingStem === stem.name}
                 onClick={async () => {
-                  const label = stem.name.charAt(0).toUpperCase() + stem.name.slice(1);
-                  await downloadBlob(stem.wavUrl, `${trackName} - ${label}.wav`);
+                  if (downloadingStem === stem.name) return;
+                  setDownloadingStem(stem.name);
+                  try {
+                    const label = stem.name.charAt(0).toUpperCase() + stem.name.slice(1);
+                    await downloadBlob(stem.wavUrl, `${trackName} - ${label}.wav`);
+                  } finally {
+                    setDownloadingStem(null);
+                  }
                 }}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, flexShrink: 0,
-                  backgroundColor: "transparent", border: "none", cursor: "pointer",
+                  backgroundColor: "transparent", border: "none",
+                  cursor: downloadingStem === stem.name ? "default" : "pointer",
                   color: C.textMuted,
+                  opacity: downloadingStem === stem.name ? 0.6 : 1,
                 }}
               >
-                <RiDownloadFill size={16} />
+                {/* Fixed 16×16 slot prevents any shift between the icon and the spinner. */}
+                <span style={{ width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                  {downloadingStem === stem.name ? (
+                    <span
+                      className="animate-spin inline-block"
+                      style={{ width: 14, height: 14, border: `1.5px solid ${C.textMuted}`, borderTopColor: "transparent", borderRadius: "50%" }}
+                    />
+                  ) : (
+                    <RiDownloadFill size={16} />
+                  )}
+                </span>
               </button>
             </div>
           );
