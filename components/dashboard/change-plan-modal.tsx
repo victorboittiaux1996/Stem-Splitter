@@ -223,19 +223,33 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
             {preview && !loading && (
               <>
                 {/* Proration box: only for upgrades and billing switches that pay today.
-                    Downgrades use prorationBehavior:"prorate" (no charge now → box hidden). */}
-                {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (
-                  <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
-                    <Row
-                      label={`Credit for unused ${PLANS[preview.currentPlan].label} time${preview.creditIsEstimate ? " (estimate)" : ""}`}
-                      value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
-                      C={C}
-                    />
-                    <Row label={`${targetCfg.label} prorated until period end`} value={fmt(preview.chargeMajor)} C={C} />
-                    <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
-                    <Row label="Total today" value={fmt(preview.netMajor)} C={C} bold />
-                  </div>
-                )}
+                    Downgrades use prorationBehavior:"next_period" (no charge now → box hidden). */}
+                {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (() => {
+                  // Apply promo discount client-side so the total updates instantly when
+                  // the user applies a valid code. Polar will apply the same discount on
+                  // the real invoice via discountId.
+                  const pct = discount.status === "valid" && typeof discount.percentOff === "number" ? discount.percentOff : 0;
+                  const amt = discount.status === "valid" && typeof discount.amountOff === "number" ? discount.amountOff / 100 : 0;
+                  const baseNet = preview.netMajor;
+                  const discountAmount = Math.min(baseNet, baseNet * (pct / 100) + amt);
+                  const finalTotal = Math.max(0, baseNet - discountAmount);
+                  const hasDiscount = discount.status === "valid" && discountAmount > 0;
+                  return (
+                    <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
+                      <Row
+                        label={`Credit for unused ${PLANS[preview.currentPlan].label} time${preview.creditIsEstimate ? " (estimate)" : ""}`}
+                        value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
+                        C={C}
+                      />
+                      <Row label={`${targetCfg.label} prorated until period end`} value={fmt(preview.chargeMajor)} C={C} />
+                      {hasDiscount && (
+                        <Row label={`Promo code${pct > 0 ? ` (−${pct}%)` : ""}`} value={`−${fmt(discountAmount)}`} C={C} />
+                      )}
+                      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
+                      <Row label="Total today" value={fmt(finalTotal)} C={C} bold />
+                    </div>
+                  );
+                })()}
 
                 {/* Minutes-lost warning for downgrades (Splice-style). Show only if the
                     rounded loss is at least 1 minute — fractional amounts are noise. */}
