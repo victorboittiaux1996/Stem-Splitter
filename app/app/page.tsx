@@ -162,42 +162,45 @@ export default function AbletonDashboard() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
       const checkoutId = params.get("checkoutId");
+      // Clean the URL immediately so a refresh mid-poll doesn't re-trigger.
       window.history.replaceState({}, "", "/app");
-      toast.success("Payment successful! Activating your plan…");
+      toast.success("Payment successful. Unlocking your plan…");
 
-      // Poll Polar checkout status until succeeded, then refresh subscription
-      if (checkoutId) {
-        let attempts = 0;
-        const maxAttempts = 10;
-        let active = true;
-        const interval = setInterval(async () => {
-          if (!active) return;
-          attempts++;
-          try {
-            const res = await fetch(`/api/checkout/status?checkoutId=${checkoutId}`);
-            const data = await res.json();
-            if (data.status === "succeeded") {
-              clearInterval(interval);
-              active = false;
-              // Small delay to let webhook arrive before refetch
-              setTimeout(() => { if (active !== false) return; refetchSubscription(); }, 1500);
-              refetchSubscription();
-              toast.success("Your plan is now active!");
-            }
-          } catch {}
-          if (attempts >= maxAttempts) {
+      // Poll Polar /api/checkout/status until succeeded, then hard reload the
+      // page so the whole app (sidebar, Plans & Pricing, minutes counter, etc.)
+      // picks up the new sub from Supabase in one shot. The brief delay after
+      // "succeeded" lets the Polar webhook land and write the new plan to our DB
+      // before the reload fetches it.
+      let attempts = 0;
+      const maxAttempts = 20; // ~20 seconds hard cap
+      let cleared = false;
+      const reload = () => { if (!cleared) { cleared = true; window.location.reload(); } };
+      const interval = setInterval(async () => {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          reload(); // fallback — reload anyway, webhook should have landed by now
+          return;
+        }
+        if (!checkoutId) {
+          // No checkoutId provided — just reload after a few seconds
+          if (attempts >= 3) {
             clearInterval(interval);
-            active = false;
-            refetchSubscription();
+            reload();
           }
-        }, 2000);
-        // Cleanup if component unmounts before polling completes
-        return () => { active = false; clearInterval(interval); };
-      } else {
-        // No checkoutId — just refetch after a short delay
-        const t = setTimeout(() => refetchSubscription(), 3000);
-        return () => clearTimeout(t);
-      }
+          return;
+        }
+        try {
+          const res = await fetch(`/api/checkout/status?checkoutId=${checkoutId}`);
+          const data = await res.json();
+          if (data.status === "succeeded") {
+            clearInterval(interval);
+            // Give the webhook ~1.5s to write the subscription, then reload
+            setTimeout(reload, 1500);
+          }
+        } catch {}
+      }, 1000);
+      return () => { cleared = true; clearInterval(interval); };
     }
     const upgradePlan = params.get("upgrade");
     const billingRaw = params.get("billing");
