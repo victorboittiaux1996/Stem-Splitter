@@ -104,6 +104,8 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   const [sharing, setSharing] = useState(false);
   const [shareUsage, setShareUsage] = useState<{ used: number; total: number } | null>(null);
   const [shareHover, setShareHover] = useState(false);
+  const [downloadingStem, setDownloadingStem] = useState<string | null>(null);
+  const [zipBuilding, setZipBuilding] = useState(false);
   const audioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
 
@@ -287,12 +289,53 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                 </div>
                 <span style={{ fontSize: 14, color: C.textMuted }}>{fmt.toUpperCase()}</span>
                 {stemUrls[stem] ? (
-                  <button onClick={async () => {
-                    const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
-                    const label = stem.charAt(0).toUpperCase() + stem.slice(1);
-                    await downloadStem(stemUrls[stem], `${trackName} - ${label}${fmtExt}`, fmt);
-                  }} className="p-[4px]" style={{ color: C.textMuted }}>
-                    <RiDownloadFill size={14}/>
+                  <button
+                    disabled={downloadingStem === stem}
+                    onClick={async () => {
+                      if (downloadingStem === stem) return;
+                      setDownloadingStem(stem);
+                      try {
+                        const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
+                        const label = stem.charAt(0).toUpperCase() + stem.slice(1);
+                        await downloadStem(stemUrls[stem], `${trackName} - ${label}${fmtExt}`, fmt);
+                      } finally {
+                        setDownloadingStem(null);
+                      }
+                    }}
+                    className="p-[4px] flex items-center justify-center"
+                    style={{
+                      color: C.textMuted,
+                      opacity: downloadingStem === stem ? 0.6 : 1,
+                      width: 22,
+                      height: 22,
+                    }}
+                  >
+                    {/* Fixed 14x14 slot prevents any horizontal shift between
+                        the icon and the spinner when state flips. */}
+                    <span
+                      style={{
+                        width: 14,
+                        height: 14,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {downloadingStem === stem ? (
+                        <span
+                          className="animate-spin inline-block"
+                          style={{
+                            width: 12,
+                            height: 12,
+                            border: `1.5px solid ${C.textMuted}`,
+                            borderTopColor: "transparent",
+                            borderRadius: "50%",
+                          }}
+                        />
+                      ) : (
+                        <RiDownloadFill size={14} />
+                      )}
+                    </span>
                   </button>
                 ) : (
                   <button className="p-[4px]" style={{ color: C.textMuted, opacity: 0.3 }}>
@@ -340,15 +383,58 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
               </button>
             )
           )}
-          <button onClick={async () => {
-            if (Object.keys(stemUrls).length === 0) return;
-            const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
-            const stemList = Object.entries(stemUrls).map(([name, url]) => ({ name, url }));
-            await downloadStemsZip(stemList, trackName, fmt);
-          }} className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
-            style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.accentText, backgroundColor: C.accent, opacity: Object.keys(stemUrls).length > 0 ? 1 : 0.4 }}>
-            <RiDownloadFill size={12}/>
-            DOWNLOAD .ZIP
+          <button
+            disabled={zipBuilding || Object.keys(stemUrls).length === 0}
+            onClick={async () => {
+              if (Object.keys(stemUrls).length === 0 || zipBuilding) return;
+              setZipBuilding(true);
+              try {
+                const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
+                const stemList = Object.entries(stemUrls).map(([name, url]) => ({ name, url }));
+                await downloadStemsZip(stemList, trackName, fmt);
+              } finally {
+                setZipBuilding(false);
+              }
+            }}
+            className="flex items-center justify-center gap-[6px] px-[16px] py-[7px] transition-colors"
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              color: C.accentText,
+              backgroundColor: C.accent,
+              opacity: Object.keys(stemUrls).length === 0 || zipBuilding ? 0.6 : 1,
+              cursor: Object.keys(stemUrls).length === 0 || zipBuilding ? "default" : "pointer",
+              // Fixed width so the label swap (DOWNLOAD .ZIP ↔ BUILDING ZIP…)
+              // never resizes the button.
+              minWidth: 180,
+            }}
+          >
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {zipBuilding ? (
+                <span
+                  className="animate-spin inline-block"
+                  style={{
+                    width: 12,
+                    height: 12,
+                    border: `1.5px solid ${C.accentText}`,
+                    borderTopColor: "transparent",
+                    borderRadius: "50%",
+                  }}
+                />
+              ) : (
+                <RiDownloadFill size={12} />
+              )}
+            </span>
+            {zipBuilding ? "BUILDING ZIP…" : "DOWNLOAD .ZIP"}
           </button>
           </div>
         </div>
