@@ -17,6 +17,29 @@ function planRank(plan: PlanId): number {
   return plan === "free" ? 0 : plan === "pro" ? 1 : 2;
 }
 
+/**
+ * Python 3's built-in round() uses banker's rounding (ROUND_HALF_EVEN):
+ * exactly-.5 values round to the nearest EVEN integer, not up.
+ * round(0.5) == 0, round(1.5) == 2, round(2.5) == 2.
+ *
+ * Polar's proration code (server/polar/subscription/update.py:78,126) calls
+ * this built-in round() on Decimal values. JS Math.round always rounds
+ * half UP, so for fractional-.5 cases we'd drift by 1 cent vs the real
+ * invoice. This function reproduces Python's behavior deterministically.
+ *
+ * Discount math uses Polar's `polar_round()` (server/polar/kit/math.py)
+ * which is half-AWAY-from-zero — equivalent to Math.round for positive
+ * numbers, so we keep Math.round for those sites.
+ */
+function pythonRound(n: number): number {
+  const floor = Math.floor(n);
+  const frac = n - floor;
+  if (frac < 0.5) return floor;
+  if (frac > 0.5) return floor + 1;
+  // frac === 0.5 exactly: pick the even neighbor
+  return floor % 2 === 0 ? floor : floor + 1;
+}
+
 /** Pull first fixed-price amount (minor units) + currency from a Polar product. */
 async function getProductPrice(productId: string): Promise<{ amount: number; currency: string } | null> {
   try {
@@ -161,31 +184,66 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // VAT rate is stable per customer (tied to their billing address, not to the
-    // plan). Derive from the last paid order — that's exactly the rate Polar
-    // will apply to this new invoice. For B2B customers with a valid VAT ID,
-    // tax_amount is 0 → rate 0 → we correctly skip tax.
+    // VAT rate + tax behavior per customer. Both are derived from the user's
+    // last paid order — that's exactly what Polar will apply to this invoice.
+    //
+    // Tax behavior semantics (Polar server/polar/order/service.py:724-729):
+    //   INCLUSIVE (EU default): tax is inside subtotal
+    //       subtotal = 591, tax = 99, net = 492, total = 591
+    //       → user pays `subtotal`; tax is informational
+    //   EXCLUSIVE (US default): tax added on top
+    //       subtotal = 591, tax = 119, net = 591, total = 710
+    //       → user pays `subtotal + tax`
+    //
+    // Detect via two signals (whichever is reliable):
+    //   1. SDK exposes `taxBehavior` string field on the order
+    //   2. Fallback: `totalAmount === subtotalAmount && taxAmount > 0` → inclusive
+    //
+    // VAT rate = taxAmount / netAmount. For inclusive orders this is the
+    // conventional "20%" rate (FR VAT is 20% on net). For B2B with valid
+    // VAT ID, taxAmount=0 → rate=0 → we correctly skip tax.
     let vatRate = 0;
     let vatKnown = false;
+    let taxInclusive = false;
     if (currentCustomerId) {
       try {
         const orders = await polar.orders.list({ customerId: [currentCustomerId], limit: 3 });
         const items = (orders as { result?: { items?: Array<unknown> } }).result?.items ?? [];
-        // Pick the first order with a plausible breakdown (netAmount > 0).
         for (const raw of items) {
-          const o = raw as { netAmount?: number; taxAmount?: number };
-          if (typeof o.netAmount === "number" && typeof o.taxAmount === "number" && o.netAmount > 0) {
+          const o = raw as {
+            netAmount?: number;
+            taxAmount?: number;
+            subtotalAmount?: number;
+            totalAmount?: number;
+            taxBehavior?: string;
+            status?: string;
+          };
+          // Require a paid order with a plausible breakdown.
+          if (
+            (o.status === undefined || o.status === "paid") &&
+            typeof o.netAmount === "number" &&
+            typeof o.taxAmount === "number" &&
+            o.netAmount > 0
+          ) {
             const rate = o.taxAmount / o.netAmount;
-            // Sanity bounds — real VAT rates are 0–27% (Hungary highest in EU).
             if (rate >= 0 && rate <= 0.35) {
               vatRate = rate;
               vatKnown = true;
+              if (typeof o.taxBehavior === "string") {
+                taxInclusive = o.taxBehavior === "inclusive";
+              } else if (
+                typeof o.totalAmount === "number" &&
+                typeof o.subtotalAmount === "number" &&
+                o.taxAmount > 0
+              ) {
+                taxInclusive = o.totalAmount === o.subtotalAmount;
+              }
               break;
             }
           }
         }
       } catch {
-        // Swallow — VAT fallback "+ tax at checkout" is handled in the notice.
+        // VAT fallback "+ tax at checkout" is handled in the notice.
       }
     }
     // If Polar didn't give us the current sub amount (rate limit, transient error),
@@ -274,38 +332,82 @@ export async function POST(req: NextRequest) {
     else kind = "downgrade";
 
     // Proration math — ports Polar's exact formula from
-    // server/polar/subscription/update.py (open source):
+    // server/polar/subscription/update.py (open source, lines 45-135):
     //
-    //   credit_line = round((current_base - current_discount) × ratio)
-    //   charge_line = round((target_base - target_discount) × new_cycle_ratio)
+    //   credit_line = round((current_base - current_discount) × initial_cycle_pct_remaining)
+    //   charge_line = round((target_base - target_discount) × new_cycle_pct_remaining)
     //
-    // Where "ratio" = remainingSeconds / totalSeconds of the CURRENT period
-    // (seconds-level precision, not days) and "new_cycle_ratio" is either 1.0
-    // for a billing_switch (fresh new cycle) or the same `ratio` for a
-    // tier change mid-period.
+    // Polar's `new_cycle_pct_remaining` (line 150-164 of update.py):
+    //   - If the BILLING INTERVAL changes (monthly → annual or annual → monthly),
+    //     the new cycle starts NOW and runs for the full new interval →
+    //     new_cycle_pct_remaining = 1.0 (the new plan is charged at full price
+    //     for a fresh cycle).
+    //   - Otherwise (same interval, tier change only): keep the current period
+    //     boundaries → new_cycle_pct_remaining = same ratio as the credit side.
+    //
+    // IMPORTANT: this is interval-based, NOT kind-based. Pro monthly → Studio
+    // annual is kind=upgrade, but the interval changes → new_cycle_ratio = 1.0.
     //
     // Our currentAmountMinor = polarSub.amount is ALREADY the post-discount
     // recurring amount, so `(current_base - current_discount)` for the credit
     // line = currentAmountMinor directly (no further discount subtraction
     // needed). For the charge line we must apply the discount explicitly since
-    // targetAmountMinor is the sticker price of the target product.
+    // targetAmountMinor is the sticker price of the target product. Polar
+    // checks discount.is_applicable(new_price.product) for the charge line
+    // (line 114-119) — we mirror that via the discount.products scope check.
     //
     // Verified against Victor's real invoice (2026-04-21, customer 8581e27e,
     // Pro monthly → Pro annual with 90% off S1ULT41A):
+    //   interval_changed = true → new_cycle_ratio = 1.0
     //   credit = $0.80 × 1.0           = $0.80  ✓
     //   charge = ($67.08 × 10%) × 1.0  = $6.71  ✓
     //   net = $6.71 - $0.80            = $5.91  ✓
-    const newCycleRatio = kind === "billing_switch" ? 1.0 : ratio;
-    const creditMinor = Math.round(creditBaseMinor * ratio);
+    const intervalChanged = currentBilling !== targetBilling;
+    const newCycleRatio = intervalChanged ? 1.0 : ratio;
+    const creditMinor = pythonRound(creditBaseMinor * ratio);
     const chargeBaseMinor = targetAmountMinor;
-    // Prefer percentage discount; fall back to fixed amount (clamped to base).
+    // Discount amount — mirrors Polar's DiscountPercentage/DiscountFixed:
+    //   percentage: polar_round(amount * basis_points / 10_000)
+    //   fixed:      min(amounts[currency], amount)
+    // polar_round is half-away-from-zero; for positive numbers this equals
+    // JS Math.round. We still use Math.round (same behavior here).
     const chargeDiscountMinor = currentDiscountPct > 0
       ? Math.round(chargeBaseMinor * currentDiscountPct)
       : Math.min(currentDiscountFixedMinor, chargeBaseMinor);
     const chargeAfterDiscountMinor = chargeBaseMinor - chargeDiscountMinor;
-    const chargeMinor = Math.round(chargeAfterDiscountMinor * newCycleRatio);
-    const netMinor = chargeMinor - creditMinor;
-    const taxMinor = vatKnown ? Math.max(0, Math.round(netMinor * vatRate)) : 0;
+    // Proration result uses Python's built-in round() which is HALF-TO-EVEN
+    // (banker's rounding), NOT half-up like JS Math.round. Rare cases where
+    // the fractional part is exactly 0.5 differ by 1 cent. pythonRound()
+    // reproduces Python's behavior deterministically.
+    const chargeMinor = pythonRound(chargeAfterDiscountMinor * newCycleRatio);
+
+    // Order subtotal = sum of billing_entry amounts (order/service.py:678).
+    // For proration orders, order-level discount_amount = 0 because
+    // proration billing_entries have discountable=False (already baked in
+    // at entry creation — order/service.py:683-688 comment explains this).
+    const subtotalMinor = chargeMinor - creditMinor;
+    const taxableMinor = subtotalMinor; // no order-level discount on prorations
+
+    // Tax computation — mirrors order/service.py:707-729
+    //   inclusive: tax is extracted from subtotal (user pays = subtotal)
+    //   exclusive: tax added on top (user pays = subtotal + tax)
+    let taxMinor = 0;
+    if (vatKnown && taxableMinor > 0) {
+      if (taxInclusive) {
+        // Inclusive: subtotal already contains tax. Extract:
+        //   tax = subtotal × rate / (1 + rate)
+        taxMinor = Math.round((taxableMinor * vatRate) / (1 + vatRate));
+      } else {
+        // Exclusive: tax on top
+        taxMinor = Math.round(taxableMinor * vatRate);
+      }
+    }
+    // Total the user is actually charged:
+    //   inclusive → subtotal (tax is inside)
+    //   exclusive → subtotal + tax
+    const totalMinor = taxInclusive ? subtotalMinor : subtotalMinor + taxMinor;
+    // netMinor kept for the legacy response field — pre-tax subtotal.
+    const netMinor = subtotalMinor;
 
     // Minutes warning for downgrade: if the user's current rollover + used balance
     // exceeds the new plan quota, minutes above the cap will be forfeited (per
