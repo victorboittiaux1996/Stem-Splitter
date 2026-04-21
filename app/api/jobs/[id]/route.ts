@@ -30,6 +30,12 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
   const overlap = typeof job.overlap === "number" ? job.overlap : null;
   const bpm = typeof job.bpm === "number" ? job.bpm : null;
   const key = (job.key as string | undefined) ?? null;
+  // User-perceived wall time: from upload click → result ready in UI
+  const userStart = typeof job.createdAt === "number" ? job.createdAt : null;
+  const userEnd = typeof job.completedAt === "number" ? job.completedAt : null;
+  const userWall = (userStart != null && userEnd != null && userEnd > userStart)
+    ? (userEnd - userStart) / 1000
+    : null;
 
   let msg = status === "completed" ? `✅ <b>Completed</b>\n` : `❌ <b>Failed</b>\n`;
   msg += `🎵 ${fileName}\n`;
@@ -53,9 +59,12 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
     const dlCpu = phase?.download_cpu ?? 0;
     const totalEnd2End = processingDur != null ? processingDur + dlCpu : null;
     if (totalEnd2End != null) {
-      msg += dlCpu > 0
-        ? `⏱ <b>${fmtSeconds(totalEnd2End)}</b> total (${fmtSeconds(processingDur!)} GPU)\n`
-        : `⏱ <b>${fmtSeconds(processingDur!)}</b> processing\n`;
+      const procLabel = dlCpu > 0
+        ? `${fmtSeconds(totalEnd2End)} total (${fmtSeconds(processingDur!)} GPU)`
+        : `${fmtSeconds(processingDur!)} processing`;
+      msg += userWall != null
+        ? `⏱ <b>${fmtSeconds(userWall)}</b> user · ${procLabel}\n`
+        : `⏱ <b>${procLabel}</b>\n`;
     }
     if (phase) {
       const lines: string[] = [];
@@ -215,6 +224,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         stems_count: merged.stems_count ?? null,
         bpm: merged.bpm ?? null,
         key: merged.key ?? null,
+        // Preserve real user-start time from R2 (survives Vercel killing the best-effort insert at upload)
+        created_at: typeof existing.createdAt === "number" ? new Date(existing.createdAt).toISOString() : undefined,
         completed_at: updates.status === "completed" ? new Date().toISOString() : null,
         duration_seconds: typeof merged.duration === "number" ? merged.duration : null,
         error_code: merged.error_code ?? null,
