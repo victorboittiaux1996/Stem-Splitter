@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Logo } from "./logo";
 import { fonts } from "./theme";
 import { useAuthModal } from "@/contexts/auth-modal-context";
+import { useAuth } from "@/hooks/use-auth";
 
 const C = {
   bg: "#FFFFFF",
@@ -75,8 +76,7 @@ export function Header() {
         </nav>
         {/* CTAs — right */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
-          <LoginButton />
-          <HeaderCTA />
+          <HeaderAuthActions />
         </div>
       </div>
     </header>
@@ -170,6 +170,25 @@ function DropdownLink({ label, href }: { label: string; href: string }) {
   );
 }
 
+function HeaderAuthActions() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div style={{ height: 36, width: 180 }} aria-hidden />;
+  }
+
+  if (user) {
+    return <GoToAppButton />;
+  }
+
+  return (
+    <>
+      <LoginButton />
+      <HeaderCTA />
+    </>
+  );
+}
+
 function LoginButton() {
   const [hovered, setHovered] = useState(false);
   const { openAuthModal } = useAuthModal();
@@ -211,5 +230,27 @@ function HeaderCTA() {
     >
       Get Started
     </button>
+  );
+}
+
+function GoToAppButton() {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <a
+      href="/app"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: "#FFFFFF",
+        backgroundColor: hovered ? C.accentHover : C.accent,
+        border: "none", cursor: "pointer",
+        padding: "0 20px", height: 36,
+        display: "inline-flex", alignItems: "center",
+        textDecoration: "none",
+        transition: "background-color 0.15s",
+      }}
+    >
+      Go to app
+    </a>
   );
 }
