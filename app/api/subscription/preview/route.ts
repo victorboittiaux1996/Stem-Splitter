@@ -239,8 +239,8 @@ export async function POST(req: NextRequest) {
       // No subtitle — title already says "Switch Pro to annual" etc.
       subtitle = "";
       notice = targetBilling === "annual"
-        ? `Credit for unused ${currentLabel} ${currentBilling} time applied. You save 30% vs monthly. Billed ${targetCurrency} ${perPeriod} per year from now.`
-        : `Credit for unused ${currentLabel} ${currentBilling} time applied. Billed ${targetCurrency} ${perPeriod} per month from now.`;
+        ? `New annual cycle starts today — you save 30% vs monthly. Next renewal in 1 year.`
+        : `New monthly cycle starts today. Next renewal in 1 month.`;
     } else if (kind === "resume") {
       subtitle = `No charge. Subscription continues.`;
       notice = `Your ${currentLabel} subscription will renew as scheduled.`;
