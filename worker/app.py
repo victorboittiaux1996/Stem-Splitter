@@ -11,9 +11,31 @@ import modal
 import os
 import time
 import glob
+import queue  # bounded queue for async progress writer
 import threading  # parallel inference thread-local state
 
-app = modal.App("stem-splitter")
+# Deploy-time metadata, surfaced as Modal app-level tags for `modal billing report --tag-names`.
+# Modal SDK v1.3.5 only supports tags at the App level (not per @app.function), so every
+# function in this App shares the same env/version tags. Per-function cost attribution comes
+# from the Modal dashboard (Functions view) or from Supabase phase_timings (GPU jobs only).
+#
+# Prod deploy:     APP_VERSION=$(git rev-parse --short HEAD) modal deploy worker/app.py
+# Staging deploy:  APP_NAME=stem-splitter-staging APP_ENV=staging APP_VERSION=$(git rev-parse --short HEAD) modal deploy worker/app.py
+_APP_NAME = os.environ.get("APP_NAME", "stem-splitter")
+_APP_ENV = os.environ.get("APP_ENV", "prod")
+_APP_VERSION = os.environ.get("APP_VERSION", "unknown")
+
+app = modal.App(
+    _APP_NAME,
+    tags={
+        "env": _APP_ENV,
+        "version": _APP_VERSION,
+    },
+)
+
+# Visible boot line so a deploy without APP_VERSION=$(git rev-parse --short HEAD)
+# surfaces in Modal logs as "version=unknown" instead of shipping silently.
+print(f"[BOOT] app={_APP_NAME} env={_APP_ENV} version={_APP_VERSION}")
 
 VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 INSTRUMENT_MODEL = "BS-Roformer-SW.ckpt"
@@ -53,6 +75,214 @@ _sep_instru: "object | None" = None
 # Each inference thread stores {"start", "end", "stage", "job_id", "ws", "last_write"} here.
 _tqdm_tls = threading.local()
 _tqdm_orig_update = None  # baseline captured on first job; detects stale patches from crashed containers
+
+
+# ─── pynvml GPU diagnostics ────────────────────────────────────────────────
+# Replaces subprocess nvidia-smi calls (4× ~150ms each = ~600ms/job warm) with
+# direct NVML Python bindings (~2-5ms per batch of queries). Same underlying API.
+# Lazy init on first use; handle cached for the container lifetime.
+
+_pynvml_handle = None
+_pynvml_init_tried = False
+_pynvml_init_error: "str | None" = None  # surfaced as phase_timings['gpu_error'] so silent degradation is visible in Telegram
+_pynvml_lock = threading.Lock()
+
+
+def _nvml_get_handle():
+    """Return the cached NVML device handle, initializing pynvml on first call.
+
+    Returns None if NVML is unavailable (e.g. CPU container, or init failure).
+    Subsequent calls are no-ops: handle cached, failure cached.
+    Thread-safe via double-checked locking — PARALLEL_INFERENCE=1 fires two
+    threads that can hit first-call simultaneously.
+    """
+    global _pynvml_handle, _pynvml_init_tried, _pynvml_init_error
+    if _pynvml_handle is not None:
+        return _pynvml_handle
+    with _pynvml_lock:
+        # Double-check inside the lock: another thread may have won the race
+        if _pynvml_handle is not None:
+            return _pynvml_handle
+        if _pynvml_init_tried:
+            return None
+        _pynvml_init_tried = True
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            _pynvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            return _pynvml_handle
+        except Exception as _e:
+            _pynvml_init_error = f"{type(_e).__name__}: {_e}"
+            print(f"[GPU][CRITICAL] pynvml unavailable — telemetry disabled: {_pynvml_init_error}")
+            return None
+
+
+def _nvml_str(val) -> str:
+    """Decode bytes → str (older pynvml versions return bytes)."""
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    return val
+
+
+def _nvml_diag_pre(timings: dict) -> None:
+    """Populate pre-inference GPU diagnostics into timings dict.
+
+    Fields: gpu_name, gpu_uuid, gpu_clock_mhz, gpu_clock_max_mhz,
+            gpu_mem_clock_mhz, gpu_mem_clock_max_mhz, gpu_temp_c,
+            gpu_power_w, gpu_power_limit_w, gpu_vram_mb.
+    On failure: sets gpu_error so downstream (Telegram) surfaces the issue
+    instead of silently dropping GPU metrics.
+    """
+    h = _nvml_get_handle()
+    if h is None:
+        if _pynvml_init_error:
+            timings['gpu_error'] = _pynvml_init_error
+        return
+    try:
+        import pynvml
+        timings['gpu_name'] = _nvml_str(pynvml.nvmlDeviceGetName(h))
+        timings['gpu_uuid'] = _nvml_str(pynvml.nvmlDeviceGetUUID(h))
+        timings['gpu_clock_mhz'] = pynvml.nvmlDeviceGetClockInfo(h, pynvml.NVML_CLOCK_GRAPHICS)
+        timings['gpu_clock_max_mhz'] = pynvml.nvmlDeviceGetMaxClockInfo(h, pynvml.NVML_CLOCK_GRAPHICS)
+        timings['gpu_mem_clock_mhz'] = pynvml.nvmlDeviceGetClockInfo(h, pynvml.NVML_CLOCK_MEM)
+        timings['gpu_mem_clock_max_mhz'] = pynvml.nvmlDeviceGetMaxClockInfo(h, pynvml.NVML_CLOCK_MEM)
+        timings['gpu_temp_c'] = pynvml.nvmlDeviceGetTemperature(h, pynvml.NVML_TEMPERATURE_GPU)
+        timings['gpu_power_w'] = pynvml.nvmlDeviceGetPowerUsage(h) / 1000.0
+        timings['gpu_power_limit_w'] = pynvml.nvmlDeviceGetPowerManagementLimit(h) / 1000.0
+        timings['gpu_vram_mb'] = pynvml.nvmlDeviceGetMemoryInfo(h).total // (1024 * 1024)
+        print(f"[GPU] {timings['gpu_name']} | {timings['gpu_clock_mhz']}/{timings['gpu_clock_max_mhz']} MHz | {timings['gpu_temp_c']}°C | {timings['gpu_power_w']:.0f}/{timings['gpu_power_limit_w']:.0f}W")
+    except Exception as _e:
+        print(f"[GPU] diagnostics failed: {_e}")
+
+
+def _nvml_diag_post(timings: dict) -> None:
+    """Populate post-inference GPU diagnostics (clock under load, utilization).
+
+    Fields: gpu_clock_post_mhz, gpu_mem_clock_post_mhz, gpu_temp_post_c,
+            gpu_power_post_w, gpu_util_post_pct.
+    """
+    h = _nvml_get_handle()
+    if h is None:
+        return
+    try:
+        import pynvml
+        timings['gpu_clock_post_mhz'] = pynvml.nvmlDeviceGetClockInfo(h, pynvml.NVML_CLOCK_GRAPHICS)
+        timings['gpu_mem_clock_post_mhz'] = pynvml.nvmlDeviceGetClockInfo(h, pynvml.NVML_CLOCK_MEM)
+        timings['gpu_temp_post_c'] = pynvml.nvmlDeviceGetTemperature(h, pynvml.NVML_TEMPERATURE_GPU)
+        timings['gpu_power_post_w'] = pynvml.nvmlDeviceGetPowerUsage(h) / 1000.0
+        timings['gpu_util_post_pct'] = pynvml.nvmlDeviceGetUtilizationRates(h).gpu
+        print(f"[GPU POST-INFER] {timings['gpu_clock_post_mhz']}MHz | {timings['gpu_temp_post_c']}°C | {timings['gpu_power_post_w']:.0f}W | util={timings['gpu_util_post_pct']}%")
+    except Exception:
+        pass
+
+
+# ─── Async progress writer ─────────────────────────────────────────────────
+# tqdm fires update_job_status() once per second during inference. Each call does
+# a get_object + put_object on R2 (~100-300ms round-trip) and BLOCKS the thread
+# that's running the inference pipeline. Over 30s of inference that's ~3-9s wasted.
+#
+# Fix: route tqdm-originated writes through a bounded queue drained by a single
+# background thread. tqdm's thread just does put_nowait (~microseconds).
+#
+# A single writer thread (not N daemons per tick) avoids R2 read-modify-write
+# races when multiple progress writes overlap. It also preserves per-job write
+# ordering so the last progress value wins naturally.
+#
+# Boundary writes (5/85/90/99%) remain SYNCHRONOUS — they carry critical fields
+# (status, stems, peaks, duration, etc.) and must commit before the job proceeds.
+# To avoid a trailing tqdm write overwriting the 85% boundary, callers must
+# invoke _drain_progress_queue() right before any sync boundary write that
+# follows inference.
+
+_PROGRESS_QUEUE_MAX = 32          # bounded so a stuck R2 can't balloon memory
+_PROGRESS_DRAIN_TIMEOUT_S = 2.0   # max wait before a boundary sync write
+
+_progress_queue: "queue.Queue" = queue.Queue(maxsize=_PROGRESS_QUEUE_MAX)
+_progress_writer_thread: "threading.Thread | None" = None
+_progress_writer_lock = threading.Lock()
+
+
+def _progress_writer_loop() -> None:
+    """Background loop: drain the queue, one R2 write at a time.
+
+    Runs forever (daemon). Exceptions are logged and swallowed so a transient
+    R2 failure never kills the writer thread.
+    """
+    from storage import update_job_status
+    while True:
+        kwargs = _progress_queue.get()
+        try:
+            update_job_status(**kwargs)
+        except Exception as _e:
+            print(f"[PROGRESS] async write failed: {_e}")
+        finally:
+            _progress_queue.task_done()
+
+
+def _ensure_progress_writer() -> None:
+    """Lazy-start the writer thread on first use, resurrect it if it died."""
+    global _progress_writer_thread
+    with _progress_writer_lock:
+        if _progress_writer_thread is None or not _progress_writer_thread.is_alive():
+            _progress_writer_thread = threading.Thread(
+                target=_progress_writer_loop,
+                name="progress-writer",
+                daemon=True,
+            )
+            _progress_writer_thread.start()
+
+
+def _async_update_progress(job_id: str, progress: int, stage: str, workspace_id: "str | None") -> None:
+    """Enqueue a progress-only update. Drops silently when the queue is full.
+
+    Dropping is safe: the next tqdm tick (≤1s later) supersedes this one.
+    Only four fields are carried — no status flip, no stems/peaks/duration, so
+    a dropped update never loses critical data.
+    """
+    _ensure_progress_writer()
+    try:
+        _progress_queue.put_nowait({
+            "job_id": job_id,
+            "status": "processing",
+            "progress": progress,
+            "stage": stage,
+            "workspace_id": workspace_id,
+        })
+    except queue.Full:
+        pass  # back-pressure: drop and let the next tick catch up
+
+
+def _drain_progress_queue(timeout_s: float = _PROGRESS_DRAIN_TIMEOUT_S) -> None:
+    """Block until pending progress writes complete (up to timeout_s).
+
+    Call this immediately before a synchronous boundary write that follows
+    inference, to prevent a trailing async tqdm write from landing *after*
+    the boundary and reverting the user-visible progress bar.
+    """
+    import time as _t
+    t0 = _t.time()
+    while _progress_queue.unfinished_tasks and (_t.time() - t0) < timeout_s:
+        _t.sleep(0.01)
+
+
+def _nvml_snapshot_util() -> str:
+    """Return a short 'util%,vram_used_mb,vram_total_mb' string for logging.
+
+    Drop-in replacement for the 2 intra-inference nvidia-smi calls.
+    Returns empty string on failure.
+    """
+    h = _nvml_get_handle()
+    if h is None:
+        return ""
+    try:
+        import pynvml
+        util = pynvml.nvmlDeviceGetUtilizationRates(h).gpu
+        mem = pynvml.nvmlDeviceGetMemoryInfo(h)
+        used_mb = mem.used // (1024 * 1024)
+        total_mb = mem.total // (1024 * 1024)
+        return f"{util}, {used_mb}, {total_mb}"
+    except Exception:
+        return ""
 
 # ─── bgutil PO token provider sidecar ───────────────────────────────────────
 # Node.js subprocess that listens on 127.0.0.1:4416 and serves PO tokens to yt-dlp.
@@ -237,6 +467,7 @@ image = (
         "soundfile", "numpy", "librosa", "essentia",
         "nnAudio==0.3.3", "einops", "tqdm", f"yt-dlp=={_YT_DLP_VERSION}", "torchaudio",
         "bgutil-ytdlp-pot-provider==1.3.1",
+        "nvidia-ml-py>=12.535",  # pynvml bindings — replaces nvidia-smi subprocess (~600ms saved/job)
     )
     .run_commands(
         "git clone https://github.com/deezer/skey.git /opt/skey",
@@ -277,6 +508,8 @@ download_image = (
 @app.function(
     image=url_info_image,
     timeout=60,
+    cpu=0.5,        # yt-dlp + bgutil Node sidecar need more than Modal default 0.125
+    memory=512,     # bgutil + yt-dlp peak ~200-300MB; 512 leaves headroom
     secrets=[
         modal.Secret.from_name("youtube-cookies-jar"),
     ],
@@ -750,14 +983,14 @@ def download_audio(request: dict):
 
 
 def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
-    """Monkey-patch tqdm.update to write real progress directly to R2.
+    """Monkey-patch tqdm.update to write real progress to R2 asynchronously.
 
     Throttled to 1 write/s. Maps the model's 0→100% chunk progress onto [start_pct, end_pct].
-    Writes directly to R2 so the frontend GET polling sees real values immediately.
+    Writes are enqueued for a single background writer thread (non-blocking) so
+    the inference pipeline never waits on R2 I/O.
     """
     import time as _t
     from tqdm import tqdm as _tqdm
-    from storage import update_job_status
 
     _last_write = [0.0]
     _orig = _tqdm.update
@@ -769,10 +1002,7 @@ def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
             now = _t.time()
             if now - _last_write[0] >= 1.0:
                 _last_write[0] = now
-                try:
-                    update_job_status(job_id, "processing", progress=real_pct, stage=stage, workspace_id=workspace_id)
-                except Exception:
-                    pass  # never let a progress write failure kill the job
+                _async_update_progress(job_id, real_pct, stage, workspace_id)
 
     return patched, _orig
 
@@ -780,11 +1010,11 @@ def _make_tqdm_hook(start_pct, end_pct, job_id, stage, workspace_id=None):
 def _make_parallel_tqdm_dispatch(orig):
     """Return a thread-safe tqdm.update replacement for parallel inference.
 
-    Reads per-thread progress state from _tqdm_tls.state and writes to R2 at most
-    once per second. Threads without TLS state are silently ignored (safe for any
-    background threads that audio-separator may spawn internally).
+    Reads per-thread progress state from _tqdm_tls.state and enqueues a progress
+    write at most once per second. Threads without TLS state are silently ignored
+    (safe for any background threads that audio-separator may spawn internally).
+    Writes are async via the shared progress writer thread.
     """
-    from storage import update_job_status
     import time as _t
 
     def _dispatch(self, n=1):
@@ -798,13 +1028,7 @@ def _make_parallel_tqdm_dispatch(orig):
             last_write = state["last_write"]
             if now - last_write[0] >= 1.0:
                 last_write[0] = now
-                try:
-                    update_job_status(
-                        state["job_id"], "processing", progress=pct,
-                        stage=state["stage"], workspace_id=state["ws"],
-                    )
-                except Exception:
-                    pass  # never let a progress write failure kill the job
+                _async_update_progress(state["job_id"], pct, state["stage"], state["ws"])
 
     return _dispatch
 
@@ -961,29 +1185,8 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
 
     _container_id = os.environ.get("MODAL_TASK_ID", "local")
 
-    # ── GPU diagnostics (nvidia-smi) ──────────────────────────────────────
-    try:
-        import subprocess as _sp
-        _nvsmi = _sp.run(
-            ["nvidia-smi", "--query-gpu=name,uuid,clocks.current.graphics,clocks.max.graphics,clocks.current.memory,clocks.max.memory,temperature.gpu,power.draw,power.limit,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if _nvsmi.returncode == 0 and _nvsmi.stdout.strip():
-            _gpu_parts = [p.strip() for p in _nvsmi.stdout.strip().split(",")]
-            _timings['gpu_name'] = _gpu_parts[0] if len(_gpu_parts) > 0 else "?"
-            _timings['gpu_uuid'] = _gpu_parts[1] if len(_gpu_parts) > 1 else "?"
-            _timings['gpu_clock_mhz'] = int(_gpu_parts[2]) if len(_gpu_parts) > 2 else 0
-            _timings['gpu_clock_max_mhz'] = int(_gpu_parts[3]) if len(_gpu_parts) > 3 else 0
-            _timings['gpu_mem_clock_mhz'] = int(_gpu_parts[4]) if len(_gpu_parts) > 4 else 0
-            _timings['gpu_mem_clock_max_mhz'] = int(_gpu_parts[5]) if len(_gpu_parts) > 5 else 0
-            _timings['gpu_temp_c'] = int(_gpu_parts[6]) if len(_gpu_parts) > 6 else 0
-            _timings['gpu_power_w'] = float(_gpu_parts[7]) if len(_gpu_parts) > 7 else 0
-            _timings['gpu_power_limit_w'] = float(_gpu_parts[8]) if len(_gpu_parts) > 8 else 0
-            _timings['gpu_vram_mb'] = int(_gpu_parts[9]) if len(_gpu_parts) > 9 else 0
-            print(f"[GPU] {_timings['gpu_name']} | {_timings['gpu_clock_mhz']}/{_timings['gpu_clock_max_mhz']} MHz | {_timings['gpu_temp_c']}°C | {_timings['gpu_power_w']:.0f}/{_timings['gpu_power_limit_w']:.0f}W")
-    except Exception as _gpu_err:
-        print(f"[GPU] diagnostics failed: {_gpu_err}")
+    # ── GPU diagnostics (pynvml direct bindings, ~2-5ms vs ~150ms for nvidia-smi subprocess) ──
+    _nvml_diag_pre(_timings)
     # ─────────────────────────────────────────────────────────────────────
 
     print(f"[TIMING] job={job_id} cold={int(_cold)} container={_container_id} phase=start")
@@ -1075,15 +1278,9 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
             sep_v = _sep_vocal
             _timings['sep_vocal_load_model'] = time.time() - _t0
             print(f"[TIMING] job={job_id} phase=sep_vocal_load_model dur={_timings['sep_vocal_load_model']:.2f}s")
-            try:
-                import subprocess as _sp
-                _smi = _sp.run(
-                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
-                    capture_output=True, timeout=5,
-                )
-                print(f"[GPU] sm_util%,vram_used_mb,vram_total_mb: {_smi.stdout.decode().strip()}")
-            except Exception:
-                pass
+            _snap = _nvml_snapshot_util()
+            if _snap:
+                print(f"[GPU] sm_util%,vram_used_mb,vram_total_mb: {_snap}")
             start = time.time()
             if job_id != "test":
                 from tqdm import tqdm as _tqdm
@@ -1253,15 +1450,9 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
             sep_i = _sep_instru
             _timings['sep_instru_load_model'] = time.time() - _t0
 
-            try:
-                import subprocess as _sp2
-                _smi = _sp2.run(
-                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
-                    capture_output=True, timeout=5,
-                )
-                print(f"[PAR] job={job_id} phase=parallel_start vram: {_smi.stdout.decode().strip()}")
-            except Exception:
-                pass
+            _snap = _nvml_snapshot_util()
+            if _snap:
+                print(f"[PAR] job={job_id} phase=parallel_start vram: {_snap}")
 
             # Per-thread timing captured via mutable containers (dict lookup is atomic)
             _v_timing = [None]
@@ -1342,23 +1533,8 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
             if _par_first_exc[0] is not None:
                 raise _par_first_exc[0]
 
-            # GPU diagnostics post-inference (captures clock under load)
-            try:
-                _smi2 = _sp2.run(
-                    ["nvidia-smi", "--query-gpu=clocks.current.graphics,clocks.current.memory,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total",
-                     "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if _smi2.returncode == 0 and _smi2.stdout.strip():
-                    _p2 = [p.strip() for p in _smi2.stdout.strip().split(",")]
-                    _timings['gpu_clock_post_mhz'] = int(_p2[0]) if len(_p2) > 0 else 0
-                    _timings['gpu_mem_clock_post_mhz'] = int(_p2[1]) if len(_p2) > 1 else 0
-                    _timings['gpu_temp_post_c'] = int(_p2[2]) if len(_p2) > 2 else 0
-                    _timings['gpu_power_post_w'] = float(_p2[3]) if len(_p2) > 3 else 0
-                    _timings['gpu_util_post_pct'] = int(_p2[4]) if len(_p2) > 4 else 0
-                    print(f"[GPU POST-INFER] {_timings['gpu_clock_post_mhz']}MHz | {_timings['gpu_temp_post_c']}°C | {_timings['gpu_power_post_w']:.0f}W | util={_timings['gpu_util_post_pct']}%")
-            except Exception:
-                pass
+            # GPU diagnostics post-inference (pynvml, captures clock under load)
+            _nvml_diag_post(_timings)
 
             # Collect vocals
             for f in os.listdir(vocal_dir):
@@ -1436,6 +1612,8 @@ def _separate_core(request: dict, gpu_label: str = "H100", rate_per_sec: float =
         if job_id != "test":
             from storage import upload_to_r2, update_job_status, stem_key as _stem_key
 
+            # Drain any trailing async tqdm writes so they don't overwrite the 85% boundary
+            _drain_progress_queue()
             update_job_status(job_id, "processing", progress=85, stage="Processing stems", workspace_id=workspace_id)
 
             # === Post-processing: peaks ∥ wav_upload ∥ (mp3_encode → mp3_upload) pipelined ===
