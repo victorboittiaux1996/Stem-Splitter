@@ -21,7 +21,10 @@ interface Preview {
   netMajor: number;
   perPeriodMajor: number;
   currency: string;
+  subtitle?: string;
   notice: string;
+  creditIsEstimate?: boolean;
+  minutesLost?: number;
 }
 
 type C = {
@@ -190,6 +193,9 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
   };
 
   const subtitleByKind = (p: Preview) => {
+    // Preview API now returns a context-specific subtitle (e.g. "Effective immediately.
+    // Net prorated charge today."). Fall back to price + period if absent.
+    if (p.subtitle) return p.subtitle;
     const perPeriod = targetBilling === "annual" ? "per year" : "per month";
     return `${fmt(p.perPeriodMajor)} ${perPeriod}`;
   };
@@ -216,14 +222,31 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
             {preview && !loading && (
               <>
-                {preview.kind !== "new" && preview.kind !== "same" && preview.kind !== "resume" && (
+                {/* Proration box: only for upgrades and billing switches that pay today.
+                    Downgrades use prorationBehavior:"prorate" (no charge now → box hidden). */}
+                {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
-                    {preview.creditMajor > 0 && (
-                      <Row label={`Credit for unused ${PLANS[preview.currentPlan].label} time`} value={`−${fmt(preview.creditMajor)}`} C={C} />
-                    )}
+                    <Row
+                      label={`Credit for unused ${PLANS[preview.currentPlan].label} time${preview.creditIsEstimate ? " (estimate)" : ""}`}
+                      value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
+                      C={C}
+                    />
                     <Row label={`${targetCfg.label} prorated until period end`} value={fmt(preview.chargeMajor)} C={C} />
                     <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
                     <Row label="Total today" value={fmt(preview.netMajor)} C={C} bold />
+                  </div>
+                )}
+
+                {/* Minutes-lost warning for downgrades (Splice-style). Show only if the
+                    rounded loss is at least 1 minute — fractional amounts are noise. */}
+                {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 && (
+                  <div style={{ backgroundColor: "#FF6B0015", padding: "10px 14px", marginBottom: 12, borderLeft: "3px solid #FF6B00" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B00", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
+                      You will lose {Math.round(preview.minutesLost ?? 0)} rollover minute{Math.round(preview.minutesLost ?? 0) === 1 ? "" : "s"}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+                      {PLANS[preview.targetPlan].label} quota is {PLANS[preview.targetPlan].minutesIncluded} min/month. Any balance above that is forfeited when you downgrade.
+                    </div>
                   </div>
                 )}
 

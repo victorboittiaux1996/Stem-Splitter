@@ -76,6 +76,16 @@ export async function POST(req: NextRequest) {
 
     const customerName = profile?.name ?? undefined;
 
+    // Collision guard: if a customer already exists in Polar with this email but
+    // was attached to a different Supabase user_id (e.g. account was deleted
+    // then recreated with the same email), we pass the CURRENT user.id as the
+    // external id but DO NOT force Polar to look up by external id — Polar will
+    // match by email and create a fresh checkout attached to that customer
+    // record. The externalCustomerId only sets our metadata link.
+    // If we detect a stale subscription row on our side with a different
+    // stripe_customer_id but no active sub, we just proceed — the new checkout
+    // creates a new subscription, and our webhook handler writes the new
+    // customer_id on the user row.
     const checkout = await polar.checkouts.create({
       products: [productId],
       customerEmail: user.email,

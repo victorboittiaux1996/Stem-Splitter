@@ -12,6 +12,7 @@ interface SubscriptionState {
   daysUntilReset: number;
   cancelAtPeriodEnd: boolean;
   periodEnd: string | null;
+  currentBilling: "monthly" | "annual";
   loading: boolean;
 }
 
@@ -46,6 +47,7 @@ export function useSubscription(userId: string | undefined) {
       daysUntilReset: 30,
       cancelAtPeriodEnd: false,
       periodEnd: null,
+      currentBilling: "monthly",
       loading: true,
     };
   });
@@ -65,6 +67,16 @@ export function useSubscription(userId: string | undefined) {
       const periodStart = subResult.data?.period_start ?? null;
       const isPaidPlan = plan === "pro" || plan === "studio";
 
+      // Derive billing period from period length. ~30 days = monthly, ~365 = annual.
+      // Threshold 60 days splits them cleanly.
+      let currentBilling: "monthly" | "annual" = "monthly";
+      if (periodStart && periodEnd) {
+        const start = new Date(periodStart + "T00:00:00").getTime();
+        const end = new Date(periodEnd).getTime();
+        const days = Math.round((end - start) / 86400000);
+        currentBilling = days > 60 ? "annual" : "monthly";
+      }
+
       let anchor: Date;
       if (isPaidPlan && periodStart) {
         anchor = new Date(periodStart + "T00:00:00");
@@ -83,7 +95,7 @@ export function useSubscription(userId: string | undefined) {
           const minutesUsed = data?.tracks_used ?? 0;
           const rolloverMinutes = PLANS[plan].minutesNeverReset ? (data?.rollover_minutes ?? 0) : 0;
           localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed, rolloverMinutes }));
-          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, loading: false });
+          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, currentBilling, loading: false });
         });
     }).catch(() => setState(prev => ({ ...prev, loading: false })));
   }, [userId]);

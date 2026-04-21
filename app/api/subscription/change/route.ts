@@ -83,10 +83,34 @@ export async function POST(req: NextRequest) {
       (currentProductId === POLAR_PRODUCTS.studio && targetProductId === POLAR_PRODUCTS.studio_annual) ||
       (currentProductId === POLAR_PRODUCTS.studio_annual && targetProductId === POLAR_PRODUCTS.studio);
 
+    // Standard SaaS pattern (matches Claude, Netflix, Notion):
+    //   - Upgrade:   effective immediately, customer pays the delta today.
+    //                → prorationBehavior: "invoice"
+    //   - Downgrade: customer keeps the current plan until period end, then the
+    //                lower plan takes over at the next renewal. No charge today,
+    //                no refund.
+    //                → prorationBehavior: "next_period"
+    // Annual → monthly on the same plan counts as a downgrade (less commitment).
+    const tier = (pid: string): number => {
+      if (pid === POLAR_PRODUCTS.studio || pid === POLAR_PRODUCTS.studio_annual) return 2;
+      if (pid === POLAR_PRODUCTS.pro || pid === POLAR_PRODUCTS.pro_annual) return 1;
+      return 0;
+    };
+    const isAnnualCurrent = currentProductId === POLAR_PRODUCTS.pro_annual || currentProductId === POLAR_PRODUCTS.studio_annual;
+    const isAnnualTarget = targetProductId === POLAR_PRODUCTS.pro_annual || targetProductId === POLAR_PRODUCTS.studio_annual;
+    const isDowngrade =
+      tier(targetProductId) < tier(currentProductId) ||
+      (tier(targetProductId) === tier(currentProductId) && isAnnualCurrent && !isAnnualTarget);
+    const prorationBehavior: "invoice" | "next_period" = isDowngrade ? "next_period" : "invoice";
+
     // If user previously canceled but is now changing plan or resuming same plan,
     // uncancel first. SubscriptionUpdate is a union in the Polar SDK, so resume
     // (cancelAtPeriodEnd=false) and product change require two sequential calls.
-    if (sub.cancel_at_period_end) {
+    // To keep the two-step operation atomic we roll back the uncancel if the
+    // product update fails — otherwise the user ends up uncanceled on the old
+    // plan, which is not what they asked for.
+    const didUncancel = sub.cancel_at_period_end === true;
+    if (didUncancel) {
       await polar.subscriptions.update({
         id: sub.stripe_subscription_id,
         subscriptionUpdate: { cancelAtPeriodEnd: false },
@@ -94,7 +118,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Same product but user was canceled → just resume, no product change needed.
-    if (currentProductId === targetProductId && sub.cancel_at_period_end) {
+    if (currentProductId === targetProductId && didUncancel) {
       await supabaseAdmin
         .from("subscriptions")
         .update({
@@ -110,13 +134,31 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const updated = await polar.subscriptions.update({
-      id: sub.stripe_subscription_id,
-      subscriptionUpdate: {
-        productId: targetProductId,
-        prorationBehavior: "invoice",
-      },
-    });
+    let updated;
+    try {
+      updated = await polar.subscriptions.update({
+        id: sub.stripe_subscription_id,
+        subscriptionUpdate: {
+          productId: targetProductId,
+          prorationBehavior,
+        },
+      });
+    } catch (err) {
+      // Atomicity: if we just uncanceled and the product update fails, put the
+      // sub back into its previous canceled state so the user isn't stuck on
+      // the old plan without the cancel they had scheduled.
+      if (didUncancel) {
+        try {
+          await polar.subscriptions.update({
+            id: sub.stripe_subscription_id,
+            subscriptionUpdate: { cancelAtPeriodEnd: true },
+          });
+        } catch (rollbackErr) {
+          console.error("Rollback failed after product update failure:", rollbackErr);
+        }
+      }
+      throw err;
+    }
 
     // Apply discount separately if provided — SubscriptionUpdate is a union, so product
     // change and discount application are two separate calls. If the discount call fails

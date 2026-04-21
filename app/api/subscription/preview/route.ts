@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { PlanId, BillingPeriod } from "@/lib/plans";
+import { PLANS, type PlanId, type BillingPeriod } from "@/lib/plans";
 import { polar, getProductId } from "@/lib/polar";
 
 // Proration preview for a subscription change.
@@ -70,6 +70,9 @@ export async function POST(req: NextRequest) {
     const toMajor = (minor: number) => Math.round(minor) / 100;
 
     if (currentPlan === "free") {
+      const targetLabel = PLANS[targetPlan].label;
+      const perPeriodPhrase = targetBilling === "annual" ? "per year" : "per month";
+      const priceStr = `${targetCurrency} ${toMajor(targetAmountMinor).toFixed(2)}`;
       return NextResponse.json({
         kind: "new" as ChangeKind,
         currentPlan,
@@ -80,7 +83,8 @@ export async function POST(req: NextRequest) {
         netMajor: toMajor(targetAmountMinor),
         perPeriodMajor: toMajor(targetAmountMinor),
         currency: targetCurrency,
-        notice: "Tax may apply based on your billing country.",
+        subtitle: `${priceStr} ${perPeriodPhrase} • ${PLANS[targetPlan].minutesIncluded} min/month`,
+        notice: `You'll be charged ${priceStr} today for your first ${targetBilling === "annual" ? "year" : "month"} of ${targetLabel}. Tax may apply.`,
       });
     }
 
@@ -157,8 +161,19 @@ export async function POST(req: NextRequest) {
     }
 
     const ratio = daysInPeriod > 0 ? daysRemaining / daysInPeriod : 0;
-    const canComputeCredit = sameCurrency && !missingCurrentAmount;
-    const creditMinor = canComputeCredit ? Math.round(currentAmountMinor * ratio) : 0;
+
+    // Credit fallback: if Polar didn't return the current sub amount or currencies
+    // differ, estimate from the plan config so the modal still shows a breakdown.
+    // Polar will apply the real proration at update time regardless of this estimate.
+    let creditBaseMinor = currentAmountMinor;
+    let creditIsEstimate = false;
+    if (!sameCurrency || missingCurrentAmount) {
+      const planCfg = PLANS[currentPlan];
+      const monthlyMajor = currentBilling === "annual" ? planCfg.yearlyPriceUSD : planCfg.priceUSD;
+      creditBaseMinor = Math.round(monthlyMajor * 100);
+      creditIsEstimate = true;
+    }
+    const creditMinor = Math.round(creditBaseMinor * ratio);
     const chargeMinor = Math.round(targetAmountMinor * ratio);
     const netMinor = chargeMinor - creditMinor;
 
@@ -166,6 +181,71 @@ export async function POST(req: NextRequest) {
     if (currentPlan === targetPlan) kind = "billing_switch";
     else if (planRank(targetPlan) > planRank(currentPlan)) kind = "upgrade";
     else kind = "downgrade";
+
+    // Minutes warning for downgrade: if the user's current rollover + used balance
+    // exceeds the new plan quota, minutes above the cap will be forfeited (per
+    // ensure_period_with_rollover RPC — rollover capped to new plan_minutes).
+    let minutesLost = 0;
+    if (kind === "downgrade") {
+      const { data: usageRow } = await supabaseAdmin
+        .from("usage")
+        .select("rollover_minutes, tracks_used")
+        .eq("user_id", user.id)
+        .eq("month", sub?.period_start ?? new Date().toISOString().slice(0, 10))
+        .maybeSingle();
+      const currentRollover = Number(usageRow?.rollover_minutes ?? 0);
+      const currentMonthUsed = Number(usageRow?.tracks_used ?? 0);
+      const currentPlanMinutes = PLANS[currentPlan].minutesIncluded;
+      const newPlanMinutes = PLANS[targetPlan].minutesIncluded;
+      // What would carry into the new period: unused portion of current period + rollover,
+      // capped at the NEW plan quota.
+      const unusedCurrent = Math.max(0, currentPlanMinutes + currentRollover - currentMonthUsed);
+      minutesLost = Math.max(0, unusedCurrent - newPlanMinutes);
+    }
+
+    // Build notice + subtitle specific to the kind. Avoid generic "a credit will be
+    // applied" messaging — users want to know what happens today and going forward.
+    const currentLabel = PLANS[currentPlan].label;
+    const targetLabel = PLANS[targetPlan].label;
+    const perPeriodPhrase = targetBilling === "annual" ? "per year" : "per month";
+    const perPeriod = toMajor(targetAmountMinor).toFixed(2);
+
+    let subtitle: string;
+    let notice: string;
+    if (kind === "upgrade") {
+      subtitle = `Effective immediately. Net prorated charge today.`;
+      notice = `Credit for ${daysRemaining} unused day${daysRemaining === 1 ? "" : "s"} on ${currentLabel} applied. From next cycle: ${targetCurrency} ${perPeriod} ${perPeriodPhrase}.`;
+    } else if (kind === "downgrade") {
+      // With prorationBehavior:"prorate" Polar defers credit/charge to the NEXT
+      // invoice — nothing is charged today. Wording must reflect that.
+      subtitle = `Change takes effect now. No charge today.`;
+      const base = `Your next invoice will be ${targetCurrency} ${perPeriod} for ${targetLabel} (${perPeriodPhrase}). Unused ${currentLabel} time is credited against that invoice, not refunded.`;
+      notice = Math.round(minutesLost) >= 1
+        ? `You will lose ${Math.round(minutesLost)} rollover minute${Math.round(minutesLost) === 1 ? "" : "s"} above the ${targetLabel} quota (${PLANS[targetPlan].minutesIncluded} min/month). ${base}`
+        : base;
+    } else if (kind === "billing_switch") {
+      const dir = targetBilling === "annual" ? "annual" : "monthly";
+      subtitle = `Switch to ${dir} billing.`;
+      notice = targetBilling === "annual"
+        ? `Credit for unused ${currentLabel} ${currentBilling} time applied. You save 30% vs monthly. Billed ${targetCurrency} ${perPeriod} per year from now.`
+        : `Credit for unused ${currentLabel} ${currentBilling} time applied. Billed ${targetCurrency} ${perPeriod} per month from now.`;
+    } else if (kind === "resume") {
+      subtitle = `No charge. Subscription continues.`;
+      notice = `Your ${currentLabel} subscription will renew as scheduled.`;
+    } else if (kind === "same") {
+      subtitle = `Already on this plan.`;
+      notice = `No changes will be made.`;
+    } else {
+      subtitle = `${targetCurrency} ${perPeriod} ${perPeriodPhrase}.`;
+      notice = `Tax may apply based on your billing country.`;
+    }
+
+    if (creditIsEstimate && (kind === "upgrade" || kind === "downgrade" || kind === "billing_switch")) {
+      notice += ` Credit is an estimate — Polar applies the exact proration on the invoice.`;
+    }
+    if (!sameCurrency && (kind === "upgrade" || kind === "downgrade" || kind === "billing_switch")) {
+      notice += ` Currency differs (${currentCurrency} → ${targetCurrency}) — Polar converts at transaction time.`;
+    }
 
     return NextResponse.json({
       kind,
@@ -180,9 +260,10 @@ export async function POST(req: NextRequest) {
       netMajor: toMajor(netMinor),
       perPeriodMajor: toMajor(targetAmountMinor),
       currency: displayCurrency,
-      notice: canComputeCredit
-        ? "Tax may apply based on your billing country."
-        : "A credit for unused time will be applied automatically.",
+      creditIsEstimate,
+      minutesLost,
+      subtitle,
+      notice,
     });
   } catch (error) {
     console.error("Preview error:", error);
