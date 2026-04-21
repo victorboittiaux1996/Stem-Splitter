@@ -102,6 +102,8 @@ export async function GET(request: Request) {
         createdAt: job.createdAt,
         completedAt: job.completedAt ?? job.createdAt,
         duration: job.duration != null ? formatDuration(job.duration) : undefined,
+        durationSeconds: typeof job.duration === "number" ? job.duration : null,
+        batchId: job.batchId ?? null,
       }));
 
     return NextResponse.json({ jobs });

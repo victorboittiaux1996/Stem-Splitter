@@ -27,6 +27,7 @@ export interface Job {
   workspaceId?: string;
   userId?: string;
   batchId?: string | null;
+  inputKey?: string;
 }
 
 export interface StemDownload {
@@ -89,6 +90,8 @@ export interface HistoryItem {
   createdAt: number;
   completedAt: number;
   duration?: string;
+  durationSeconds?: number | null;
+  batchId?: string | null;
   quality?: number;
   stability?: number;
   workspaceId?: string;
