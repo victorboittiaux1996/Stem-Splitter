@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Sparkles, ChevronDown, ChevronLeft,
-  Search, X,
+  Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { StemModal } from "@/components/stem-modal";
@@ -14,6 +14,7 @@ import { detectPlatform, PLATFORMS } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
+import { FilesView } from "@/components/dashboard/files/files-view";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { useAuth } from "@/hooks/use-auth";
 import { useSubscription } from "@/hooks/use-subscription";
@@ -402,18 +403,6 @@ export default function AbletonDashboard() {
     return () => { cancelled = true; clearTimeout(timeout); };
   }, [urlInput, isValidUrl, inputMode]);
   const [validStyle, setValidStyle] = useState<1 | 2 | 3 | 4>(1);
-  // Files view state
-  const [sortBy, setSortBy] = useState<"name" | "date" | "duration" | "format" | "bpm" | "key">("date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [fileSearch, setFileSearch] = useState("");
-  const [filterBpm, setFilterBpm] = useState<string | null>(null);
-  const [filterKeys, setFilterKeys] = useState<Set<string>>(new Set());
-  const [filterStems, setFilterStems] = useState<Set<number>>(new Set());
-  const [filterDuration, setFilterDuration] = useState<string | null>(null);
-  const [selectedTracks, setSelectedTracks] = useState<Set<string>>(new Set());
-  const [selectedStems, setSelectedStems] = useState<Set<string>>(new Set());
-  const [exportMode, setExportMode] = useState(false);
-  const [exportStemPicker, setExportStemPicker] = useState(false);
   // Results view state
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -759,68 +748,8 @@ export default function AbletonDashboard() {
   const playProgress = duration > 0 ? currentTime / duration : 0;
   const formatTime = (s: number) => { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2, "0")}`; };
 
-  // Sort helpers for Files view
-  const durToSec = (d?: string) => { if (!d) return 0; const m = d.match(/(\d+)m\s*(\d+)s/); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0; };
-  const toggleSort = (col: typeof sortBy) => { if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortBy(col); setSortDir("asc"); } };
-
-  const availableKeys = Array.from(new Set(history.map(h => h.key).filter(Boolean) as string[])).sort((a, b) => {
-    const parse = (k: string) => { const m = k.match(/(\d+)([AB])/); return m ? parseInt(m[1]) * 2 + (m[2] === "B" ? 1 : 0) : 999; };
-    return parse(a) - parse(b);
-  });
-  const hasActiveFilters = filterBpm !== null || filterKeys.size > 0 || filterStems.size > 0 || filterDuration !== null;
-  const clearFilters = () => { setFilterBpm(null); setFilterKeys(new Set()); setFilterStems(new Set()); setFilterDuration(null); };
-
-  const searched = history.filter(item => {
-    if (fileSearch && !item.name.toLowerCase().includes(fileSearch.toLowerCase())) return false;
-    if (filterBpm) {
-      if (item.bpm === null) return false;
-      if (filterBpm === "< 90" && item.bpm >= 90) return false;
-      if (filterBpm === "90–120" && (item.bpm < 90 || item.bpm > 120)) return false;
-      if (filterBpm === "120–140" && (item.bpm < 120 || item.bpm > 140)) return false;
-      if (filterBpm === "> 140" && item.bpm <= 140) return false;
-    }
-    if (filterKeys.size > 0 && (item.key === null || !filterKeys.has(item.key))) return false;
-    if (filterStems.size > 0 && !filterStems.has(item.stems)) return false;
-    if (filterDuration) {
-      const sec = durToSec(item.duration);
-      if (filterDuration === "< 2min" && sec >= 120) return false;
-      if (filterDuration === "2–5min" && (sec < 120 || sec > 300)) return false;
-      if (filterDuration === "> 5min" && sec <= 300) return false;
-    }
-    return true;
-  });
-  const sorted = [...searched].sort((a, b) => {
-    let cmp = 0;
-    switch (sortBy) {
-      case "name": cmp = a.name.localeCompare(b.name); break;
-      case "duration": cmp = durToSec(a.duration) - durToSec(b.duration); break;
-      case "format": cmp = a.format.localeCompare(b.format); break;
-      case "bpm": cmp = (a.bpm ?? 0) - (b.bpm ?? 0); break;
-      case "key": cmp = (a.key ?? "").localeCompare(b.key ?? ""); break;
-      default: cmp = 0;
-    }
-    return sortDir === "asc" ? cmp : -cmp;
-  });
-
-  const allTrackIds = sorted.map(h => h.id);
-  const allTracksSelected = allTrackIds.length > 0 && allTrackIds.every(id => selectedTracks.has(id));
-  const toggleTrack = (id: string) => setSelectedTracks(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  const toggleAllTracks = () => { if (allTracksSelected) setSelectedTracks(new Set()); else setSelectedTracks(new Set(allTrackIds)); };
-  const allStemTypes = Array.from(new Set(sorted.filter(h => selectedTracks.has(h.id)).flatMap(h => h.stemList)));
-  const toggleExportStem = (stem: string) => setSelectedStems(prev => { const next = new Set(prev); next.has(stem) ? next.delete(stem) : next.add(stem); return next; });
-  const allStemsSelected = allStemTypes.length > 0 && allStemTypes.every(s => selectedStems.has(s));
-  const toggleAllStems = () => { if (allStemsSelected) setSelectedStems(new Set()); else setSelectedStems(new Set(allStemTypes)); };
-  const exitExport = () => { setExportMode(false); setSelectedTracks(new Set()); setSelectedStems(new Set()); setExportStemPicker(false); };
-
   // Game theme object to pass to game components
   const gameTheme = { bg: C.bg, bgCard: C.bgCard, bgSubtle: C.bgSubtle, bgHover: C.bgHover, bgElevated: C.bgElevated, text: C.text, textSec: C.textSec, textMuted: C.textMuted, accent: C.accent, accentText: C.accentText, badgeBg: C.badgeBg, badgeText: C.badgeText };
-
-
-  // ─── SortIcon helper ──────────────────────────────────────
-  const SortIcon = ({ col }: { col: typeof sortBy }) => (
-    <ChevronDown className="inline h-[10px] w-[10px] ml-[3px]" strokeWidth={2}
-      style={{ opacity: sortBy === col ? 1 : 0.4, transform: sortBy === col && sortDir === "asc" ? "scaleY(-1)" : undefined }} />
-  );
 
   return (
     <div ref={rootRef} className="ableton-root flex h-screen overflow-hidden" style={{ backgroundColor: C.bg, color: C.text, fontFamily: F }}>
@@ -1441,240 +1370,24 @@ export default function AbletonDashboard() {
 
           {/* ═══ MY FILES ═══ */}
           {view === "files" && (
-            <>
-              <div className="px-[24px] pt-[24px] pb-[40px]">
-                <div style={{ maxWidth: 900, margin: "0 auto" }}>
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-[24px]">
-                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>My Files</h2>
-                    <div className="flex items-center gap-[8px]">
-                      {exportMode && (
-                        <button onClick={exitExport} className="px-[14px] py-[8px] transition-colors"
-                          style={{ fontSize: 15, fontWeight: 500, color: C.textMuted, letterSpacing: "0.03em" }}>CANCEL</button>
-                      )}
-                      <button onClick={() => { if (exportMode) { if (selectedTracks.size > 0) setExportStemPicker(true); } else setExportMode(true); }}
-                        className="flex items-center gap-[6px] px-[14px] py-[8px] transition-colors"
-                        style={{
-                          fontSize: 15, fontWeight: 500, letterSpacing: "0.03em",
-                          color: exportMode && selectedTracks.size > 0 ? C.bg : C.textSec,
-                          backgroundColor: exportMode && selectedTracks.size > 0 ? C.text : C.bgHover,
-                          cursor: exportMode && selectedTracks.size === 0 ? "not-allowed" : "pointer",
-                        }}>
-                        <DownloadIcon size={13} color={C.textMuted}/>
-                        {exportMode ? `EXPORT${selectedTracks.size > 0 ? ` (${selectedTracks.size})` : ""}` : "EXPORT"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Contained card — same style as Recent splits V2 */}
-                  <div style={{ backgroundColor: C.bgCard, overflow: "hidden" }}>
-                    {/* Search */}
-                    <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
-                      <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
-                      <input type="text" value={fileSearch} onChange={e => setFileSearch(e.target.value)}
-                        placeholder="SEARCH FILES" className="flex-1 bg-transparent text-[13px] outline-none"
-                        style={{ color: C.text, letterSpacing: "0.03em" }} />
-                    </div>
-                    {/* Filters */}
-                    {history.length > 0 && (
-                      <div className="flex items-center gap-[20px] px-[16px] py-[9px] flex-wrap" style={{ borderBottom: `1px solid ${C.text}08` }}>
-                        {/* BPM */}
-                        <div className="flex items-center gap-[5px]">
-                          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>BPM</span>
-                          {(["< 90", "90–120", "120–140", "> 140"] as const).map(label => (
-                            <button key={label} onClick={() => setFilterBpm(filterBpm === label ? null : label)}
-                              style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
-                                color: filterBpm === label ? C.bg : C.textSec,
-                                backgroundColor: filterBpm === label ? C.text : `${C.text}10` }}>
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        {/* KEY */}
-                        {availableKeys.length > 0 && (
-                          <div className="flex items-center gap-[5px] flex-wrap">
-                            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>KEY</span>
-                            {availableKeys.map(k => {
-                              const active = filterKeys.has(k);
-                              return (
-                                <button key={k} onClick={() => setFilterKeys(prev => { const next = new Set(prev); active ? next.delete(k) : next.add(k); return next; })}
-                                  style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
-                                    color: active ? C.bg : C.textSec,
-                                    backgroundColor: active ? C.text : `${C.text}10` }}>
-                                  {k}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {/* STEMS */}
-                        <div className="flex items-center gap-[5px]">
-                          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>STEMS</span>
-                          {([2, 4, 6] as const).map(n => {
-                            const active = filterStems.has(n);
-                            return (
-                              <button key={n} onClick={() => setFilterStems(prev => { const next = new Set(prev); active ? next.delete(n) : next.add(n); return next; })}
-                                style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
-                                  color: active ? C.bg : C.textSec,
-                                  backgroundColor: active ? C.text : `${C.text}10` }}>
-                                {n}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {/* DURATION */}
-                        <div className="flex items-center gap-[5px]">
-                          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginRight: 3 }}>DURATION</span>
-                          {(["< 2min", "2–5min", "> 5min"] as const).map(label => (
-                            <button key={label} onClick={() => setFilterDuration(filterDuration === label ? null : label)}
-                              style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.02em", padding: "2px 7px",
-                                color: filterDuration === label ? C.bg : C.textSec,
-                                backgroundColor: filterDuration === label ? C.text : `${C.text}10` }}>
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        {/* Clear */}
-                        {hasActiveFilters && (
-                          <button onClick={clearFilters}
-                            style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted, marginLeft: "auto" }}>
-                            CLEAR
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {/* Column headers */}
-                    <div className="flex items-center px-[16px] py-[8px] select-none" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
-                      {exportMode && (
-                        <button onClick={toggleAllTracks} className="w-[28px] shrink-0 flex items-center">
-                          {allTracksSelected
-                            ? <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="0" y="0" width="13" height="13" fill={C.text} opacity="0.9"/></svg>
-                            : <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="0" y="0" width="13" height="13" fill={C.text} opacity="0.08"/></svg>}
-                        </button>
-                      )}
-                      <button onClick={() => toggleSort("name")} className="flex-1 text-left flex items-center cursor-pointer outline-none focus:outline-none">NAME <SortIcon col="name" /></button>
-                      <button onClick={() => toggleSort("bpm")} className="w-[60px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">BPM <SortIcon col="bpm" /></button>
-                      <button onClick={() => toggleSort("key")} className="w-[50px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">KEY <SortIcon col="key" /></button>
-                      <button onClick={() => toggleSort("duration")} className="w-[80px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">DURATION <SortIcon col="duration" /></button>
-                      <button onClick={() => toggleSort("format")} className="w-[80px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none">FORMAT <SortIcon col="format" /></button>
-                      <span className="w-[72px]" />
-                    </div>
-                    {/* Rows */}
-                    {sorted.map((item, i) => {
-                      const isTrackSelected = selectedTracks.has(item.id);
-                      return (
-                        <div key={item.id}
-                          className="flex items-center px-[16px] py-[14px] cursor-pointer transition-colors"
-                          style={{
-                            ...(i < sorted.length - 1 ? { borderBottom: `1px solid ${`${C.text}08`}` } : {}),
-                            backgroundColor: exportMode ? (isTrackSelected ? (isDark ? C.bgHover : C.bgCard) : (isDark ? "transparent" : C.bgSubtle)) : undefined,
-                          }}
-                          
-                          
-                          onClick={() => exportMode ? toggleTrack(item.id) : setExpandedFile(item.id)}>
-                          {exportMode && (
-                            <button onClick={(e) => { e.stopPropagation(); toggleTrack(item.id); }} className="w-[28px] shrink-0 flex items-center">
-                              {isTrackSelected
-                                ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.9"/></svg>
-                                : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="0" y="0" width="14" height="14" fill={C.text} opacity="0.08"/></svg>}
-                            </button>
-                          )}
-                          <div className="flex items-center flex-1 min-w-0" style={{ gap: 12 }}>
-                            <div className="flex items-center justify-center shrink-0"
-                              style={{
-                                height: 36,
-                                width: 36,
-                                backgroundColor: C.bgHover,
-                                borderRadius: 0,
-                              }}>
-                              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
-                            </div>
-                            <div className="min-w-0">
-                              <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
-                              <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
-                            </div>
-                          </div>
-                          <span className="w-[60px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.bpm != null ? Math.round(item.bpm) : "—"}</span>
-                          <span className="w-[50px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.key}</span>
-                          <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.duration ?? "—"}</span>
-                          <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.format.toUpperCase()}</span>
-                          <div className="flex items-center justify-end gap-[2px] w-[72px]">
-                            <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
-                              <DownloadIcon size={14} color={C.textMuted}/>
-                            </button>
-                            <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}>
-                              <TrashIcon size={14} color={C.textMuted}/>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Export stem picker modal */}
-              <AnimatePresence>
-                {exportStemPicker && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setExportStemPicker(false)}>
-                    <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} />
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.15 }} className="relative w-[400px] overflow-hidden"
-                      style={{ backgroundColor: C.bgCard }} onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-between px-[20px] py-[16px]" style={{ backgroundColor: C.bgHover }}>
-                        <div>
-                          <p style={{ fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>EXPORT STEMS</p>
-                          <p style={{ fontSize: 14, color: C.textMuted, marginTop: 2 }}>{selectedTracks.size} track{selectedTracks.size > 1 ? "s" : ""} selected</p>
-                        </div>
-                        <button onClick={() => setExportStemPicker(false)} className="p-[6px]" style={{ color: C.textMuted }}>
-                          <X className="h-[16px] w-[16px]" strokeWidth={1.6} />
-                        </button>
-                      </div>
-                      <div className="px-[20px] py-[16px] space-y-[2px]">
-                        <button onClick={toggleAllStems}
-                          className="flex w-full items-center gap-[10px] px-[12px] py-[10px] transition-colors" style={{ marginBottom: 4 }}>
-                          {allStemsSelected
-                            ? <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.9"/></svg>
-                            : <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.08"/></svg>}
-                          <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: "0.03em" }}>ALL STEMS</span>
-                        </button>
-                        {allStemTypes.map(stem => {
-                          const color = stemColors[stem] || "#999";
-                          const isChecked = selectedStems.has(stem);
-                          return (
-                            <button key={stem} onClick={() => toggleExportStem(stem)}
-                              className="flex w-full items-center gap-[10px] px-[12px] py-[10px] transition-colors">
-                              {isChecked
-                                ? <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.9"/></svg>
-                                : <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="0" y="0" width="15" height="15" fill={C.text} opacity="0.08"/></svg>}
-                              <div className="h-[8px] w-[8px] shrink-0" style={{ backgroundColor: color }} />
-                              <span style={{ fontSize: 15, fontWeight: 500, color: C.text, letterSpacing: "0.03em" }}>{LABELS[stem]}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="flex items-center justify-end gap-[8px] px-[20px] py-[14px]" style={{ backgroundColor: C.bgSubtle }}>
-                        <button onClick={() => setExportStemPicker(false)}
-                          className="px-[16px] py-[8px] transition-colors"
-                          style={{ fontSize: 15, fontWeight: 500, color: C.textSec, letterSpacing: "0.03em" }}>CANCEL</button>
-                        <button onClick={() => { setExportStemPicker(false); exitExport(); }}
-                          disabled={selectedStems.size === 0}
-                          className="px-[16px] py-[8px] transition-all disabled:opacity-30"
-                          style={{ fontSize: 15, fontWeight: 600, color: C.accentText, backgroundColor: C.text, letterSpacing: "0.03em" }}>
-                          DOWNLOAD {selectedStems.size > 0 ? `${selectedTracks.size * selectedStems.size} FILES` : ""}
-                        </button>
-                      </div>
-                    </motion.div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Stem detail modal — Files */}
-              <AnimatePresence>
-                {expandedFile && !exportMode && <StemModal expandedFile={expandedFile} items={sorted} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} onShare={isPro && expandedFile ? () => handleShare(expandedFile) : null} />}
-              </AnimatePresence>
-            </>
+            <FilesView
+              C={C}
+              isDark={isDark}
+              stemColors={stemColors}
+              labels={LABELS}
+              wavAllowed={wavAllowed}
+              isPro={isPro}
+              outputFormat={outputFormat}
+              workspaceId={WORKSPACE_ID}
+              history={history}
+              setHistory={setHistory}
+              expandedFile={expandedFile}
+              setExpandedFile={setExpandedFile}
+              onNavigateToSplit={() => setView("split")}
+              stemUrlCacheRef={stemUrlCacheRef}
+              stemPeaksCacheRef={stemPeaksCacheRef}
+              onShare={handleShare}
+            />
           )}
 
           {/* ═══ STATISTICS ═══ */}
