@@ -10,6 +10,9 @@ interface SubscriptionState {
   minutesUsed: number;
   rolloverMinutes: number;
   daysUntilReset: number;
+  cancelAtPeriodEnd: boolean;
+  periodEnd: string | null;
+  currentBilling: "monthly" | "annual";
   loading: boolean;
 }
 
@@ -37,19 +40,30 @@ function getCachedSubscription(): { plan: PlanId; minutesUsed: number; rolloverM
 export function useSubscription(userId: string | undefined) {
   const [state, setState] = useState<SubscriptionState>(() => {
     const cached = getCachedSubscription();
-    return { plan: cached.plan, minutesUsed: cached.minutesUsed, rolloverMinutes: cached.rolloverMinutes, daysUntilReset: 30, loading: true };
+    return { plan: cached.plan, minutesUsed: cached.minutesUsed, rolloverMinutes: cached.rolloverMinutes, daysUntilReset: 30, cancelAtPeriodEnd: false, periodEnd: null, currentBilling: "monthly", loading: true };
   });
 
   const fetchSubscription = useCallback(() => {
     if (!userId) { setState(prev => ({ ...prev, loading: false })); return; }
     const supabase = createClient();
     Promise.all([
-      supabase.from("subscriptions").select("plan, status, period_start").eq("user_id", userId).maybeSingle(),
+      supabase.from("subscriptions").select("plan, status, period_start, current_period_end, cancel_at_period_end").eq("user_id", userId).maybeSingle(),
       supabase.from("profiles").select("created_at").eq("id", userId).maybeSingle(),
     ]).then(([subResult, profileResult]) => {
       const plan: PlanId = subResult.data?.status === "active" ? (subResult.data.plan as PlanId) : "free";
+      const cancelAtPeriodEnd = subResult.data?.cancel_at_period_end === true;
+      const periodEnd = subResult.data?.current_period_end ?? null;
       const periodStart = subResult.data?.period_start ?? null;
       const isPaidPlan = plan === "pro" || plan === "studio";
+
+      // Derive billing cycle from period length (~30 days monthly vs ~365 annual).
+      let currentBilling: "monthly" | "annual" = "monthly";
+      if (periodStart && periodEnd) {
+        const s = new Date(periodStart + "T00:00:00").getTime();
+        const e = new Date(periodEnd).getTime();
+        const days = Math.round((e - s) / 86400000);
+        currentBilling = days > 60 ? "annual" : "monthly";
+      }
 
       let anchor: Date;
       if (isPaidPlan && periodStart) {
@@ -69,7 +83,7 @@ export function useSubscription(userId: string | undefined) {
           const minutesUsed = data?.tracks_used ?? 0;
           const rolloverMinutes = PLANS[plan].minutesNeverReset ? (data?.rollover_minutes ?? 0) : 0;
           localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed, rolloverMinutes }));
-          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, loading: false });
+          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, currentBilling, loading: false });
         });
     }).catch(() => setState(prev => ({ ...prev, loading: false })));
   }, [userId]);
@@ -105,5 +119,9 @@ export function useSubscription(userId: string | undefined) {
     queuePriority: planConfig.queuePriority,
     shareLinksPerMonth: planConfig.shareLinksPerMonth,
     minutesNeverReset: planConfig.minutesNeverReset,
+    cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+    isCanceledButActive: (state.plan === "pro" || state.plan === "studio") && state.cancelAtPeriodEnd,
+    periodEnd: state.periodEnd,
+    currentBilling: state.currentBilling,
   };
 }

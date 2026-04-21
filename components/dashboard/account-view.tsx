@@ -30,6 +30,9 @@ interface AccountViewProps {
   remainingFormatted?: string;
   usagePercent?: number;
   daysUntilReset?: number;
+  isCanceledButActive?: boolean;
+  periodEnd?: string | null;
+  currentBilling?: "monthly" | "annual";
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   displayName?: string;
   email?: string;
@@ -215,6 +218,15 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
   const [cancelLoading, setCancelLoading] = React.useState(false);
   const [redirectingPlan, setRedirectingPlan] = React.useState<PlanId | null>(null);
+
+  // Reset the "Redirecting…" state when the page is restored from the browser
+  // bfcache (user clicked back from Polar checkout). Without this, the button
+  // stays stuck in loading after coming back.
+  React.useEffect(() => {
+    const reset = () => setRedirectingPlan(null);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
 
   // Derive current plan from planLabel
   const currentPlan: PlanId =
