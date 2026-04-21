@@ -18,16 +18,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
+  // Idempotency guard: Polar retries with backoff and may deliver out of order.
+  // Insert event_id first — if it already exists (unique violation), skip. This
+  // means late retries of an older event do not overwrite newer state.
+  const eventId = (event as { id?: string } | null)?.id;
+  if (eventId) {
+    const { error: dedupeErr } = await supabaseAdmin
+      .from("webhook_events")
+      .insert({ event_id: eventId, event_type: event.type });
+    if (dedupeErr) {
+      // 23505 = unique_violation in Postgres. Any other error is unexpected; log
+      // and continue rather than block the webhook entirely.
+      const code = (dedupeErr as { code?: string }).code;
+      if (code === "23505") {
+        return NextResponse.json({ received: true, deduped: true }, { status: 202 });
+      }
+      console.error("Webhook dedupe insert failed (continuing):", dedupeErr);
+    }
+  }
+
   try {
     switch (event.type) {
       case "subscription.created":
       case "subscription.updated":
-      case "subscription.active": {
+      case "subscription.active":
+      case "subscription.canceled":
+      case "subscription.uncanceled": {
+        // subscription.canceled fires when user schedules cancel. Polar keeps
+        // status="active" until endsAt is reached. We persist cancelAtPeriodEnd
+        // so the app can render "canceled, ends on X" without losing access.
+        // subscription.uncanceled fires when user resumes before period end.
         const sub = event.data;
         const email = sub.customer?.email;
         if (!email) break;
 
-        // Find the Supabase user by email
         const userId = await findUserByEmail(email);
         if (!userId) {
           console.error("Polar webhook: no user found for email", email, "— returning 500 so Polar retries");
@@ -44,6 +68,26 @@ export async function POST(req: NextRequest) {
           ? new Date(sub.currentPeriodStart).toISOString().slice(0, 10)
           : null;
 
+        // Stale-write protection: Polar may deliver events out of order. We use
+        // the subscription's modifiedAt as source of truth and only write if it's
+        // at least as fresh as what we already have.
+        const subModifiedAt = sub.modifiedAt
+          ? new Date(sub.modifiedAt).toISOString()
+          : new Date().toISOString();
+
+        const { data: existingRow } = await supabaseAdmin
+          .from("subscriptions")
+          .select("updated_at")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (existingRow?.updated_at && new Date(existingRow.updated_at) > new Date(subModifiedAt)) {
+          console.warn(
+            `Polar webhook: skipping stale event ${event.type} (event modifiedAt=${subModifiedAt} < db updated_at=${existingRow.updated_at})`,
+          );
+          break;
+        }
+
         await supabaseAdmin
           .from("subscriptions")
           .upsert(
@@ -51,19 +95,23 @@ export async function POST(req: NextRequest) {
               user_id: userId,
               plan,
               status: sub.status === "active" ? "active" : sub.status,
+              cancel_at_period_end: sub.cancelAtPeriodEnd === true,
               stripe_customer_id: sub.customer?.id ?? null,
               stripe_subscription_id: sub.id,
               current_period_end: periodEnd,
               ...(periodStart ? { period_start: periodStart } : {}),
-              updated_at: new Date().toISOString(),
+              updated_at: subModifiedAt,
             },
             { onConflict: "user_id" }
           );
         break;
       }
 
-      case "subscription.canceled":
       case "subscription.revoked": {
+        // subscription.revoked fires when access is actually removed (at endsAt,
+        // or immediately on hard revoke / unpaid). This is the terminal state.
+        // We reset plan="free" and clear the Polar subscription id so the app
+        // treats the user as a fresh Free account going forward.
         const sub = event.data;
         const email = sub.customer?.email;
         if (!email) break;
@@ -74,11 +122,44 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "User not found" }, { status: 500 });
         }
 
+        const subModifiedAt = sub.modifiedAt
+          ? new Date(sub.modifiedAt).toISOString()
+          : new Date().toISOString();
+
+        // Stale guard: skip if a newer event already landed (e.g. a later
+        // subscription.updated for a new sub using the same customer).
+        const { data: existingRow } = await supabaseAdmin
+          .from("subscriptions")
+          .select("updated_at, stripe_subscription_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (existingRow?.updated_at && new Date(existingRow.updated_at) > new Date(subModifiedAt)) {
+          console.warn(
+            `Polar webhook revoked: skipping stale event (modifiedAt=${subModifiedAt} < db updated_at=${existingRow.updated_at})`,
+          );
+          break;
+        }
+
+        // Safety: only revoke if the event's subscription id matches what we
+        // have on file. Prevents an old revoked event from wiping a freshly
+        // created subscription.
+        if (existingRow?.stripe_subscription_id && existingRow.stripe_subscription_id !== sub.id) {
+          console.warn(
+            `Polar webhook revoked: sub id mismatch (event=${sub.id}, db=${existingRow.stripe_subscription_id}) — skipping`,
+          );
+          break;
+        }
+
         await supabaseAdmin
           .from("subscriptions")
           .update({
-            status: "canceled", // both canceled and revoked map to "canceled" (DB CHECK constraint)
-            updated_at: new Date().toISOString(),
+            plan: "free",
+            status: "canceled",
+            cancel_at_period_end: false,
+            stripe_subscription_id: null,
+            current_period_end: null,
+            updated_at: subModifiedAt,
           })
           .eq("user_id", userId);
         break;

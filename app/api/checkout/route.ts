@@ -10,7 +10,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { plan, billing = "monthly" } = await req.json() as { plan: string; billing?: string };
+    const { plan, billing = "monthly", discountId } = await req.json() as {
+      plan: string;
+      billing?: string;
+      discountId?: string;
+    };
     if (plan !== "pro" && plan !== "studio") {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
@@ -32,7 +36,7 @@ export async function POST(req: NextRequest) {
     const [{ data: existingSub }, { data: profile }] = await Promise.all([
       supabaseAdmin
         .from("subscriptions")
-        .select("stripe_customer_id, plan, status")
+        .select("stripe_customer_id, plan, status, cancel_at_period_end")
         .eq("user_id", user.id)
         .maybeSingle(),
       supabaseAdmin
@@ -42,14 +46,23 @@ export async function POST(req: NextRequest) {
         .maybeSingle(),
     ]);
 
-    // If user already has an active paid subscription, redirect to the Polar
-    // customer portal so they can change plan / billing interval with proration.
-    // Polar's checkout rejects a second active sub and shows an ugly error mid-payment.
+    // User has an active paid sub. Three sub-states:
+    //  (a) active, not canceled → portal for billing/plan change
+    //  (b) active, canceled at period end → redirect to in-app modal (resume/change)
+    //  (c) canceled (status=canceled, period ended) → fall through to new checkout
     const hasActivePaidSub =
       existingSub &&
       existingSub.stripe_customer_id &&
       existingSub.plan !== "free" &&
       (existingSub.status === "active" || existingSub.status === "trialing" || existingSub.status === "past_due");
+
+    if (hasActivePaidSub && existingSub.cancel_at_period_end) {
+      // User canceled but still has access. Bounce to in-app settings so the
+      // ChangePlanModal can handle resume or plan change with proration preview.
+      return NextResponse.json({
+        url: `${appUrl}/app?upgrade=${plan}&billing=${billing}`,
+      });
+    }
 
     if (hasActivePaidSub) {
       const session = await polar.customerSessions.create({
@@ -63,13 +76,24 @@ export async function POST(req: NextRequest) {
 
     const customerName = profile?.name ?? undefined;
 
+    // Collision guard: if a customer already exists in Polar with this email but
+    // was attached to a different Supabase user_id (e.g. account was deleted
+    // then recreated with the same email), we pass the CURRENT user.id as the
+    // external id but DO NOT force Polar to look up by external id — Polar will
+    // match by email and create a fresh checkout attached to that customer
+    // record. The externalCustomerId only sets our metadata link.
+    // If we detect a stale subscription row on our side with a different
+    // stripe_customer_id but no active sub, we just proceed — the new checkout
+    // creates a new subscription, and our webhook handler writes the new
+    // customer_id on the user row.
     const checkout = await polar.checkouts.create({
       products: [productId],
       customerEmail: user.email,
       customerName,
       externalCustomerId: user.id,
       requireBillingAddress: true,
-successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
+      ...(discountId ? { discountId } : {}),
+      successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
     });
 
     if (!checkout.url) {

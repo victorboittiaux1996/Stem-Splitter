@@ -40,7 +40,16 @@ function getCachedSubscription(): { plan: PlanId; minutesUsed: number; rolloverM
 export function useSubscription(userId: string | undefined) {
   const [state, setState] = useState<SubscriptionState>(() => {
     const cached = getCachedSubscription();
-    return { plan: cached.plan, minutesUsed: cached.minutesUsed, rolloverMinutes: cached.rolloverMinutes, daysUntilReset: 30, cancelAtPeriodEnd: false, periodEnd: null, currentBilling: "monthly", loading: true };
+    return {
+      plan: cached.plan,
+      minutesUsed: cached.minutesUsed,
+      rolloverMinutes: cached.rolloverMinutes,
+      daysUntilReset: 30,
+      cancelAtPeriodEnd: false,
+      periodEnd: null,
+      currentBilling: "monthly",
+      loading: true,
+    };
   });
 
   const fetchSubscription = useCallback(() => {
@@ -50,18 +59,21 @@ export function useSubscription(userId: string | undefined) {
       supabase.from("subscriptions").select("plan, status, period_start, current_period_end, cancel_at_period_end").eq("user_id", userId).maybeSingle(),
       supabase.from("profiles").select("created_at").eq("id", userId).maybeSingle(),
     ]).then(([subResult, profileResult]) => {
+      // Plan stays active as long as Polar status is active, even if cancelAtPeriodEnd=true.
+      // Polar keeps the sub active until endsAt, so the user keeps access.
       const plan: PlanId = subResult.data?.status === "active" ? (subResult.data.plan as PlanId) : "free";
       const cancelAtPeriodEnd = subResult.data?.cancel_at_period_end === true;
       const periodEnd = subResult.data?.current_period_end ?? null;
       const periodStart = subResult.data?.period_start ?? null;
       const isPaidPlan = plan === "pro" || plan === "studio";
 
-      // Derive billing cycle from period length (~30 days monthly vs ~365 annual).
+      // Derive billing period from period length. ~30 days = monthly, ~365 = annual.
+      // Threshold 60 days splits them cleanly.
       let currentBilling: "monthly" | "annual" = "monthly";
       if (periodStart && periodEnd) {
-        const s = new Date(periodStart + "T00:00:00").getTime();
-        const e = new Date(periodEnd).getTime();
-        const days = Math.round((e - s) / 86400000);
+        const start = new Date(periodStart + "T00:00:00").getTime();
+        const end = new Date(periodEnd).getTime();
+        const days = Math.round((end - start) / 86400000);
         currentBilling = days > 60 ? "annual" : "monthly";
       }
 
@@ -119,9 +131,9 @@ export function useSubscription(userId: string | undefined) {
     queuePriority: planConfig.queuePriority,
     shareLinksPerMonth: planConfig.shareLinksPerMonth,
     minutesNeverReset: planConfig.minutesNeverReset,
+    // New: cancel scheduling — paid plan with cancel scheduled but still active until periodEnd
     cancelAtPeriodEnd: state.cancelAtPeriodEnd,
     isCanceledButActive: (state.plan === "pro" || state.plan === "studio") && state.cancelAtPeriodEnd,
     periodEnd: state.periodEnd,
-    currentBilling: state.currentBilling,
   };
 }

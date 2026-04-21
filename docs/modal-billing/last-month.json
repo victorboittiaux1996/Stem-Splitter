@@ -1,0 +1,205 @@
+[
+  {
+    "Object ID": "ap-tWF8hmB2tAxyNlT6yzU9SD",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.50452542"
+  },
+  {
+    "Object ID": "ap-tWF8hmB2tAxyNlT6yzU9SD",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-22T00:00:00",
+    "Cost": "0.04932931"
+  },
+  {
+    "Object ID": "ap-tWF8hmB2tAxyNlT6yzU9SD",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-26T00:00:00",
+    "Cost": "0.48614560"
+  },
+  {
+    "Object ID": "ap-tWF8hmB2tAxyNlT6yzU9SD",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-27T00:00:00",
+    "Cost": "3.02298310"
+  },
+  {
+    "Object ID": "ap-tWF8hmB2tAxyNlT6yzU9SD",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-30T00:00:00",
+    "Cost": "3.51367365"
+  },
+  {
+    "Object ID": "ap-tWF8hmB2tAxyNlT6yzU9SD",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-31T00:00:00",
+    "Cost": "0.46212245"
+  },
+  {
+    "Object ID": "ap-0L8ZNGfwqEimCheWkPUJ0j",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.02924745"
+  },
+  {
+    "Object ID": "ap-13rIPqPuRKTMzGe8k1ttI0",
+    "Description": "stem-splitter-best",
+    "Environment": "main",
+    "Interval Start": "2026-03-22T00:00:00",
+    "Cost": "0.05520452"
+  },
+  {
+    "Object ID": "ap-8CJNuK80CpDJBghySrfASc",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.05186465"
+  },
+  {
+    "Object ID": "ap-9taZCkzwJkaGmnPhjZP04b",
+    "Description": "stem-splitter-gpu-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.28980552"
+  },
+  {
+    "Object ID": "ap-BFRqNqinqUEF10SK40mFY1",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.03101529"
+  },
+  {
+    "Object ID": "ap-GaD6oItx02jrBQHbyT1FiZ",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.02207680"
+  },
+  {
+    "Object ID": "ap-HvsG1O1s1wVL9nfowU2nff",
+    "Description": "stem-splitter-best",
+    "Environment": "main",
+    "Interval Start": "2026-03-23T00:00:00",
+    "Cost": "0.08465018"
+  },
+  {
+    "Object ID": "ap-I9ZMGM3UDWEs18qEmOiUb9",
+    "Description": "stem-splitter-24bit-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-30T00:00:00",
+    "Cost": "0.05767511"
+  },
+  {
+    "Object ID": "ap-N0aEud0uQDrarLPAG2mPa3",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.04689908"
+  },
+  {
+    "Object ID": "ap-OGZBPNMskUYMfc7NxH3JFJ",
+    "Description": "stem-splitter-best",
+    "Environment": "main",
+    "Interval Start": "2026-03-22T00:00:00",
+    "Cost": "0.04702613"
+  },
+  {
+    "Object ID": "ap-OuIgZZFkSQQlxRfTBlV7y1",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.03173102"
+  },
+  {
+    "Object ID": "ap-SabmGzL6vduDLcqgFzGfq8",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.03169918"
+  },
+  {
+    "Object ID": "ap-Udic7TLeONjhPGNGUL9Xae",
+    "Description": "stem-splitter-best",
+    "Environment": "main",
+    "Interval Start": "2026-03-22T00:00:00",
+    "Cost": "0.04101755"
+  },
+  {
+    "Object ID": "ap-XV7hGag3vRz9T9UMw9vFwv",
+    "Description": "stem-splitter-overlap-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-30T00:00:00",
+    "Cost": "0.20728322"
+  },
+  {
+    "Object ID": "ap-ZXXI4fj5CJBfb0ukwy2J5I",
+    "Description": "stem-splitter-ab-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.07557518"
+  },
+  {
+    "Object ID": "ap-aMjijQD9kuFS18NHVQGRXf",
+    "Description": "kessin-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.01987046"
+  },
+  {
+    "Object ID": "ap-bBxD1FbzhpflVL0crktjr4",
+    "Description": "stem-splitter-overlap-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-30T00:00:00",
+    "Cost": "0.09634205"
+  },
+  {
+    "Object ID": "ap-gaLz0GLfUctCN4IElmnhW2",
+    "Description": "stem-splitter-best",
+    "Environment": "main",
+    "Interval Start": "2026-03-22T00:00:00",
+    "Cost": "0.04844974"
+  },
+  {
+    "Object ID": "ap-iP6wtlfTdoYsYm1bnUI6df",
+    "Description": "stem-splitter",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.00307724"
+  },
+  {
+    "Object ID": "ap-sTY83Bcih2VGPYTMxzNbfj",
+    "Description": "stem-splitter-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.02107907"
+  },
+  {
+    "Object ID": "ap-szJdCphrpVAUTh2nS8HgF0",
+    "Description": "stem-splitter-ab-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.00253914"
+  },
+  {
+    "Object ID": "ap-xGYtjvDz50M73dlC4brcDc",
+    "Description": "stem-splitter-best",
+    "Environment": "main",
+    "Interval Start": "2026-03-24T00:00:00",
+    "Cost": "0.09362009"
+  },
+  {
+    "Object ID": "ap-xTo3GSssk3OhNviKiuUMA1",
+    "Description": "stem-splitter-ab-test",
+    "Environment": "main",
+    "Interval Start": "2026-03-21T00:00:00",
+    "Cost": "0.07116470"
+  }
+]

@@ -103,6 +103,178 @@ function Toggle({ on, C }: { on: boolean; C: C }) {
   );
 }
 
+// ─── Subscription management card ───
+// In-app Cancel/Resume button (matches Claude/Notion/Netflix UX — users expect
+// to cancel without being punted to a third-party portal). Portal link is kept
+// for everything else (payment method update, invoice download, plan changes).
+function SubscriptionCard({
+  C,
+  planLabel,
+  rolloverMinutes,
+  isCanceledButActive,
+  periodEnd,
+  onPlanChanged,
+}: {
+  C: AccountViewProps["C"];
+  planLabel?: string;
+  rolloverMinutes?: number;
+  isCanceledButActive?: boolean;
+  periodEnd?: string | null;
+  onPlanChanged?: () => void;
+}) {
+  const [cancelLoading, setCancelLoading] = React.useState(false);
+  const [pending, setPending] = React.useState<{ plan: "free" | "pro" | "studio"; appliesAt: string } | null>(null);
+
+  // Fetch pending plan change (scheduled via Polar portal, e.g. a downgrade)
+  React.useEffect(() => {
+    let canceled = false;
+    fetch("/api/subscription/pending")
+      .then((r) => r.json())
+      .then((d) => { if (!canceled) setPending(d.pending ?? null); })
+      .catch(() => {});
+    return () => { canceled = true; };
+  }, []);
+
+  const endDateStr = periodEnd ? new Date(periodEnd).toLocaleDateString() : "the end of your current billing period";
+  const rolloverMsg = (rolloverMinutes ?? 0) > 0
+    ? `You'll lose ${(rolloverMinutes ?? 0).toFixed(0)} rollover minutes and drop to Free (10 min/month) after ${endDateStr}.`
+    : `You'll drop to Free (10 min/month) after ${endDateStr}.`;
+
+  const handleCancel = async () => {
+    if (!confirm(`Cancel your ${planLabel ?? "subscription"}?\n\nYou'll keep access until ${endDateStr}. ${rolloverMsg}`)) return;
+    setCancelLoading(true);
+    try {
+      const res = await fetch("/api/subscription/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Canceled. Access continues until ${endDateStr}.`);
+        window.dispatchEvent(new CustomEvent("usage-updated"));
+        onPlanChanged?.();
+      } else {
+        toast.error(data.error || "Failed to cancel");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setCancelLoading(true);
+    try {
+      const res = await fetch("/api/subscription/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success("Subscription resumed.");
+        window.dispatchEvent(new CustomEvent("usage-updated"));
+        onPlanChanged?.();
+      } else {
+        toast.error(data.error || "Failed to resume");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const openPortal = async () => {
+    try {
+      const res = await fetch("/api/portal", { method: "POST" });
+      const data = await res.json();
+      if (data.url) window.open(data.url, "_blank");
+    } catch {}
+  };
+
+  return (
+    <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
+      <SectionHeading C={C}>Subscription</SectionHeading>
+
+      {isCanceledButActive && periodEnd && (
+        <div style={{ backgroundColor: "#FF6B0015", padding: "10px 14px", marginTop: 6, marginBottom: 14, borderLeft: "3px solid #FF6B00" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B00", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
+            Subscription ending on {endDateStr}
+          </div>
+          <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+            You&apos;ll keep {planLabel} access until then. {rolloverMsg}
+          </div>
+        </div>
+      )}
+
+      {/* Pending plan change (e.g. user scheduled a downgrade via Polar portal) */}
+      {!isCanceledButActive && pending && (
+        <div style={{ backgroundColor: `${C.accent}15`, padding: "10px 14px", marginTop: 6, marginBottom: 14, borderLeft: `3px solid ${C.accent}` }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
+            Plan change scheduled
+          </div>
+          <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+            Your plan will change to <strong>{pending.plan === "free" ? "Free" : pending.plan === "pro" ? "Pro" : "Studio"}</strong> on {new Date(pending.appliesAt).toLocaleDateString()}. Until then you keep your current {planLabel} access.
+            {pending.plan !== "free" && rolloverMinutes !== undefined && rolloverMinutes > 0
+              ? ` Any rollover minutes above the new plan quota will be forfeited at the switch.`
+              : ""}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
+        <div style={{ fontSize: 13, color: C.textMuted }}>
+          {isCanceledButActive ? "Resume to continue your plan" : "Cancel at the end of your billing period"}
+        </div>
+        {isCanceledButActive ? (
+          <button
+            onClick={() => { void handleResume(); }}
+            disabled={cancelLoading}
+            style={{
+              fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent,
+              cursor: cancelLoading ? "not-allowed" : "pointer",
+              background: "none", border: "none", padding: 0,
+              opacity: cancelLoading ? 0.5 : 1,
+            }}
+          >
+            {cancelLoading ? "…" : "RESUME SUBSCRIPTION"}
+          </button>
+        ) : (
+          <button
+            onClick={() => { void handleCancel(); }}
+            disabled={cancelLoading}
+            style={{
+              fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.textMuted,
+              cursor: cancelLoading ? "not-allowed" : "pointer",
+              background: "none", border: "none", padding: 0,
+              opacity: cancelLoading ? 0.5 : 1,
+            }}
+          >
+            {cancelLoading ? "Canceling…" : "CANCEL SUBSCRIPTION"}
+          </button>
+        )}
+      </div>
+
+      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "14px 0" }} />
+
+      <div className="flex items-center justify-between">
+        <div style={{ fontSize: 13, color: C.textMuted }}>
+          Update payment method, switch billing cycle, or view invoices
+        </div>
+        <button
+          onClick={() => { void openPortal(); }}
+          style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer", background: "none", border: "none", padding: 0 }}
+        >
+          MANAGE BILLING →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Billing history card — lists Polar invoices ───
 interface Invoice {
   id: string;
@@ -203,11 +375,14 @@ const planAccents: Record<PlanId, { label: string; color: string }> = {
 
 const PLAN_ORDER: PlanId[] = ["free", "pro", "studio"];
 
-function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: {
+function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, periodEnd, currentBilling, onSectionChange, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: {
   C: AccountViewProps["C"];
   planLabel?: string;
   isPro?: boolean;
   minutesIncluded?: number;
+  isCanceledButActive?: boolean;
+  periodEnd?: string | null;
+  currentBilling?: "monthly" | "annual";
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   onSectionChange: (s: SettingsSection) => void;
   onPlanChanged?: () => void;
@@ -216,7 +391,6 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
 }) {
   const [annual, setAnnual] = React.useState(false);
   const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
-  const [cancelLoading, setCancelLoading] = React.useState(false);
   const [redirectingPlan, setRedirectingPlan] = React.useState<PlanId | null>(null);
 
   // Reset the "Redirecting…" state when the page is restored from the browser
@@ -281,30 +455,6 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
     setModalTarget({ plan, billing });
   };
 
-  const handleCancel = async () => {
-    if (!confirm("Cancel your subscription? You'll keep access until the end of your current billing period.")) return;
-    setCancelLoading(true);
-    try {
-      const res = await fetch("/api/subscription/change", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel" }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        toast.success("Subscription canceled. Access continues until period end.");
-        window.dispatchEvent(new CustomEvent("usage-updated"));
-        onPlanChanged?.();
-      } else {
-        toast.error(data.error || "Failed to cancel");
-      }
-    } catch {
-      toast.error("Something went wrong");
-    } finally {
-      setCancelLoading(false);
-    }
-  };
-
   return (
     <div>
       {/* Current plan card */}
@@ -319,6 +469,11 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
               </span>
             </div>
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{minutesIncluded} min / month</div>
+            {isCanceledButActive && periodEnd && (
+              <div style={{ fontSize: 11, color: C.accent, marginTop: 6, fontWeight: 600 }}>
+                Ends on {new Date(periodEnd).toLocaleDateString()}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -358,29 +513,50 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
           const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
           const period = id === "free" ? "forever" : "/mo";
 
-          // CTA logic — adaptive based on user's current plan
+          // CTA logic — adaptive based on user's current plan AND the toggle state.
+          // - Free card for paid users: disabled placeholder (keeps layout consistent).
+          // - Current plan card: "Current plan" disabled IF toggle matches user's billing,
+          //   else "Switch to monthly/annual" to change billing period.
+          // - Higher-tier cards: "Get"/"Upgrade to X" (clickable).
+          // - Lower-tier cards: disabled placeholder. Downgrading is handled via the
+          //   Polar portal (MANAGE SUBSCRIPTION), not the pricing grid.
+          const toggleBilling: "monthly" | "annual" = annual ? "annual" : "monthly";
           let ctaLabel: string | null = null;
-          let ctaAction: "upgrade" | "downgrade" | "current" | "cancel" | "get" | null = null;
+          let ctaAction: "upgrade" | "current" | "get" | null = null;
           if (id === "free") {
-            if (currentPlan !== "free") {
-              ctaLabel = "Cancel subscription";
-              ctaAction = "cancel";
-            } else {
+            if (currentPlan === "free") {
               ctaLabel = "Current plan";
               ctaAction = "current";
+            } else {
+              // Paid user viewing Free card: disabled placeholder rendered below.
+              ctaLabel = null;
+              ctaAction = null;
             }
           } else if (isCurrent) {
-            // id is "pro" | "studio" here — allow billing period switch
-            ctaLabel = annual ? "Switch to annual" : "Switch to monthly";
-            ctaAction = "upgrade";
+            if (toggleBilling === currentBilling) {
+              ctaLabel = "Current plan";
+              ctaAction = "current";
+            } else if (toggleBilling === "annual") {
+              // Monthly → annual on same plan is an upgrade (commits to a year,
+              // saves 30%). Allowed from the pricing grid.
+              ctaLabel = "Switch to annual";
+              ctaAction = "upgrade";
+            } else {
+              // Annual → monthly on same plan is a downgrade in commitment/cost
+              // structure. Per UX rules: downgrades happen via the Polar portal
+              // (MANAGE SUBSCRIPTION), not the pricing grid. Render a placeholder.
+              ctaLabel = null;
+              ctaAction = null;
+            }
           } else if (canUpgrade) {
             ctaLabel = currentPlan === "free" ? `Get ${accent.label}` : `Upgrade to ${accent.label}`;
             ctaAction = currentPlan === "free" ? "get" : "upgrade";
           } else {
-            ctaLabel = `Downgrade to ${accent.label}`;
-            ctaAction = "downgrade";
+            // Lower tier than current: no CTA here. Downgrade via billing portal.
+            ctaLabel = null;
+            ctaAction = null;
           }
-          const isClickable = ctaAction === "upgrade" || ctaAction === "downgrade" || ctaAction === "get" || ctaAction === "cancel";
+          const isClickable = ctaAction === "upgrade" || ctaAction === "get";
 
           return (
             <div
@@ -418,17 +594,11 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
                 )}
               </div>
 
-              {/* CTA Button */}
-              {ctaLabel && (
+              {/* CTA Button (or invisible placeholder for layout parity) */}
+              {ctaLabel ? (
                 <button
-                  onClick={
-                    !isClickable
-                      ? undefined
-                      : ctaAction === "cancel"
-                      ? () => { void handleCancel(); }
-                      : () => openChange(id)
-                  }
-                  disabled={!isClickable || (ctaAction === "cancel" && cancelLoading) || redirectingPlan !== null}
+                  onClick={!isClickable ? undefined : () => openChange(id)}
+                  disabled={!isClickable || redirectingPlan !== null}
                   style={{
                     width: "100%",
                     padding: "10px 0",
@@ -440,21 +610,37 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
                     border: "none",
                     backgroundColor:
                       ctaAction === "upgrade" || ctaAction === "get" ? accent.color :
-                      ctaAction === "downgrade" || ctaAction === "cancel" ? C.bgHover :
                       C.bgHover,
                     color:
                       ctaAction === "upgrade" || ctaAction === "get" ? "#FFFFFF" :
-                      ctaAction === "downgrade" || ctaAction === "cancel" ? C.text :
                       C.textMuted,
-                    opacity: ctaAction === "cancel" && cancelLoading ? 0.5 : 1,
                     transition: "opacity 0.15s",
                   }}
                 >
-                  {ctaAction === "cancel" && cancelLoading
-                    ? "Canceling…"
-                    : redirectingPlan === id && (ctaAction === "get" || ctaAction === "upgrade")
+                  {redirectingPlan === id && (ctaAction === "get" || ctaAction === "upgrade")
                     ? "Redirecting…"
                     : ctaLabel}
+                </button>
+              ) : (
+                // Visible disabled placeholder for layout parity (Victor's requirement:
+                // grey box same as other CTAs but non-clickable, no cancel wording).
+                <button
+                  disabled
+                  style={{
+                    width: "100%",
+                    padding: "10px 0",
+                    marginBottom: 20,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: "0.02em",
+                    cursor: "default",
+                    border: "none",
+                    backgroundColor: C.bgHover,
+                    color: C.textMuted,
+                    opacity: 0.6,
+                  }}
+                >
+                  —
                 </button>
               )}
 
@@ -503,7 +689,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, isCanceledButActive = false, periodEnd = null, currentBilling = "monthly", onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
   const effectiveMinutes = minutesAvailable ?? minutesIncluded;
   const memberSince = createdAt
     ? new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
@@ -723,24 +909,14 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
 
             {/* Subscription management card — only for paying users */}
             {isPro && (
-              <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-                <SectionHeading C={C}>Subscription</SectionHeading>
-                <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
-                  <div style={{ fontSize: 13, color: C.textMuted }}>Update payment method</div>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const res = await fetch("/api/portal", { method: "POST" });
-                        const data = await res.json();
-                        if (data.url) window.open(data.url, "_blank");
-                      } catch {}
-                    }}
-                    style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer" }}
-                  >
-                    MANAGE PAYMENT →
-                  </button>
-                </div>
-              </div>
+              <SubscriptionCard
+                C={C}
+                planLabel={planLabel}
+                rolloverMinutes={rolloverMinutes}
+                isCanceledButActive={isCanceledButActive}
+                periodEnd={periodEnd}
+                onPlanChanged={onPlanChanged}
+              />
             )}
 
             {/* Billing history — invoices from Polar */}
@@ -793,7 +969,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             PLANS & PRICING
            ══════════════════════════════════════════════════════ */}
         {section === "subscription" && (
-          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} onUpgrade={onUpgrade} onSectionChange={onSectionChange} onPlanChanged={onPlanChanged} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={onConsumePendingPlanChange} />
+          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} isCanceledButActive={isCanceledButActive} periodEnd={periodEnd} currentBilling={currentBilling} onUpgrade={onUpgrade} onSectionChange={onSectionChange} onPlanChanged={onPlanChanged} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={onConsumePendingPlanChange} />
         )}
 
         {/* ══════════════════════════════════════════════════════
