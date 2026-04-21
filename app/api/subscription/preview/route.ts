@@ -46,11 +46,12 @@ export async function POST(req: NextRequest) {
 
     const { data: sub } = await supabaseAdmin
       .from("subscriptions")
-      .select("plan, status, period_start, current_period_end, stripe_subscription_id")
+      .select("plan, status, period_start, current_period_end, stripe_subscription_id, cancel_at_period_end")
       .eq("user_id", user.id)
       .maybeSingle();
 
     const currentPlan = (sub?.status === "active" ? (sub?.plan as PlanId) : "free") ?? "free";
+    const isCanceledButActive = sub?.status === "active" && sub?.cancel_at_period_end === true;
     const targetPlan = body.plan;
     const targetBilling = body.billing;
     const targetProductId = getProductId(targetPlan, targetBilling);
@@ -109,6 +110,24 @@ export async function POST(req: NextRequest) {
     const displayCurrency = targetCurrency;
 
     if (currentPlan === targetPlan && currentBilling === targetBilling) {
+      // Same plan + same billing: normally "same" (no-op). But if user has canceled
+      // at period end, the right action is "resume" — they can keep this plan by
+      // unscheduling the cancel. No prorated charge, no credit.
+      if (isCanceledButActive) {
+        return NextResponse.json({
+          kind: "resume" as ChangeKind,
+          currentPlan,
+          currentBilling,
+          targetPlan,
+          targetBilling,
+          creditMajor: 0,
+          chargeMajor: 0,
+          netMajor: 0,
+          perPeriodMajor: toMajor(targetAmountMinor),
+          currency: displayCurrency,
+          notice: "Your subscription will continue without interruption.",
+        });
+      }
       return NextResponse.json({
         kind: "same" as ChangeKind,
         currentPlan,

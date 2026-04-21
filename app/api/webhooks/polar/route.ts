@@ -18,16 +18,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
+  // Idempotency guard: Polar retries with backoff and may deliver out of order.
+  // Insert event_id first — if it already exists (unique violation), skip. This
+  // means late retries of an older event do not overwrite newer state.
+  const eventId = (event as { id?: string } | null)?.id;
+  if (eventId) {
+    const { error: dedupeErr } = await supabaseAdmin
+      .from("webhook_events")
+      .insert({ event_id: eventId, event_type: event.type });
+    if (dedupeErr) {
+      // 23505 = unique_violation in Postgres. Any other error is unexpected; log
+      // and continue rather than block the webhook entirely.
+      const code = (dedupeErr as { code?: string }).code;
+      if (code === "23505") {
+        return NextResponse.json({ received: true, deduped: true }, { status: 202 });
+      }
+      console.error("Webhook dedupe insert failed (continuing):", dedupeErr);
+    }
+  }
+
   try {
     switch (event.type) {
       case "subscription.created":
       case "subscription.updated":
-      case "subscription.active": {
+      case "subscription.active":
+      case "subscription.canceled":
+      case "subscription.uncanceled": {
+        // subscription.canceled fires when user schedules cancel. Polar keeps
+        // status="active" until endsAt is reached. We persist cancelAtPeriodEnd
+        // so the app can render "canceled, ends on X" without losing access.
+        // subscription.uncanceled fires when user resumes before period end.
         const sub = event.data;
         const email = sub.customer?.email;
         if (!email) break;
 
-        // Find the Supabase user by email
         const userId = await findUserByEmail(email);
         if (!userId) {
           console.error("Polar webhook: no user found for email", email, "— returning 500 so Polar retries");
@@ -51,6 +75,7 @@ export async function POST(req: NextRequest) {
               user_id: userId,
               plan,
               status: sub.status === "active" ? "active" : sub.status,
+              cancel_at_period_end: sub.cancelAtPeriodEnd === true,
               stripe_customer_id: sub.customer?.id ?? null,
               stripe_subscription_id: sub.id,
               current_period_end: periodEnd,
@@ -62,8 +87,9 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      case "subscription.canceled":
       case "subscription.revoked": {
+        // subscription.revoked fires when access is actually removed (at endsAt,
+        // or immediately on hard revoke / unpaid). This is the terminal state.
         const sub = event.data;
         const email = sub.customer?.email;
         if (!email) break;
@@ -77,7 +103,8 @@ export async function POST(req: NextRequest) {
         await supabaseAdmin
           .from("subscriptions")
           .update({
-            status: "canceled", // both canceled and revoked map to "canceled" (DB CHECK constraint)
+            status: "canceled",
+            cancel_at_period_end: false,
             updated_at: new Date().toISOString(),
           })
           .eq("user_id", userId);

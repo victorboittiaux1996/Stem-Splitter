@@ -30,6 +30,8 @@ interface AccountViewProps {
   remainingFormatted?: string;
   usagePercent?: number;
   daysUntilReset?: number;
+  isCanceledButActive?: boolean;
+  periodEnd?: string | null;
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   displayName?: string;
   email?: string;
@@ -200,11 +202,13 @@ const planAccents: Record<PlanId, { label: string; color: string }> = {
 
 const PLAN_ORDER: PlanId[] = ["free", "pro", "studio"];
 
-function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: {
+function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, periodEnd, onSectionChange, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: {
   C: AccountViewProps["C"];
   planLabel?: string;
   isPro?: boolean;
   minutesIncluded?: number;
+  isCanceledButActive?: boolean;
+  periodEnd?: string | null;
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   onSectionChange: (s: SettingsSection) => void;
   onPlanChanged?: () => void;
@@ -293,6 +297,29 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
     }
   };
 
+  const handleResume = async () => {
+    setCancelLoading(true);
+    try {
+      const res = await fetch("/api/subscription/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success("Subscription resumed.");
+        window.dispatchEvent(new CustomEvent("usage-updated"));
+        onPlanChanged?.();
+      } else {
+        toast.error(data.error || "Failed to resume");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
   return (
     <div>
       {/* Current plan card */}
@@ -307,7 +334,40 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
               </span>
             </div>
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{minutesIncluded} min / month</div>
+            {isCanceledButActive && periodEnd && (
+              <div style={{ fontSize: 11, color: C.accent, marginTop: 6, fontWeight: 600 }}>
+                Ends on {new Date(periodEnd).toLocaleDateString()}
+              </div>
+            )}
           </div>
+          {currentPlan !== "free" && (
+            isCanceledButActive ? (
+              <button
+                onClick={() => { void handleResume(); }}
+                disabled={cancelLoading}
+                style={{
+                  background: "none", border: `1px solid ${C.accent}`, padding: "6px 12px",
+                  fontSize: 12, fontWeight: 600, color: C.accent,
+                  cursor: cancelLoading ? "not-allowed" : "pointer",
+                  opacity: cancelLoading ? 0.5 : 1,
+                }}
+              >
+                {cancelLoading ? "…" : "Resume subscription"}
+              </button>
+            ) : (
+              <button
+                onClick={() => { void handleCancel(); }}
+                disabled={cancelLoading}
+                style={{
+                  background: "none", border: "none", padding: 0,
+                  fontSize: 12, color: C.textMuted, cursor: cancelLoading ? "not-allowed" : "pointer",
+                  textDecoration: "underline", opacity: cancelLoading ? 0.5 : 1,
+                }}
+              >
+                {cancelLoading ? "Canceling…" : "Cancel subscription"}
+              </button>
+            )
+          )}
         </div>
       </div>
 
@@ -491,7 +551,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, onSectionChange, onPla
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, isCanceledButActive = false, periodEnd = null, onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
   const effectiveMinutes = minutesAvailable ?? minutesIncluded;
   const memberSince = createdAt
     ? new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
@@ -781,7 +841,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             PLANS & PRICING
            ══════════════════════════════════════════════════════ */}
         {section === "subscription" && (
-          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} onUpgrade={onUpgrade} onSectionChange={onSectionChange} onPlanChanged={onPlanChanged} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={onConsumePendingPlanChange} />
+          <PlansAndPricing C={C} planLabel={planLabel} isPro={isPro} minutesIncluded={minutesIncluded} isCanceledButActive={isCanceledButActive} periodEnd={periodEnd} onUpgrade={onUpgrade} onSectionChange={onSectionChange} onPlanChanged={onPlanChanged} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={onConsumePendingPlanChange} />
         )}
 
         {/* ══════════════════════════════════════════════════════
