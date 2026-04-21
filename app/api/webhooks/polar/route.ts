@@ -18,22 +18,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
-  // Idempotency guard: Polar retries with backoff and may deliver out of order.
-  // Insert event_id first — if it already exists (unique violation), skip. This
-  // means late retries of an older event do not overwrite newer state.
+  // Idempotency guard: check if we've already processed this event_id. We
+  // insert AFTER successful processing (bottom of this function), not before,
+  // so a handler that throws doesn't lock us out of legitimate Polar retries.
+  // Our handlers are idempotent (upsert by user_id + stale-write guard), so
+  // the occasional duplicate replay is a no-op.
   const eventId = (event as { id?: string } | null)?.id;
   if (eventId) {
-    const { error: dedupeErr } = await supabaseAdmin
+    const { data: seen } = await supabaseAdmin
       .from("webhook_events")
-      .insert({ event_id: eventId, event_type: event.type });
-    if (dedupeErr) {
-      // 23505 = unique_violation in Postgres. Any other error is unexpected; log
-      // and continue rather than block the webhook entirely.
-      const code = (dedupeErr as { code?: string }).code;
-      if (code === "23505") {
-        return NextResponse.json({ received: true, deduped: true }, { status: 202 });
-      }
-      console.error("Webhook dedupe insert failed (continuing):", dedupeErr);
+      .select("event_id")
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (seen) {
+      return NextResponse.json({ received: true, deduped: true }, { status: 202 });
     }
   }
 
@@ -187,6 +185,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Handler succeeded — record the event_id so future retries of this exact
+    // event are short-circuited at the top. Best-effort: if this insert fails
+    // (race with a concurrent delivery), we just accept that the next retry
+    // will re-process — safe because handlers are idempotent.
+    if (eventId) {
+      await supabaseAdmin
+        .from("webhook_events")
+        .insert({ event_id: eventId, event_type: event.type })
+        .then(({ error }) => {
+          if (error && (error as { code?: string }).code !== "23505") {
+            console.error("Webhook post-processing dedupe insert failed:", error);
+          }
+        });
+    }
+
     return NextResponse.json({ received: true }, { status: 202 });
   } catch (error) {
     console.error("Webhook handler error:", error);
@@ -223,13 +236,29 @@ async function resolveUserForSub(sub: {
   if (externalId) {
     const { data } = await supabaseAdmin
       .from("profiles")
-      .select("id")
+      .select("id, email")
       .eq("id", externalId)
       .maybeSingle();
-    if (data?.id) return data.id;
-    // externalId was forged or points to a deleted user. Don't silently fall
-    // through to email match — that's exactly the hijack vector we're closing.
-    return null;
+    if (data?.id) {
+      // Defense in depth: when an externalId is present, also verify the
+      // email on record matches what Polar sent. Protects against a forged
+      // externalCustomerId referencing an unrelated victim's user_id.
+      if (
+        email &&
+        typeof data.email === "string" &&
+        data.email.toLowerCase() !== email
+      ) {
+        console.error(
+          `Polar webhook: externalId ${externalId} → user ${data.id} but profile email ${data.email} ≠ event email ${email}. Refusing.`,
+        );
+        return null;
+      }
+      return data.id;
+    }
+    // Legacy customer with a stale externalId (e.g. Supabase user was deleted
+    // and re-created with a new UUID, or an old checkout wrote a user_id that
+    // no longer exists). Fall through to Path 2/3 — Path 3 has its own hijack
+    // guard, so we don't weaken security by continuing.
   }
 
   // Path 2 — Polar customer already linked in our DB.

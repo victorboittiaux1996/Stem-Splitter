@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
     let currentCurrency = targetCurrency;
     let currentCustomerId: string | null = null;
     let currentDiscountPct = 0; // 0..1, e.g. 0.9 for 90% off
+    let currentDiscountFixedMinor = 0; // Fixed-amount discount (alternative to pct)
     // Polar period boundaries (to the second) — matches the server-side proration
     // factor. Falls back to DB YYYY-MM-DD dates if the API call fails.
     let polarPeriodStartMs: number | null = null;
@@ -125,9 +126,31 @@ export async function POST(req: NextRequest) {
           try {
             const discount = await polar.discounts.get({ id: discountId });
             const type = (discount as { type?: string }).type;
-            const basisPoints = (discount as { basisPoints?: number }).basisPoints;
-            if (type === "percentage" && typeof basisPoints === "number") {
-              currentDiscountPct = Math.max(0, Math.min(1, basisPoints / 10000));
+            const products = (discount as { products?: Array<{ id?: string }> | null }).products;
+
+            // Product scope check. Per Polar docs: "By default the discount can
+            // be applied to all products" — so an empty/null products array
+            // means global scope. If products are listed, the discount only
+            // applies when the target product is in the list. This is exactly
+            // how Polar's server enforces it — mimic to avoid a preview that
+            // assumes a discount Polar won't actually honor.
+            const appliesToTarget =
+              !products ||
+              products.length === 0 ||
+              products.some((p) => p?.id === targetProductId);
+
+            if (appliesToTarget) {
+              if (type === "percentage") {
+                const basisPoints = (discount as { basisPoints?: number }).basisPoints;
+                if (typeof basisPoints === "number") {
+                  currentDiscountPct = Math.max(0, Math.min(1, basisPoints / 10000));
+                }
+              } else if (type === "fixed") {
+                const amt = (discount as { amount?: number }).amount;
+                if (typeof amt === "number" && amt > 0) {
+                  currentDiscountFixedMinor = amt;
+                }
+              }
             }
           } catch {
             // Discount removed / not accessible — continue without it.
@@ -275,12 +298,14 @@ export async function POST(req: NextRequest) {
     const newCycleRatio = kind === "billing_switch" ? 1.0 : ratio;
     const creditMinor = Math.round(creditBaseMinor * ratio);
     const chargeBaseMinor = targetAmountMinor;
-    const chargeDiscountMinor = Math.round(chargeBaseMinor * currentDiscountPct);
+    // Prefer percentage discount; fall back to fixed amount (clamped to base).
+    const chargeDiscountMinor = currentDiscountPct > 0
+      ? Math.round(chargeBaseMinor * currentDiscountPct)
+      : Math.min(currentDiscountFixedMinor, chargeBaseMinor);
     const chargeAfterDiscountMinor = chargeBaseMinor - chargeDiscountMinor;
     const chargeMinor = Math.round(chargeAfterDiscountMinor * newCycleRatio);
     const netMinor = chargeMinor - creditMinor;
     const taxMinor = vatKnown ? Math.max(0, Math.round(netMinor * vatRate)) : 0;
-    const totalMinor = netMinor + taxMinor;
 
     // Minutes warning for downgrade: if the user's current rollover + used balance
     // exceeds the new plan quota, minutes above the cap will be forfeited (per
