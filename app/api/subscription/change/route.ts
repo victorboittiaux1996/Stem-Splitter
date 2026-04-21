@@ -13,6 +13,7 @@ type Body = {
   plan: PlanId;
   billing: BillingPeriod;
   action?: "change" | "cancel" | "resume";
+  discountId?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
 
     const { data: sub } = await supabaseAdmin
       .from("subscriptions")
-      .select("plan, status, stripe_subscription_id, stripe_customer_id")
+      .select("plan, status, stripe_subscription_id, stripe_customer_id, cancel_at_period_end")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
     const polarSub = await polar.subscriptions.get({ id: sub.stripe_subscription_id });
     const currentProductId = polarSub.product?.id ?? polarSub.productId;
 
-    if (currentProductId === targetProductId) {
+    if (currentProductId === targetProductId && !sub.cancel_at_period_end) {
       return NextResponse.json({ error: "Already on this plan", action: "same" }, { status: 400 });
     }
 
@@ -82,6 +83,33 @@ export async function POST(req: NextRequest) {
       (currentProductId === POLAR_PRODUCTS.studio && targetProductId === POLAR_PRODUCTS.studio_annual) ||
       (currentProductId === POLAR_PRODUCTS.studio_annual && targetProductId === POLAR_PRODUCTS.studio);
 
+    // If user previously canceled but is now changing plan or resuming same plan,
+    // uncancel first. SubscriptionUpdate is a union in the Polar SDK, so resume
+    // (cancelAtPeriodEnd=false) and product change require two sequential calls.
+    if (sub.cancel_at_period_end) {
+      await polar.subscriptions.update({
+        id: sub.stripe_subscription_id,
+        subscriptionUpdate: { cancelAtPeriodEnd: false },
+      });
+    }
+
+    // Same product but user was canceled → just resume, no product change needed.
+    if (currentProductId === targetProductId && sub.cancel_at_period_end) {
+      await supabaseAdmin
+        .from("subscriptions")
+        .update({
+          cancel_at_period_end: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", user.id);
+      return NextResponse.json({
+        ok: true,
+        action: "resumed",
+        plan: body.plan,
+        billing: body.billing,
+      });
+    }
+
     const updated = await polar.subscriptions.update({
       id: sub.stripe_subscription_id,
       subscriptionUpdate: {
@@ -89,6 +117,20 @@ export async function POST(req: NextRequest) {
         prorationBehavior: "invoice",
       },
     });
+
+    // Apply discount separately if provided — SubscriptionUpdate is a union, so product
+    // change and discount application are two separate calls. If the discount call fails
+    // the plan change still stands; we log and continue.
+    if (body.discountId) {
+      try {
+        await polar.subscriptions.update({
+          id: sub.stripe_subscription_id,
+          subscriptionUpdate: { discountId: body.discountId },
+        });
+      } catch (discountErr) {
+        console.error("Failed to apply discount on plan change:", discountErr);
+      }
+    }
 
     // Optimistic DB update from Polar's authoritative response — webhook will re-sync
     // shortly. We write the full set of fields from `updated` to avoid a drift
@@ -100,6 +142,7 @@ export async function POST(req: NextRequest) {
       .update({
         plan: body.plan,
         status: "active",
+        cancel_at_period_end: false,
         updated_at: new Date().toISOString(),
         ...(newPeriodEnd ? { current_period_end: newPeriodEnd } : {}),
         ...(newPeriodStart ? { period_start: newPeriodStart } : {}),
