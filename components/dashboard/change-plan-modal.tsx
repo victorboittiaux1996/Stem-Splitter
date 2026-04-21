@@ -19,6 +19,10 @@ interface Preview {
   creditMajor: number;
   chargeMajor: number;
   netMajor: number;
+  taxMajor?: number;
+  totalMajor?: number;
+  vatRate?: number;
+  vatKnown?: boolean;
   perPeriodMajor: number;
   currency: string;
   subtitle?: string;
@@ -49,25 +53,13 @@ function formatMoney(amount: number, currency: string) {
   }
 }
 
-type DiscountState =
-  | { status: "empty" }
-  | { status: "validating" }
-  | { status: "valid"; discountId: string; percentOff?: number; amountOff?: number }
-  | { status: "invalid"; reason: string };
-
 export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, onSuccess }: Props) {
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
-  const [promoOpen, setPromoOpen] = React.useState(false);
-  const [promoCode, setPromoCode] = React.useState("");
-  const [discount, setDiscount] = React.useState<DiscountState>({ status: "empty" });
   React.useEffect(() => {
     if (!open || !targetPlan) {
       setPreview(null);
-      setPromoOpen(false);
-      setPromoCode("");
-      setDiscount({ status: "empty" });
       return;
     }
     setLoading(true);
@@ -94,37 +86,9 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
   if (!targetPlan) return null;
 
-  const validatePromo = async () => {
-    const code = promoCode.trim();
-    if (!code) return;
-    setDiscount({ status: "validating" });
-    try {
-      const res = await fetch("/api/polar/validate-discount", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json();
-      if (data.valid) {
-        setDiscount({
-          status: "valid",
-          discountId: data.discountId,
-          percentOff: data.percentOff,
-          amountOff: data.amountOff,
-        });
-      } else {
-        setDiscount({ status: "invalid", reason: data.reason ?? "Invalid code" });
-      }
-    } catch {
-      setDiscount({ status: "invalid", reason: "Lookup failed" });
-    }
-  };
-
   const handleConfirm = async () => {
     if (!preview) return;
     setSubmitting(true);
-
-    const discountId = discount.status === "valid" ? discount.discountId : undefined;
 
     // Defensive fallback: free users should not reach this modal, but if they do
     // (e.g. stale pendingPlanChange), redirect to checkout instead of calling the wrong API.
@@ -133,7 +97,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
         const res = await fetch("/api/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan: targetPlan, billing: targetBilling, ...(discountId ? { discountId } : {}) }),
+          body: JSON.stringify({ plan: targetPlan, billing: targetBilling }),
         });
         const data = await res.json();
         if (data.url) { window.location.href = data.url; return; }
@@ -153,7 +117,6 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           plan: targetPlan,
           billing: targetBilling,
           action: "change",
-          ...(discountId ? { discountId } : {}),
         }),
       });
       const data = await res.json();
@@ -223,41 +186,48 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
             {preview && !loading && (
               <>
                 {/* Proration box: only for upgrades and billing switches that pay today.
-                    Downgrades use prorationBehavior:"next_period" (no charge now → box hidden). */}
-                {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (() => {
-                  // Apply promo discount client-side so the total updates instantly when
-                  // the user applies a valid code. Polar will apply the same discount on
-                  // the real invoice via discountId.
-                  const pct = discount.status === "valid" && typeof discount.percentOff === "number" ? discount.percentOff : 0;
-                  const amt = discount.status === "valid" && typeof discount.amountOff === "number" ? discount.amountOff / 100 : 0;
-                  const baseNet = preview.netMajor;
-                  const discountAmount = Math.min(baseNet, baseNet * (pct / 100) + amt);
-                  const finalTotal = Math.max(0, baseNet - discountAmount);
-                  const hasDiscount = discount.status === "valid" && discountAmount > 0;
-                  return (
-                    <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
+                    Downgrades use prorationBehavior:"next_period" (no charge now → box hidden).
+                    Numbers come from the server, which ports Polar's exact proration
+                    formula (server/polar/subscription/update.py) — credit and charge
+                    are post-discount, seconds-level precision, tax derived from the
+                    user's last order. Expected accuracy vs real invoice: ±$0.01. */}
+                {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (
+                  <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
+                    <Row
+                      label={`Credit for unused ${PLANS[preview.currentPlan].label} time${preview.creditIsEstimate ? " (estimate)" : ""}`}
+                      value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
+                      C={C}
+                    />
+                    <Row
+                      label={
+                        preview.kind === "billing_switch"
+                          ? `${targetCfg.label} ${preview.targetBilling === "annual" ? "annual — full year from today" : "monthly — full month from today"}`
+                          : `${targetCfg.label} prorated until period end`
+                      }
+                      value={fmt(preview.chargeMajor)}
+                      C={C}
+                    />
+                    {preview.vatKnown && typeof preview.taxMajor === "number" && preview.taxMajor > 0 && (
                       <Row
-                        label={`Credit for unused ${PLANS[preview.currentPlan].label} time${preview.creditIsEstimate ? " (estimate)" : ""}`}
-                        value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
+                        label={`Tax${typeof preview.vatRate === "number" ? ` (${Math.round(preview.vatRate * 100)}%)` : ""}`}
+                        value={fmt(preview.taxMajor)}
                         C={C}
                       />
-                      <Row
-                        label={
-                          preview.kind === "billing_switch"
-                            ? `${targetCfg.label} ${preview.targetBilling === "annual" ? "annual — full year from today" : "monthly — full month from today"}`
-                            : `${targetCfg.label} prorated until period end`
-                        }
-                        value={fmt(preview.chargeMajor)}
-                        C={C}
-                      />
-                      {hasDiscount && (
-                        <Row label={`Promo code${pct > 0 ? ` (−${pct}%)` : ""}`} value={`−${fmt(discountAmount)}`} C={C} />
-                      )}
-                      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
-                      <Row label="Total today" value={fmt(finalTotal)} C={C} bold />
-                    </div>
-                  );
-                })()}
+                    )}
+                    <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
+                    <Row
+                      label="Total today"
+                      value={fmt(typeof preview.totalMajor === "number" ? preview.totalMajor : preview.netMajor)}
+                      C={C}
+                      bold
+                    />
+                    {!preview.vatKnown && (
+                      <p style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
+                        + tax calculated by Polar at checkout based on your billing address.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Minutes-lost warning for downgrades (Splice-style). Show only if the
                     rounded loss is at least 1 minute — fractional amounts are noise. */}
@@ -272,71 +242,18 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 )}
 
-                <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 12 }}>
+                <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
                   {preview.notice}
                 </p>
 
-                {/* Promo code — collapsed by default. Not shown for resume-only (no charge). */}
-                {preview.kind !== "same" && preview.kind !== "resume" && (
-                  <div style={{ marginBottom: 16 }}>
-                    {!promoOpen ? (
-                      <button
-                        onClick={() => setPromoOpen(true)}
-                        style={{
-                          background: "none", border: "none", padding: 0,
-                          fontSize: 12, color: C.textMuted, cursor: "pointer",
-                          textDecoration: "underline",
-                        }}
-                      >
-                        I have a promo code
-                      </button>
-                    ) : (
-                      <div>
-                        <div className="flex items-center gap-[6px]">
-                          <input
-                            type="text"
-                            value={promoCode}
-                            onChange={(e) => {
-                              setPromoCode(e.target.value);
-                              if (discount.status !== "empty") setDiscount({ status: "empty" });
-                            }}
-                            placeholder="Promo code"
-                            disabled={discount.status === "validating" || submitting}
-                            style={{
-                              flex: 1, padding: "10px 12px", fontSize: 13,
-                              backgroundColor: C.bgSubtle, color: C.text,
-                              border: `1px solid ${C.text}14`,
-                              letterSpacing: "0.05em", textTransform: "uppercase",
-                            }}
-                          />
-                          <button
-                            onClick={() => void validatePromo()}
-                            disabled={!promoCode.trim() || discount.status === "validating" || submitting}
-                            style={{
-                              padding: "10px 14px", fontSize: 12, fontWeight: 600,
-                              backgroundColor: C.bgHover, color: C.text, border: "none",
-                              cursor: (!promoCode.trim() || discount.status === "validating") ? "not-allowed" : "pointer",
-                              opacity: (!promoCode.trim() || discount.status === "validating") ? 0.5 : 1,
-                            }}
-                          >
-                            {discount.status === "validating" ? "…" : "Apply"}
-                          </button>
-                        </div>
-                        {discount.status === "valid" && (
-                          <p style={{ fontSize: 12, color: C.accent, marginTop: 6 }}>
-                            Code applied
-                            {typeof discount.percentOff === "number" ? ` — ${discount.percentOff}% off` : ""}
-                          </p>
-                        )}
-                        {discount.status === "invalid" && (
-                          <p style={{ fontSize: 12, color: "#d44", marginTop: 6 }}>
-                            {discount.reason}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Promo code input intentionally removed from this modal. Per Polar docs
+                    (api-reference/subscriptions/update): "Update the subscription to apply
+                    a new discount... The change will be applied on the next billing cycle."
+                    So a code entered here would NOT reduce today's proration charge —
+                    showing the input was deceptive. Users with an active sub already get
+                    their existing discount applied server-side (reflected in chargeMajor).
+                    New codes can still be applied through the /api/polar/validate-discount
+                    route on initial checkout or a future "apply to next renewal" flow. */}
 
                 <div className="flex items-center gap-[8px]">
                   <button

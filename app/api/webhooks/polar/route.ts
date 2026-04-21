@@ -49,12 +49,20 @@ export async function POST(req: NextRequest) {
         // so the app can render "canceled, ends on X" without losing access.
         // subscription.uncanceled fires when user resumes before period end.
         const sub = event.data;
-        const email = sub.customer?.email;
-        if (!email) break;
 
-        const userId = await findUserByEmail(email);
+        const userId = await resolveUserForSub(sub);
         if (!userId) {
-          console.error("Polar webhook: no user found for email", email, "— returning 500 so Polar retries");
+          console.error(
+            "Polar webhook: could not resolve user for sub",
+            sub.id,
+            "customerId=",
+            sub.customer?.id,
+            "externalId=",
+            sub.customer?.externalId,
+            "email=",
+            sub.customer?.email,
+            "— returning 500 so Polar retries",
+          );
           return NextResponse.json({ error: "User not found" }, { status: 500 });
         }
 
@@ -124,12 +132,14 @@ export async function POST(req: NextRequest) {
         // We reset plan="free" and clear the Polar subscription id so the app
         // treats the user as a fresh Free account going forward.
         const sub = event.data;
-        const email = sub.customer?.email;
-        if (!email) break;
 
-        const userId = await findUserByEmail(email);
+        const userId = await resolveUserForSub(sub);
         if (!userId) {
-          console.error("Polar webhook: no user found for email", email, "— returning 500 so Polar retries");
+          console.error(
+            "Polar webhook revoked: could not resolve user for sub",
+            sub.id,
+            "— returning 500 so Polar retries",
+          );
           return NextResponse.json({ error: "User not found" }, { status: 500 });
         }
 
@@ -184,26 +194,84 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function findUserByEmail(email: string): Promise<string | null> {
-  // Check profiles table first (faster, no admin API needed)
-  const { data } = await supabaseAdmin
+/**
+ * Resolve the Supabase user for an incoming Polar subscription event.
+ *
+ * Priority order (closes the email-hijack vector):
+ *   1. sub.customer.externalId — we set this at checkout creation; it's the
+ *      trusted link. If present but not found in profiles, refuse to fall back.
+ *   2. sub.customer.id matches a subscriptions.stripe_customer_id row — this
+ *      Polar customer is already linked to a Supabase user. Trust the link.
+ *   3. Email match (case-insensitive), but only if the matched user does NOT
+ *      already have a different stripe_customer_id on file. This prevents an
+ *      attacker from registering a Polar account with a victim's email and
+ *      overwriting their paid subscription row.
+ */
+async function resolveUserForSub(sub: {
+  id?: string;
+  customer?: {
+    id?: string | null;
+    email?: string | null;
+    externalId?: string | null;
+  } | null;
+}): Promise<string | null> {
+  const polarCustomerId = sub.customer?.id ?? null;
+  const externalId = sub.customer?.externalId ?? null;
+  const email = sub.customer?.email?.toLowerCase() ?? null;
+
+  // Path 1 — trusted: externalCustomerId set at checkout creation.
+  if (externalId) {
+    const { data } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("id", externalId)
+      .maybeSingle();
+    if (data?.id) return data.id;
+    // externalId was forged or points to a deleted user. Don't silently fall
+    // through to email match — that's exactly the hijack vector we're closing.
+    return null;
+  }
+
+  // Path 2 — Polar customer already linked in our DB.
+  if (polarCustomerId) {
+    const { data: existing } = await supabaseAdmin
+      .from("subscriptions")
+      .select("user_id")
+      .eq("stripe_customer_id", polarCustomerId)
+      .maybeSingle();
+    if (existing?.user_id) return existing.user_id;
+  }
+
+  // Path 3 — email match (first-ever sub, legacy customer).
+  if (!email) return null;
+
+  const { data: userByEmail } = await supabaseAdmin
     .from("profiles")
     .select("id")
-    .eq("email", email)
-    .single();
+    .ilike("email", email)
+    .maybeSingle();
 
-  if (data?.id) return data.id;
+  if (!userByEmail?.id) return null;
 
-  // Fallback: paginate through auth users (only hit if profiles table miss)
-  let page = 1;
-  const perPage = 50;
-  while (true) {
-    const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
-    const users = authData?.users ?? [];
-    const match = users.find((u) => u.email === email);
-    if (match) return match.id;
-    if (users.length < perPage) break;
-    page++;
+  const { data: theirSub } = await supabaseAdmin
+    .from("subscriptions")
+    .select("stripe_customer_id")
+    .eq("user_id", userByEmail.id)
+    .maybeSingle();
+
+  // Hijack guard: if this Supabase user already has a different Polar customer
+  // on file, refuse — don't let a new Polar customer with the same email
+  // overwrite an existing paid subscription link.
+  if (
+    theirSub?.stripe_customer_id &&
+    polarCustomerId &&
+    theirSub.stripe_customer_id !== polarCustomerId
+  ) {
+    console.error(
+      `Polar webhook: email ${email} → user ${userByEmail.id} but their stripe_customer_id ${theirSub.stripe_customer_id} ≠ event ${polarCustomerId}. Refusing to reassign.`,
+    );
+    return null;
   }
-  return null;
+
+  return userByEmail.id;
 }

@@ -91,6 +91,12 @@ export async function POST(req: NextRequest) {
     let currentBilling: BillingPeriod = "monthly";
     let currentAmountMinor = 0;
     let currentCurrency = targetCurrency;
+    let currentCustomerId: string | null = null;
+    let currentDiscountPct = 0; // 0..1, e.g. 0.9 for 90% off
+    // Polar period boundaries (to the second) — matches the server-side proration
+    // factor. Falls back to DB YYYY-MM-DD dates if the API call fails.
+    let polarPeriodStartMs: number | null = null;
+    let polarPeriodEndMs: number | null = null;
     if (sub?.stripe_subscription_id) {
       try {
         const polarSub = await polar.subscriptions.get({ id: sub.stripe_subscription_id });
@@ -99,8 +105,64 @@ export async function POST(req: NextRequest) {
         const cur = polarSub.currency;
         if (typeof amt === "number") currentAmountMinor = amt;
         if (typeof cur === "string") currentCurrency = cur.toUpperCase();
+        currentCustomerId = polarSub.customerId ?? null;
+        if (polarSub.currentPeriodStart) {
+          polarPeriodStartMs = new Date(polarSub.currentPeriodStart).getTime();
+        }
+        if (polarSub.currentPeriodEnd) {
+          polarPeriodEndMs = new Date(polarSub.currentPeriodEnd).getTime();
+        }
+
+        // Read existing discount. Polar's proration formula subtracts the
+        // discount from the base BEFORE multiplying by the proration factor on
+        // both credit and debit lines (verified against polarsource/polar
+        // server/polar/subscription/update.py). Our currentAmountMinor already
+        // reflects the post-discount recurring amount, so for the credit line
+        // we just multiply by ratio. For the charge line we apply the discount
+        // explicitly to the target product's sticker price.
+        const discountId = (polarSub as { discountId?: string | null }).discountId;
+        if (discountId) {
+          try {
+            const discount = await polar.discounts.get({ id: discountId });
+            const type = (discount as { type?: string }).type;
+            const basisPoints = (discount as { basisPoints?: number }).basisPoints;
+            if (type === "percentage" && typeof basisPoints === "number") {
+              currentDiscountPct = Math.max(0, Math.min(1, basisPoints / 10000));
+            }
+          } catch {
+            // Discount removed / not accessible — continue without it.
+          }
+        }
       } catch (err) {
         console.error("Preview: failed to fetch current subscription from Polar", err);
+      }
+    }
+
+    // VAT rate is stable per customer (tied to their billing address, not to the
+    // plan). Derive from the last paid order — that's exactly the rate Polar
+    // will apply to this new invoice. For B2B customers with a valid VAT ID,
+    // tax_amount is 0 → rate 0 → we correctly skip tax.
+    let vatRate = 0;
+    let vatKnown = false;
+    if (currentCustomerId) {
+      try {
+        const orders = await polar.orders.list({ customerId: [currentCustomerId], limit: 3 });
+        const items = (orders as { result?: { items?: Array<unknown> } }).result?.items ?? [];
+        // Pick the first order with a plausible breakdown (netAmount > 0).
+        for (const raw of items) {
+          const o = raw as { netAmount?: number; taxAmount?: number };
+          if (typeof o.netAmount === "number" && typeof o.taxAmount === "number" && o.netAmount > 0) {
+            const rate = o.taxAmount / o.netAmount;
+            // Sanity bounds — real VAT rates are 0–27% (Hungary highest in EU).
+            if (rate >= 0 && rate <= 0.35) {
+              vatRate = rate;
+              vatKnown = true;
+              break;
+            }
+          }
+        }
+      } catch {
+        // Swallow — VAT fallback "+ tax at checkout" is handled in the notice.
       }
     }
     // If Polar didn't give us the current sub amount (rate limit, transient error),
@@ -150,17 +212,25 @@ export async function POST(req: NextRequest) {
     const periodEndStr = sub?.current_period_end ?? null;
     const periodStartStr = sub?.period_start ?? null;
 
-    let daysRemaining = 30;
-    let daysInPeriod = 30;
-    if (periodEndStr && periodStartStr) {
-      const start = new Date(periodStartStr + "T00:00:00").getTime();
+    // Proration factor to the second — matches Polar's server-side math:
+    //   proration_factor = (period_end - now).total_seconds() / (period_end - period_start).total_seconds()
+    // Prefer the Polar subscription's exact timestamps over our DB's date-only
+    // column (periodStartStr is YYYY-MM-DD, which drops sub-day precision).
+    let totalSeconds = 30 * 86400;
+    let remainingSeconds = 30 * 86400;
+    if (polarPeriodStartMs !== null && polarPeriodEndMs !== null) {
+      totalSeconds = Math.max(1, (polarPeriodEndMs - polarPeriodStartMs) / 1000);
+      remainingSeconds = Math.max(0, (polarPeriodEndMs - Date.now()) / 1000);
+    } else if (periodEndStr && periodStartStr) {
+      // Fallback: DB values. UTC to avoid ±1 day TZ slide.
+      const start = new Date(periodStartStr + "T00:00:00Z").getTime();
       const end = new Date(periodEndStr).getTime();
-      const now = Date.now();
-      daysInPeriod = Math.max(1, Math.round((end - start) / 86400000));
-      daysRemaining = Math.max(0, Math.round((end - now) / 86400000));
+      totalSeconds = Math.max(1, (end - start) / 1000);
+      remainingSeconds = Math.max(0, (end - Date.now()) / 1000);
     }
-
-    const ratio = daysInPeriod > 0 ? daysRemaining / daysInPeriod : 0;
+    const ratio = totalSeconds > 0 ? remainingSeconds / totalSeconds : 0;
+    const daysInPeriod = Math.max(1, Math.round(totalSeconds / 86400));
+    const daysRemaining = Math.max(0, Math.round(remainingSeconds / 86400));
 
     // Credit fallback: if Polar didn't return the current sub amount or currencies
     // differ, estimate from the plan config so the modal still shows a breakdown.
@@ -180,19 +250,37 @@ export async function POST(req: NextRequest) {
     else if (planRank(targetPlan) > planRank(currentPlan)) kind = "upgrade";
     else kind = "downgrade";
 
-    // Proration math:
-    //   - Credit = currentPrice × (daysRemaining_current / daysInPeriod_current)
-    //     (user paid for the old plan; we credit the unused remainder)
-    //   - For a tier upgrade on the SAME billing cycle (e.g. Pro monthly → Studio
-    //     monthly), we prorate the target too (user pays delta for the remainder
-    //     of the month).
-    //   - For a billing_switch (e.g. Pro monthly → Pro annual), the new period
-    //     STARTS FRESH — charge the full new-plan price, don't prorate.
+    // Proration math — ports Polar's exact formula from
+    // server/polar/subscription/update.py (open source):
+    //
+    //   credit_line = round((current_base - current_discount) × ratio)
+    //   charge_line = round((target_base - target_discount) × new_cycle_ratio)
+    //
+    // Where "ratio" = remainingSeconds / totalSeconds of the CURRENT period
+    // (seconds-level precision, not days) and "new_cycle_ratio" is either 1.0
+    // for a billing_switch (fresh new cycle) or the same `ratio` for a
+    // tier change mid-period.
+    //
+    // Our currentAmountMinor = polarSub.amount is ALREADY the post-discount
+    // recurring amount, so `(current_base - current_discount)` for the credit
+    // line = currentAmountMinor directly (no further discount subtraction
+    // needed). For the charge line we must apply the discount explicitly since
+    // targetAmountMinor is the sticker price of the target product.
+    //
+    // Verified against Victor's real invoice (2026-04-21, customer 8581e27e,
+    // Pro monthly → Pro annual with 90% off S1ULT41A):
+    //   credit = $0.80 × 1.0           = $0.80  ✓
+    //   charge = ($67.08 × 10%) × 1.0  = $6.71  ✓
+    //   net = $6.71 - $0.80            = $5.91  ✓
+    const newCycleRatio = kind === "billing_switch" ? 1.0 : ratio;
     const creditMinor = Math.round(creditBaseMinor * ratio);
-    const chargeMinor = kind === "billing_switch"
-      ? targetAmountMinor                         // new cycle starts fresh (full price)
-      : Math.round(targetAmountMinor * ratio);    // tier change mid-period
+    const chargeBaseMinor = targetAmountMinor;
+    const chargeDiscountMinor = Math.round(chargeBaseMinor * currentDiscountPct);
+    const chargeAfterDiscountMinor = chargeBaseMinor - chargeDiscountMinor;
+    const chargeMinor = Math.round(chargeAfterDiscountMinor * newCycleRatio);
     const netMinor = chargeMinor - creditMinor;
+    const taxMinor = vatKnown ? Math.max(0, Math.round(netMinor * vatRate)) : 0;
+    const totalMinor = netMinor + taxMinor;
 
     // Minutes warning for downgrade: if the user's current rollover + used balance
     // exceeds the new plan quota, minutes above the cap will be forfeited (per
@@ -258,6 +346,9 @@ export async function POST(req: NextRequest) {
     if (!sameCurrency && (kind === "upgrade" || kind === "downgrade" || kind === "billing_switch")) {
       notice += ` Currency differs (${currentCurrency} → ${targetCurrency}) — Polar converts at transaction time.`;
     }
+    if (!vatKnown && (kind === "upgrade" || kind === "billing_switch")) {
+      notice += ` Tax calculated by Polar at checkout based on your billing address.`;
+    }
 
     return NextResponse.json({
       kind,
@@ -270,6 +361,10 @@ export async function POST(req: NextRequest) {
       creditMajor: toMajor(creditMinor),
       chargeMajor: toMajor(chargeMinor),
       netMajor: toMajor(netMinor),
+      taxMajor: toMajor(taxMinor),
+      totalMajor: toMajor(netMinor + taxMinor),
+      vatRate,
+      vatKnown,
       perPeriodMajor: toMajor(targetAmountMinor),
       currency: displayCurrency,
       creditIsEstimate,
