@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { RiPlayFill, RiStopFill, RiDownloadFill, RiVolumeUpFill, RiVolumeMuteFill } from "@remixicon/react";
 import { WaveformVariant } from "@/components/dashboard/waveform-variants";
-import { downloadStem, downloadStemsZip } from "@/lib/download";
+import { downloadBlob } from "@/lib/download";
 import { stemColors } from "@/components/website/theme";
 
 // ─── Audio peak extraction ─────────────────────────────────
@@ -205,8 +205,24 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
   const handleDownloadZip = async () => {
     setZipping(true);
     try {
-      const stemList = stems.map((s) => ({ name: s.name, url: s.wavUrl }));
-      await downloadStemsZip(stemList, trackName, "wav");
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      await Promise.all(
+        stems.map(async (s) => {
+          const res = await fetch(s.wavUrl);
+          if (!res.ok) throw new Error(`Failed to fetch ${s.name}: ${res.status}`);
+          const blob = await res.blob();
+          const label = s.name.charAt(0).toUpperCase() + s.name.slice(1);
+          zip.file(`${trackName} - ${label}.wav`, blob);
+        })
+      );
+      const content = await zip.generateAsync({ type: "blob" });
+      const objUrl = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = `${trackName} - Stems.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
     } finally {
       setZipping(false);
     }
@@ -337,7 +353,7 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
               <button
                 onClick={async () => {
                   const label = stem.name.charAt(0).toUpperCase() + stem.name.slice(1);
-                  await downloadStem(stem.wavUrl, `${trackName} - ${label}.wav`, "wav");
+                  await downloadBlob(stem.wavUrl, `${trackName} - ${label}.wav`);
                 }}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
