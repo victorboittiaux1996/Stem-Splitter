@@ -61,10 +61,17 @@ export async function downloadStemsZip(
       if (!res.ok) throw new Error(`Failed to fetch stem "${name}": ${res.status}`);
       const blob = await res.blob();
       const label = name.charAt(0).toUpperCase() + name.slice(1);
-      zip.file(`${trackName} - ${label}${fmtExt}`, blob);
+      // STORE (no compression): audio is already compressed (MP3/FLAC) or
+      // incompressible (raw PCM in WAV). DEFLATE just burns CPU for <1% size
+      // savings — skipping it makes finalize ~5-10× faster on big batches.
+      zip.file(`${trackName} - ${label}${fmtExt}`, blob, { compression: "STORE" });
     })
   );
-  const content = await zip.generateAsync({ type: "blob" });
+  const content = await zip.generateAsync({
+    type: "blob",
+    compression: "STORE",
+    streamFiles: true,
+  });
   const objUrl = URL.createObjectURL(content);
   const a = document.createElement("a");
   a.href = objUrl;

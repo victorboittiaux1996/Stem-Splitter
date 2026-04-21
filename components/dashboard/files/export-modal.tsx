@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
@@ -36,13 +36,19 @@ export function ExportModal(props: Props) {
   const { open, onClose, C, tracks, stemColors, labels, wavAllowed, defaultFormat, workspaceId } = props;
 
   const [format, setFormat] = useState<OutputFormat>(wavAllowed ? defaultFormat : "mp3");
-  const [selectedStems, setSelectedStems] = useState<Set<string>>(() => {
-    const union = new Set<string>();
-    tracks.forEach((t) => t.stemList.forEach((s) => union.add(s)));
-    return union;
-  });
+  const [selectedStems, setSelectedStems] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Re-seed default selection (all available stems) each time the modal opens
+  // with a fresh set of tracks. The useState initializer only runs once so
+  // reopening with different tracks would otherwise keep stale state.
+  useEffect(() => {
+    if (!open) return;
+    const union = new Set<string>();
+    tracks.forEach((t) => t.stemList.forEach((s) => union.add(s)));
+    setSelectedStems(union);
+  }, [open, tracks]);
 
   const handleClose = () => {
     if (abortRef.current) abortRef.current.abort();
@@ -133,7 +139,8 @@ export function ExportModal(props: Props) {
             folderCache.set(track.id, folder);
           }
           const label = stem.charAt(0).toUpperCase() + stem.slice(1);
-          folder.file(`${label}${ext}`, blob);
+          // STORE: audio is already compressed/incompressible — skip DEFLATE.
+          folder.file(`${label}${ext}`, blob, { compression: "STORE" });
         })
       );
 
@@ -147,7 +154,11 @@ export function ExportModal(props: Props) {
         return;
       }
 
-      const content = await zip.generateAsync({ type: "blob" });
+      const content = await zip.generateAsync({
+        type: "blob",
+        compression: "STORE",
+        streamFiles: true,
+      });
       const objUrl = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = objUrl;
@@ -263,22 +274,22 @@ export function ExportModal(props: Props) {
                         onClick={() => toggleStem(stem)}
                         className="flex w-full items-center gap-[10px] px-[4px] py-[8px] transition-colors"
                       >
+                        {/* Checkbox: takes the stem's own colour when checked. */}
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                           <rect
                             x="0"
                             y="0"
                             width="14"
                             height="14"
-                            fill={isChecked ? C.accent : C.text}
+                            fill={isChecked ? color : C.text}
                             fillOpacity={isChecked ? 1 : 0.12}
                           />
                         </svg>
-                        <div className="h-[8px] w-[8px] shrink-0" style={{ backgroundColor: color }} />
                         <span
                           style={{
                             fontSize: 14,
                             fontWeight: 500,
-                            color: C.text,
+                            color: isChecked ? color : C.text,
                             letterSpacing: "0.02em",
                             flex: 1,
                             textAlign: "left",
@@ -335,7 +346,7 @@ export function ExportModal(props: Props) {
                     </Link>
                   )}
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center gap-[16px]">
                   <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", color: C.textMuted }}>
                     TOTAL
                   </span>
@@ -420,8 +431,8 @@ function FormatRadio({
         style={{
           width: 12,
           height: 12,
-          backgroundColor: checked ? C.text : "transparent",
-          border: `1px solid ${C.text}`,
+          backgroundColor: checked ? C.accent : "transparent",
+          border: `1px solid ${checked ? C.accent : C.text}`,
           display: "inline-block",
         }}
       />
