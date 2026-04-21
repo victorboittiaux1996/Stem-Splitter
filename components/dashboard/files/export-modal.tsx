@@ -366,16 +366,29 @@ export function ExportModal(props: Props) {
               <button
                 onClick={handleDownload}
                 disabled={!canDownload}
-                className="px-[16px] py-[8px] transition-all disabled:opacity-30"
+                className="flex items-center justify-center gap-[6px] px-[16px] py-[8px] transition-all disabled:opacity-30"
                 style={{
                   fontSize: 14,
                   fontWeight: 600,
                   color: C.accentText,
-                  backgroundColor: C.text,
+                  backgroundColor: C.accent,
                   letterSpacing: "0.03em",
+                  minWidth: 160,
                 }}
               >
-                {downloading ? "BUILDING ZIP..." : `DOWNLOAD ZIP`}
+                {downloading && (
+                  <span
+                    className="animate-spin inline-block"
+                    style={{
+                      width: 12,
+                      height: 12,
+                      border: `1.5px solid ${C.accentText}`,
+                      borderTopColor: "transparent",
+                      borderRadius: "50%",
+                    }}
+                  />
+                )}
+                {downloading ? "BUILDING ZIP…" : "DOWNLOAD ZIP"}
               </button>
             </div>
           </motion.div>
@@ -420,5 +433,8 @@ function FormatRadio({
 }
 
 function sanitizeFolder(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "track";
+  // Strip the original source-file extension (.mp3/.wav/.aiff/.flac/...)
+  // so folder names are consistent regardless of the input format.
+  const withoutExt = name.replace(/\.[^/.]+$/, "");
+  return withoutExt.replace(/[\\/:*?"<>|]/g, "_").trim() || "track";
 }
