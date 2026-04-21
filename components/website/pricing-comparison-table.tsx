@@ -52,10 +52,9 @@ const featureGroups: FeatureGroup[] = [
     title: "Workflow",
     rows: [
       { label: "Batch processing", description: "Process multiple tracks at once", values: { free: false, pro: "Up to 5 tracks", studio: "Up to 30 tracks" } },
-      { label: "YouTube import", description: "Paste a link, get your stems — no download needed", values: { free: false, pro: true, studio: true } },
-      { label: "Spotify import", values: { free: false, pro: true, studio: true } },
-      { label: "SoundCloud import", values: { free: false, pro: true, studio: true } },
+      { label: "SoundCloud import", description: "Paste a link, get your stems — no download needed", values: { free: false, pro: true, studio: true } },
       { label: "Dropbox import", values: { free: false, pro: true, studio: true } },
+      { label: "Google Drive import", values: { free: false, pro: true, studio: true } },
       { label: "Share links", description: "Send stems to anyone with a public link", values: { free: false, pro: "3/month", studio: "10/month" } },
     ],
   },

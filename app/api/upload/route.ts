@@ -5,6 +5,7 @@ import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/sup
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/plans";
 import { sendTelegramAlert } from "@/lib/telegram";
+import { detectPlatform, detectRejectedStreaming } from "@/lib/platforms";
 
 export const maxDuration = 300; // Modal processing can take up to 200s; after() keeps function alive
 
@@ -77,6 +78,27 @@ export async function POST(request: NextRequest) {
         }
       } catch {
         return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+      }
+
+      // Platform enforcement — streaming services are explicitly rejected.
+      // /api/url-info does the same check for the UI metadata flow; duplicating
+      // here is intentional: this is the gateway to the worker, scripted clients
+      // can bypass /api/url-info entirely by POSTing directly to /api/upload.
+      const rejected = detectRejectedStreaming(url);
+      if (rejected) {
+        return NextResponse.json(
+          {
+            error: `${rejected} links are no longer supported. Download the audio locally and upload it, or paste a Dropbox / Google Drive / SoundCloud link.`,
+            guideUrl: "/docs/download-before-upload",
+          },
+          { status: 400 }
+        );
+      }
+      if (!detectPlatform(url)) {
+        return NextResponse.json(
+          { error: "Unsupported link. We accept Dropbox, Google Drive, and SoundCloud." },
+          { status: 400 }
+        );
       }
 
       const jobId = nanoid(12);

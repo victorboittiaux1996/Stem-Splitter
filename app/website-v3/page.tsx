@@ -158,7 +158,7 @@ const FEATURES = [
     color: stemColors.other,
     title: "URL Import",
     description:
-      "Paste a YouTube or SoundCloud link — no file download required.",
+      "Paste a SoundCloud, Dropbox, or Google Drive link — no file upload required.",
   },
 ] as const;
 

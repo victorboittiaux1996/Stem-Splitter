@@ -458,7 +458,7 @@ const FEATURES = [
   { color: stemColors.drums, title: "Studio-Grade AI", desc: "The highest-rated separation models available, running on dedicated infrastructure. Clean stems, no artifacts.", icon: RiCpuFill },
   { color: stemColors.bass, title: "GPU-Powered Speed", desc: "Full track processed in under 40 seconds. Your session doesn't wait.", icon: RiFlashlightFill },
   { color: stemColors.guitar, title: "Batch Processing", desc: "Upload an entire album. Process multiple tracks simultaneously in the background while you work.", icon: RiStackFill },
-  { color: stemColors.piano, title: "URL Import", desc: "Paste a YouTube, SoundCloud, or Spotify URL. No file download needed. We handle the rest.", icon: RiLinkM },
+  { color: stemColors.piano, title: "Link Import", desc: "Paste a SoundCloud, Dropbox, or Google Drive link. No file upload needed. We handle the rest.", icon: RiLinkM },
   { color: stemColors.other, title: "WAV 24-Bit Output", desc: "Lossless studio quality output. Every stem at full resolution, ready for mixing in your DAW.", icon: RiSoundModuleFill },
 ];
 

@@ -1,115 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { detectPlatform, isPlaylistUrl } from "@/lib/platforms";
+import { detectPlatform, isPlaylistUrl, detectRejectedStreaming } from "@/lib/platforms";
 
 const MODAL_URL_INFO_URL = process.env.MODAL_URL_INFO_URL;
 
-// ── Platform-specific metadata fetchers (no yt-dlp needed) ──────────────
+// ── Direct-link metadata (no yt-dlp needed) ─────────────────────────────
 
-/** Spotify: scrape the embed page for track metadata. */
-async function fetchSpotifyTrackInfo(url: string) {
-  const trackIdMatch = url.match(/track\/([a-zA-Z0-9]+)/);
-  if (!trackIdMatch) return null;
-
-  const embedUrl = `https://open.spotify.com/embed/track/${trackIdMatch[1]}`;
-  const res = await fetch(embedUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) return null;
-
-  const html = await res.text();
-  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/);
-  if (!match) return null;
-
-  const data = JSON.parse(match[1]);
-  const entity = data.props?.pageProps?.state?.data?.entity;
-  if (!entity) return null;
-
-  const title = entity.name ?? "";
-  const artist = entity.artists?.map((a: { name: string }) => a.name).join(", ") ?? "";
-  const rawDuration = entity.duration;
-  const durationMs = typeof rawDuration === "number" ? rawDuration : (rawDuration?.milliseconds ?? 0);
-
-  return {
-    duration: Math.round(durationMs / 1000),
-    title: artist ? `${artist} - ${title}` : title,
-  };
+/** Dropbox: filename from URL path, duration resolved later by worker. */
+function fetchDropboxInfo(url: string) {
+  const pathname = new URL(url).pathname;
+  const filename = decodeURIComponent(pathname.split("/").pop() || "audio");
+  return { duration: null, title: filename };
 }
 
-/** Spotify: scrape embed page for playlist tracks. */
-async function fetchSpotifyPlaylistInfo(url: string) {
-  const listIdMatch = url.match(/playlist\/([a-zA-Z0-9]+)/);
-  if (!listIdMatch) return null;
-
-  const embedUrl = `https://open.spotify.com/embed/playlist/${listIdMatch[1]}`;
-  const res = await fetch(embedUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) return null;
-
-  const html = await res.text();
-  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/);
-  if (!match) return null;
-
-  const data = JSON.parse(match[1]);
-  const entity = data.props?.pageProps?.state?.data?.entity;
-  if (!entity) return null;
-
-  interface SpotifyTrackItem {
-    uid?: string;
-    title?: string;
-    subtitle?: string;
-    duration?: number | { milliseconds?: number };
-    uri?: string;
-  }
-
-  const trackList: SpotifyTrackItem[] = entity.trackList ?? [];
-  const tracks = trackList.map((t: SpotifyTrackItem) => {
-    const trackTitle = t.title ?? "";
-    const artist = t.subtitle ?? "";
-    const rawDur = t.duration;
-    const durationMs = typeof rawDur === "number" ? rawDur : (rawDur?.milliseconds ?? 0);
-    // Reconstruct Spotify track URL from URI (spotify:track:ID → https://open.spotify.com/track/ID)
-    const uri = t.uri ?? "";
-    const trackId = uri.startsWith("spotify:track:") ? uri.replace("spotify:track:", "") : "";
-    const trackUrl = trackId ? `https://open.spotify.com/track/${trackId}` : "";
-
-    return {
-      url: trackUrl,
-      title: artist ? `${artist} - ${trackTitle}` : trackTitle,
-      duration: Math.round(durationMs / 1000),
-    };
-  }).filter((t: { url: string }) => t.url);
-
-  return { tracks, count: tracks.length };
+/** Google Drive: extract file ID from share URL. Duration unknown until download.
+ *  Supported URL shapes:
+ *    - https://drive.google.com/file/d/{id}/view?usp=sharing
+ *    - https://drive.google.com/open?id={id}
+ *    - https://drive.google.com/uc?id={id}&export=download
+ */
+function fetchGDriveInfo(url: string): { duration: null; title: string } | null {
+  const idMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)
+    || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (!idMatch) return null;
+  return { duration: null, title: "Google Drive audio" };
 }
 
-/** Deezer: free public API, no auth needed. */
-async function fetchDeezerTrackInfo(url: string) {
-  const trackIdMatch = url.match(/track\/(\d+)/);
-  if (!trackIdMatch) return null;
-
-  const res = await fetch(`https://api.deezer.com/track/${trackIdMatch[1]}`, {
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!res.ok) return null;
-
-  const data = await res.json();
-  if (data.error) return null;
-
-  const title = data.title ?? "";
-  const artist = data.artist?.name ?? "";
-  return {
-    duration: data.duration ?? 0,
-    title: artist ? `${artist} - ${title}` : title,
-  };
-}
-
-// ── yt-dlp based fetcher (local dev or via Modal in prod) ───────────────
+// ── SoundCloud metadata via yt-dlp (local dev) or Modal CPU (prod) ─────
 
 async function fetchViaYtDlp(url: string, isPlaylist: boolean, platform: string): Promise<Response> {
-  // Try local yt-dlp first (works in dev)
+  // Dev: spawn yt-dlp locally
   if (!MODAL_URL_INFO_URL) {
     try {
       const { execFile } = await import("child_process");
@@ -128,23 +47,30 @@ async function fetchViaYtDlp(url: string, isPlaylist: boolean, platform: string)
       if (isPlaylist) {
         const tracks = result.trim().split("\n").filter(Boolean).map(line => {
           const entry = JSON.parse(line);
-          let trackUrl = entry.url || entry.webpage_url || "";
-          if (trackUrl && !trackUrl.startsWith("http") && platform === "YOUTUBE") {
-            trackUrl = `https://www.youtube.com/watch?v=${trackUrl}`;
-          }
+          const trackUrl = entry.url || entry.webpage_url || "";
           return { url: trackUrl, title: entry.title || "", duration: entry.duration || 0 };
         });
         return NextResponse.json({ isPlaylist: true, tracks, count: tracks.length, platform });
       }
 
       const data = JSON.parse(result);
+      // SoundCloud downloadability check: only tracks with the artist-enabled
+      // `downloadable` flag are accepted. Stream-only tracks would violate the
+      // SoundCloud ToS even though yt-dlp can fetch their stream URL.
+      // Fail-closed: only accept when the flag is explicitly true. If yt-dlp omits
+      // the field (undefined/null), we treat the track as stream-only and reject it.
+      if (platform === "SOUNDCLOUD" && data.downloadable !== true) {
+        return NextResponse.json({
+          error: "This SoundCloud track is not marked as downloadable by the artist. Please use a file upload, Dropbox, or Google Drive link.",
+        }, { status: 400 });
+      }
       return NextResponse.json({ duration: data.duration ?? 0, title: data.title ?? "", platform, isPlaylist: false });
     } catch {
       return NextResponse.json({ error: "Could not fetch URL info" }, { status: 422 });
     }
   }
 
-  // Production: call Modal CPU endpoint
+  // Prod: Modal CPU endpoint
   const params = new URLSearchParams({ url });
   if (isPlaylist) params.set("playlist", "1");
   const modalUrl = `${MODAL_URL_INFO_URL}?${params.toString()}`;
@@ -166,6 +92,12 @@ async function fetchViaYtDlp(url: string, isPlaylist: boolean, platform: string)
     return NextResponse.json({ isPlaylist: true, tracks: data.tracks || [], count: data.count || 0, platform });
   }
 
+  if (platform === "SOUNDCLOUD" && data.downloadable === false) {
+    return NextResponse.json({
+      error: "This SoundCloud track is not marked as downloadable by the artist. Please use a file upload, Dropbox, or Google Drive link.",
+    }, { status: 400 });
+  }
+
   return NextResponse.json({ duration: data.duration ?? 0, title: data.title ?? "", platform, isPlaylist: false });
 }
 
@@ -184,41 +116,40 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
   }
 
+  // Early rejection of streaming services (YouTube, Spotify, Deezer, Apple Music)
+  // for legal risk reasons. The user gets a specific message pointing to the
+  // download-before-upload guide rather than a generic "unsupported" error.
+  const rejected = detectRejectedStreaming(url);
+  if (rejected) {
+    return NextResponse.json({
+      error: `${rejected} links are no longer supported. Download the audio locally and upload it, or paste a Dropbox / Google Drive / SoundCloud link.`,
+      guideUrl: "/docs/download-before-upload",
+    }, { status: 400 });
+  }
+
   const platform = detectPlatform(url);
   if (!platform) {
-    return NextResponse.json({ error: "Unsupported platform" }, { status: 400 });
+    return NextResponse.json({
+      error: "Unsupported link. We accept Dropbox, Google Drive, and SoundCloud.",
+    }, { status: 400 });
   }
 
   const isPlaylist = isPlaylistUrl(url);
 
   try {
-    // ── Spotify: native embed scraping (no yt-dlp, works on Vercel) ────
-    if (platform === "SPOTIFY") {
-      if (isPlaylist) {
-        const playlist = await fetchSpotifyPlaylistInfo(url);
-        if (playlist) return NextResponse.json({ isPlaylist: true, ...playlist, platform });
-        return NextResponse.json({ error: "Could not fetch Spotify playlist" }, { status: 422 });
-      }
-      const track = await fetchSpotifyTrackInfo(url);
-      if (track) return NextResponse.json({ ...track, platform, isPlaylist: false });
-      return NextResponse.json({ error: "Could not fetch Spotify track info" }, { status: 422 });
-    }
-
-    // ── Deezer: free public API (no yt-dlp, works on Vercel) ───────────
-    if (platform === "DEEZER" && !isPlaylist) {
-      const track = await fetchDeezerTrackInfo(url);
-      if (track) return NextResponse.json({ ...track, platform, isPlaylist: false });
-      // Fallback to yt-dlp
-    }
-
-    // ── Dropbox: direct file link ──────────────────────────────────────
     if (platform === "DROPBOX") {
-      const pathname = new URL(url).pathname;
-      const filename = decodeURIComponent(pathname.split("/").pop() || "audio");
-      return NextResponse.json({ duration: null, title: filename, platform, isPlaylist: false });
+      return NextResponse.json({ ...fetchDropboxInfo(url), platform, isPlaylist: false });
     }
-
-    // ── YouTube, SoundCloud, Apple Music, Deezer playlists: yt-dlp ─────
+    if (platform === "GOOGLE DRIVE") {
+      const info = fetchGDriveInfo(url);
+      if (!info) {
+        return NextResponse.json({
+          error: "Invalid Google Drive link. Make sure you copied a share URL (the file must be shared publicly or with 'anyone with the link').",
+        }, { status: 400 });
+      }
+      return NextResponse.json({ ...info, platform, isPlaylist: false });
+    }
+    // SoundCloud via yt-dlp (handles both single tracks and /sets/ playlists)
     return await fetchViaYtDlp(url, isPlaylist, platform);
   } catch (err) {
     console.error("url-info error:", err);

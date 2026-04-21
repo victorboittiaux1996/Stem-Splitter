@@ -23,7 +23,7 @@ interface ErrorInfo {
 
 const ERROR_MAP: Record<ImportErrorCode, ErrorInfo> = {
   bot_detected: {
-    message: "YouTube is temporarily blocking this request. Try again in a few minutes, use a different link, or upload the audio file directly.",
+    message: "The source is temporarily blocking this request. Try again in a few minutes or upload the audio file directly.",
     terminal: false,
   },
   private: {

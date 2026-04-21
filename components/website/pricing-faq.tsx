@@ -32,7 +32,7 @@ const FAQ_ITEMS = [
   {
     question: "What audio formats are supported?",
     answer:
-      "You can upload MP3, WAV, FLAC, AIFF, OGG, M4A, and AAC. Free plan supports files up to 200 MB, paid plans up to 2 GB. Stems are delivered as WAV at full resolution on paid plans, or MP3 320kbps on the free plan. Pro and Studio users can also import from YouTube, SoundCloud, Spotify, and Dropbox.",
+      "You can upload MP3, WAV, FLAC, AIFF, OGG, M4A, and AAC. Free plan supports files up to 200 MB, paid plans up to 2 GB. Stems are delivered as WAV at full resolution on paid plans, or MP3 320kbps on the free plan. Pro and Studio users can also import from Dropbox, Google Drive, and SoundCloud.",
   },
   {
     question: "Am I charged per stem or per track?",
