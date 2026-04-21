@@ -58,7 +58,18 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "User not found" }, { status: 500 });
         }
 
-        const plan = sub.product ? productIdToPlan(sub.product.id) : "free";
+        // Safety: a paid active sub mapping to "free" means a product-ID
+        // mismatch (typically a trailing whitespace/newline on a Vercel env var
+        // — POLAR_PRODUCT_*_ID). Return 500 so Polar retries after the fix,
+        // and don't silently demote the user to free in the meantime.
+        const mappedPlan = sub.product ? productIdToPlan(sub.product.id) : "free";
+        if (sub.status === "active" && sub.product?.id && mappedPlan === "free") {
+          console.error(
+            `Polar webhook: active sub mapped to "free" — product id ${sub.product.id} doesn't match any POLAR_PRODUCT_*_ID env. Refusing to demote.`,
+          );
+          return NextResponse.json({ error: "Unknown product id" }, { status: 500 });
+        }
+        const plan = mappedPlan;
 
         const periodEnd = sub.currentPeriodEnd
           ? new Date(sub.currentPeriodEnd).toISOString()

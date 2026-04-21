@@ -236,11 +236,11 @@ export async function POST(req: NextRequest) {
         ? `You will lose ${Math.round(minutesLost)} rollover minute${Math.round(minutesLost) === 1 ? "" : "s"} above the ${targetLabel} quota (${PLANS[targetPlan].minutesIncluded} min/month). ${base}`
         : base;
     } else if (kind === "billing_switch") {
-      // No subtitle — title already says "Switch Pro to annual" etc.
+      // No subtitle — title already says "Switch to Pro annual" etc.
       subtitle = "";
       notice = targetBilling === "annual"
-        ? `New annual cycle starts today — you save 30% vs monthly. Next renewal in 1 year.`
-        : `New monthly cycle starts today. Next renewal in 1 month.`;
+        ? `New annual cycle starts today — you save 30% vs monthly.`
+        : `New monthly cycle starts today.`;
     } else if (kind === "resume") {
       subtitle = `No charge. Subscription continues.`;
       notice = `Your ${currentLabel} subscription will renew as scheduled.`;
