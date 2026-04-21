@@ -173,14 +173,26 @@ export async function POST(req: NextRequest) {
       creditBaseMinor = Math.round(monthlyMajor * 100);
       creditIsEstimate = true;
     }
-    const creditMinor = Math.round(creditBaseMinor * ratio);
-    const chargeMinor = Math.round(targetAmountMinor * ratio);
-    const netMinor = chargeMinor - creditMinor;
 
+    // Determine kind first so we can pick the right proration formula.
     let kind: ChangeKind;
     if (currentPlan === targetPlan) kind = "billing_switch";
     else if (planRank(targetPlan) > planRank(currentPlan)) kind = "upgrade";
     else kind = "downgrade";
+
+    // Proration math:
+    //   - Credit = currentPrice × (daysRemaining_current / daysInPeriod_current)
+    //     (user paid for the old plan; we credit the unused remainder)
+    //   - For a tier upgrade on the SAME billing cycle (e.g. Pro monthly → Studio
+    //     monthly), we prorate the target too (user pays delta for the remainder
+    //     of the month).
+    //   - For a billing_switch (e.g. Pro monthly → Pro annual), the new period
+    //     STARTS FRESH — charge the full new-plan price, don't prorate.
+    const creditMinor = Math.round(creditBaseMinor * ratio);
+    const chargeMinor = kind === "billing_switch"
+      ? targetAmountMinor                         // new cycle starts fresh (full price)
+      : Math.round(targetAmountMinor * ratio);    // tier change mid-period
+    const netMinor = chargeMinor - creditMinor;
 
     // Minutes warning for downgrade: if the user's current rollover + used balance
     // exceeds the new plan quota, minutes above the cap will be forfeited (per
@@ -224,8 +236,8 @@ export async function POST(req: NextRequest) {
         ? `You will lose ${Math.round(minutesLost)} rollover minute${Math.round(minutesLost) === 1 ? "" : "s"} above the ${targetLabel} quota (${PLANS[targetPlan].minutesIncluded} min/month). ${base}`
         : base;
     } else if (kind === "billing_switch") {
-      const dir = targetBilling === "annual" ? "annual" : "monthly";
-      subtitle = `Switch to ${dir} billing.`;
+      // No subtitle — title already says "Switch Pro to annual" etc.
+      subtitle = "";
       notice = targetBilling === "annual"
         ? `Credit for unused ${currentLabel} ${currentBilling} time applied. You save 30% vs monthly. Billed ${targetCurrency} ${perPeriod} per year from now.`
         : `Credit for unused ${currentLabel} ${currentBilling} time applied. Billed ${targetCurrency} ${perPeriod} per month from now.`;
