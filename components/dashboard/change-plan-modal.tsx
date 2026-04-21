@@ -241,7 +241,15 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                         value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
                         C={C}
                       />
-                      <Row label={`${targetCfg.label} prorated until period end`} value={fmt(preview.chargeMajor)} C={C} />
+                      <Row
+                        label={
+                          preview.kind === "billing_switch"
+                            ? `${targetCfg.label} ${preview.targetBilling === "annual" ? "annual — full year from today" : "monthly — full month from today"}`
+                            : `${targetCfg.label} prorated until period end`
+                        }
+                        value={fmt(preview.chargeMajor)}
+                        C={C}
+                      />
                       {hasDiscount && (
                         <Row label={`Promo code${pct > 0 ? ` (−${pct}%)` : ""}`} value={`−${fmt(discountAmount)}`} C={C} />
                       )}
