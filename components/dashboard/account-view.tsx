@@ -722,8 +722,24 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             {isPro && (
               <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
                 <SectionHeading C={C}>Subscription</SectionHeading>
+
+                {/* Canceled-but-active state: show when access ends + what will be lost */}
+                {isCanceledButActive && periodEnd && (
+                  <div style={{ backgroundColor: "#FF6B0015", padding: "10px 14px", marginTop: 6, marginBottom: 14, borderLeft: "3px solid #FF6B00" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B00", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
+                      Subscription ending on {new Date(periodEnd).toLocaleDateString()}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+                      You&apos;ll keep {planLabel} access until then.
+                      {rolloverMinutes > 0 ? ` After that you'll drop to Free and lose your ${rolloverMinutes.toFixed(0)} rollover minutes.` : " After that you'll drop to Free (10 min/month)."}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
-                  <div style={{ fontSize: 13, color: C.textMuted }}>Update payment method</div>
+                  <div style={{ fontSize: 13, color: C.textMuted }}>
+                    Change plan, update payment method, or cancel
+                  </div>
                   <button
                     onClick={async () => {
                       try {
@@ -737,6 +753,11 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                     MANAGE SUBSCRIPTION →
                   </button>
                 </div>
+                {!isCanceledButActive && (
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
+                    Canceling via the portal keeps your {planLabel} access until the next billing date, then drops you to Free. Rollover minutes are forfeited on drop.
+                  </div>
+                )}
               </div>
             )}
 

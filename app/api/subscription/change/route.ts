@@ -83,6 +83,23 @@ export async function POST(req: NextRequest) {
       (currentProductId === POLAR_PRODUCTS.studio && targetProductId === POLAR_PRODUCTS.studio_annual) ||
       (currentProductId === POLAR_PRODUCTS.studio_annual && targetProductId === POLAR_PRODUCTS.studio);
 
+    // Standard SaaS pattern: upgrades charge the delta today; downgrades don't
+    // refund. We implement this via Polar's two proration modes:
+    //   - "invoice" → creates an invoice NOW with credit + charge (used for upgrades)
+    //   - "prorate" → defers the credit/charge to the NEXT invoice (used for downgrades)
+    // Annual → monthly on the same plan counts as a downgrade too (cheaper cycle).
+    const tier = (pid: string): number => {
+      if (pid === POLAR_PRODUCTS.studio || pid === POLAR_PRODUCTS.studio_annual) return 2;
+      if (pid === POLAR_PRODUCTS.pro || pid === POLAR_PRODUCTS.pro_annual) return 1;
+      return 0;
+    };
+    const isAnnualCurrent = currentProductId === POLAR_PRODUCTS.pro_annual || currentProductId === POLAR_PRODUCTS.studio_annual;
+    const isAnnualTarget = targetProductId === POLAR_PRODUCTS.pro_annual || targetProductId === POLAR_PRODUCTS.studio_annual;
+    const isDowngrade =
+      tier(targetProductId) < tier(currentProductId) ||
+      (tier(targetProductId) === tier(currentProductId) && isAnnualCurrent && !isAnnualTarget);
+    const prorationBehavior: "invoice" | "prorate" = isDowngrade ? "prorate" : "invoice";
+
     // If user previously canceled but is now changing plan or resuming same plan,
     // uncancel first. SubscriptionUpdate is a union in the Polar SDK, so resume
     // (cancelAtPeriodEnd=false) and product change require two sequential calls.
@@ -114,7 +131,7 @@ export async function POST(req: NextRequest) {
       id: sub.stripe_subscription_id,
       subscriptionUpdate: {
         productId: targetProductId,
-        prorationBehavior: "invoice",
+        prorationBehavior,
       },
     });
 
