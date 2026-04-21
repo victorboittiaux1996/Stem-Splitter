@@ -187,7 +187,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
     new: `Start ${targetCfg.label}`,
     upgrade: `Upgrade to ${targetCfg.label}`,
     downgrade: `Downgrade to ${targetCfg.label}`,
-    billing_switch: `Switch ${targetCfg.label} to ${targetBilling === "annual" ? "annual" : "monthly"}`,
+    billing_switch: `Switch to ${targetCfg.label} ${targetBilling === "annual" ? "annual" : "monthly"}`,
     same: "Already on this plan",
     resume: `Resume ${targetCfg.label}`,
   };
