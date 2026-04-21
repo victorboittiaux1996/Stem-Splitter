@@ -68,6 +68,26 @@ export async function POST(req: NextRequest) {
           ? new Date(sub.currentPeriodStart).toISOString().slice(0, 10)
           : null;
 
+        // Stale-write protection: Polar may deliver events out of order. We use
+        // the subscription's modifiedAt as source of truth and only write if it's
+        // at least as fresh as what we already have.
+        const subModifiedAt = sub.modifiedAt
+          ? new Date(sub.modifiedAt).toISOString()
+          : new Date().toISOString();
+
+        const { data: existingRow } = await supabaseAdmin
+          .from("subscriptions")
+          .select("updated_at")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (existingRow?.updated_at && new Date(existingRow.updated_at) > new Date(subModifiedAt)) {
+          console.warn(
+            `Polar webhook: skipping stale event ${event.type} (event modifiedAt=${subModifiedAt} < db updated_at=${existingRow.updated_at})`,
+          );
+          break;
+        }
+
         await supabaseAdmin
           .from("subscriptions")
           .upsert(
@@ -80,7 +100,7 @@ export async function POST(req: NextRequest) {
               stripe_subscription_id: sub.id,
               current_period_end: periodEnd,
               ...(periodStart ? { period_start: periodStart } : {}),
-              updated_at: new Date().toISOString(),
+              updated_at: subModifiedAt,
             },
             { onConflict: "user_id" }
           );
@@ -90,6 +110,8 @@ export async function POST(req: NextRequest) {
       case "subscription.revoked": {
         // subscription.revoked fires when access is actually removed (at endsAt,
         // or immediately on hard revoke / unpaid). This is the terminal state.
+        // We reset plan="free" and clear the Polar subscription id so the app
+        // treats the user as a fresh Free account going forward.
         const sub = event.data;
         const email = sub.customer?.email;
         if (!email) break;
@@ -100,12 +122,44 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "User not found" }, { status: 500 });
         }
 
+        const subModifiedAt = sub.modifiedAt
+          ? new Date(sub.modifiedAt).toISOString()
+          : new Date().toISOString();
+
+        // Stale guard: skip if a newer event already landed (e.g. a later
+        // subscription.updated for a new sub using the same customer).
+        const { data: existingRow } = await supabaseAdmin
+          .from("subscriptions")
+          .select("updated_at, stripe_subscription_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (existingRow?.updated_at && new Date(existingRow.updated_at) > new Date(subModifiedAt)) {
+          console.warn(
+            `Polar webhook revoked: skipping stale event (modifiedAt=${subModifiedAt} < db updated_at=${existingRow.updated_at})`,
+          );
+          break;
+        }
+
+        // Safety: only revoke if the event's subscription id matches what we
+        // have on file. Prevents an old revoked event from wiping a freshly
+        // created subscription.
+        if (existingRow?.stripe_subscription_id && existingRow.stripe_subscription_id !== sub.id) {
+          console.warn(
+            `Polar webhook revoked: sub id mismatch (event=${sub.id}, db=${existingRow.stripe_subscription_id}) — skipping`,
+          );
+          break;
+        }
+
         await supabaseAdmin
           .from("subscriptions")
           .update({
+            plan: "free",
             status: "canceled",
             cancel_at_period_end: false,
-            updated_at: new Date().toISOString(),
+            stripe_subscription_id: null,
+            current_period_end: null,
+            updated_at: subModifiedAt,
           })
           .eq("user_id", userId);
         break;

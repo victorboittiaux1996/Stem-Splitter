@@ -237,11 +237,12 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 )}
 
-                {/* Minutes-lost warning for downgrades (Splice-style). */}
-                {preview.kind === "downgrade" && (preview.minutesLost ?? 0) > 0 && (
+                {/* Minutes-lost warning for downgrades (Splice-style). Show only if the
+                    rounded loss is at least 1 minute — fractional amounts are noise. */}
+                {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 && (
                   <div style={{ backgroundColor: "#FF6B0015", padding: "10px 14px", marginBottom: 12, borderLeft: "3px solid #FF6B00" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B00", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
-                      You will lose {preview.minutesLost} rollover minutes
+                      You will lose {Math.round(preview.minutesLost ?? 0)} rollover minute{Math.round(preview.minutesLost ?? 0) === 1 ? "" : "s"}
                     </div>
                     <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
                       {PLANS[preview.targetPlan].label} quota is {PLANS[preview.targetPlan].minutesIncluded} min/month. Any balance above that is forfeited when you downgrade.

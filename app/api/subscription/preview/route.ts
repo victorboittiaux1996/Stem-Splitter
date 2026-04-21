@@ -220,8 +220,8 @@ export async function POST(req: NextRequest) {
       // invoice — nothing is charged today. Wording must reflect that.
       subtitle = `Change takes effect now. No charge today.`;
       const base = `Your next invoice will be ${targetCurrency} ${perPeriod} for ${targetLabel} (${perPeriodPhrase}). Unused ${currentLabel} time is credited against that invoice, not refunded.`;
-      notice = minutesLost > 0
-        ? `You will lose ${Math.round(minutesLost)} rollover minutes above the ${targetLabel} quota (${PLANS[targetPlan].minutesIncluded} min/month). ${base}`
+      notice = Math.round(minutesLost) >= 1
+        ? `You will lose ${Math.round(minutesLost)} rollover minute${Math.round(minutesLost) === 1 ? "" : "s"} above the ${targetLabel} quota (${PLANS[targetPlan].minutesIncluded} min/month). ${base}`
         : base;
     } else if (kind === "billing_switch") {
       const dir = targetBilling === "annual" ? "annual" : "monthly";
