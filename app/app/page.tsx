@@ -1055,7 +1055,7 @@ export default function AbletonDashboard() {
                       {([["file", "UPLOAD"], ["url", "LINK"]] as const).map(([mode, label]) => (
                         <button key={mode} onClick={() => {
                           if (mode === "url" && !urlImport) {
-                            setUploadError("Split stems from SoundCloud, Dropbox & Google Drive links — available on Pro.");
+                            setUploadError("Split stems from Dropbox, Google Drive & SoundCloud links — available on Pro.");
                             return;
                           }
                           setInputMode(mode); if (mode === "file") setUrlInput(""); if (mode === "url") { setFile(null); setAppState("idle"); }
