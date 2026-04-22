@@ -6,6 +6,7 @@ import { stemColors } from "@/components/website/theme";
 import { RiCheckLine } from "@remixicon/react";
 import { ChangePlanModal } from "./change-plan-modal";
 import { toast } from "sonner";
+import { useLocalPrices, formatCurrency } from "@/hooks/use-local-prices";
 
 export type SettingsSection = "profile" | "subscription" | "usage" | "defaults";
 
@@ -392,6 +393,7 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, p
   const [annual, setAnnual] = React.useState(false);
   const [modalTarget, setModalTarget] = React.useState<{ plan: PlanId; billing: BillingPeriod } | null>(null);
   const [redirectingPlan, setRedirectingPlan] = React.useState<PlanId | null>(null);
+  const localPrices = useLocalPrices();
 
   // Reset the "Redirecting…" state when the page is restored from the browser
   // bfcache (user clicked back from Polar checkout). Without this, the button
@@ -510,7 +512,30 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, p
           const tier = PLAN_ORDER.indexOf(id);
           const isCurrent = id === currentPlan;
           const canUpgrade = tier > planTier;
-          const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+          // Multi-currency display: pull local price from /api/pricing/prices
+          // (Stripe currency_options → EUR for FR, GBP for UK, USD fallback).
+          // The /mo toggle for annual shows the effective monthly rate
+          // (annual price / 12 rounded), matching the /pricing page.
+          const localKey = id === "pro"
+            ? (annual ? "pro_annual" : "pro_monthly")
+            : id === "studio"
+            ? (annual ? "studio_annual" : "studio_monthly")
+            : null;
+          const local = localKey && localPrices ? localPrices.prices[localKey] : null;
+          let price: string;
+          if (id === "free") {
+            price = "$0";
+          } else if (local) {
+            if (annual) {
+              // Show effective /mo for annual plans (amount / 12, rounded).
+              const monthlyEffective = Math.round(local.amount / 12);
+              price = formatCurrency(monthlyEffective, localPrices!.currency, { maxFractionDigits: 2 });
+            } else {
+              price = local.display;
+            }
+          } else {
+            price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+          }
           const period = id === "free" ? "forever" : "/mo";
 
           // CTA logic — adaptive based on user's current plan AND the toggle state.
@@ -586,12 +611,23 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, p
 
               {/* Annual savings */}
               <div style={{ minHeight: annual && id !== "free" ? 20 : 0, marginBottom: 14 }}>
-                {annual && id !== "free" && (
-                  <div className="flex items-center gap-[6px]">
-                    <span style={{ fontSize: 12, textDecoration: "line-through", color: C.textMuted }}>${plan.priceUSD}/mo</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: C.accent }}>${(plan.yearlyPriceUSD * 12).toFixed(0)}/yr</span>
-                  </div>
-                )}
+                {annual && id !== "free" && (() => {
+                  // Strike-through monthly + total /yr in local currency.
+                  const monthlyKey = id === "pro" ? "pro_monthly" : "studio_monthly";
+                  const annualKey = id === "pro" ? "pro_annual" : "studio_annual";
+                  const monthlyLocal = localPrices?.prices[monthlyKey];
+                  const annualLocal = localPrices?.prices[annualKey];
+                  const strikeLabel = monthlyLocal?.display ?? `$${plan.priceUSD}`;
+                  const yearlyTotal = annualLocal
+                    ? formatCurrency(annualLocal.amount, localPrices!.currency, { maxFractionDigits: 0 })
+                    : `$${(plan.yearlyPriceUSD * 12).toFixed(0)}`;
+                  return (
+                    <div className="flex items-center gap-[6px]">
+                      <span style={{ fontSize: 12, textDecoration: "line-through", color: C.textMuted }}>{strikeLabel}/mo</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: C.accent }}>{yearlyTotal}/yr</span>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* CTA Button (or invisible placeholder for layout parity) */}
@@ -704,7 +740,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   const [notifMarketing, setNotifMarketing] = React.useState(false);
   const [defaultStems, setDefaultStems] = React.useState<2 | 4 | 6>(4);
   const [defaultFormat, setDefaultFormat] = React.useState<"wav" | "mp3">("wav");
-  const [autoDownloadZip, setAutoDownloadZip] = React.useState(true);
 
   // Load preferences from localStorage on mount
   React.useEffect(() => {
@@ -714,7 +749,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
         const p = JSON.parse(saved);
         if (p.stems) setDefaultStems(p.stems);
         if (p.format) setDefaultFormat(p.format);
-        if (typeof p.autoDownloadZip === "boolean") setAutoDownloadZip(p.autoDownloadZip);
         if (typeof p.notifSplit === "boolean") setNotifSplitComplete(p.notifSplit);
         if (typeof p.notifUpdates === "boolean") setNotifProductUpdates(p.notifUpdates);
         if (typeof p.notifMarketing === "boolean") setNotifMarketing(p.notifMarketing);
@@ -726,11 +760,11 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   React.useEffect(() => {
     try {
       localStorage.setItem("44stems-preferences", JSON.stringify({
-        stems: defaultStems, format: defaultFormat, autoDownloadZip,
+        stems: defaultStems, format: defaultFormat,
         notifSplit: notifSplitComplete, notifUpdates: notifProductUpdates, notifMarketing,
       }));
     } catch {}
-  }, [defaultStems, defaultFormat, autoDownloadZip, notifSplitComplete, notifProductUpdates, notifMarketing]);
+  }, [defaultStems, defaultFormat, notifSplitComplete, notifProductUpdates, notifMarketing]);
 
   return (
     <div className="px-[24px] pt-[24px] pb-[40px]">
@@ -1031,18 +1065,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                     {fmt.label}
                   </button>
                 ))}
-              </div>
-            </div>
-
-            {/* Downloads card */}
-            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-              <SectionHeading C={C}>Downloads</SectionHeading>
-              <div className="flex items-center justify-between" style={{ paddingTop: 12, paddingBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>Auto-download ZIP</div>
-                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Automatically download the stems ZIP when a split completes</div>
-                </div>
-                <button onClick={() => setAutoDownloadZip(!autoDownloadZip)}><Toggle on={autoDownloadZip} C={C} /></button>
               </div>
             </div>
 
