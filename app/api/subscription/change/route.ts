@@ -27,6 +27,7 @@ type Body = {
   plan: PlanId;
   billing: BillingPeriod;
   action?: "change" | "cancel" | "resume";
+  discountCode?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -177,11 +178,40 @@ export async function POST(req: NextRequest) {
       // payment_behavior: 'default_incomplete' surfaces SCA/3DS challenges
       // cleanly: sub.status = 'incomplete' + latest_invoice.confirmation_secret
       // carries the client_secret the frontend uses to confirm.
+      //
+      // Optional discountCode: resolved via promotion_codes.list(active=true)
+      // then attached via the `discounts` param. Because we use
+      // proration_behavior: 'always_invoice', the discount is applied to the
+      // proration invoice immediately — not deferred to next cycle (unlike
+      // the old Polar behavior which was spec'd the other way).
+      let resolvedCoupon: string | undefined;
+      if (body.discountCode && body.discountCode.trim()) {
+        try {
+          const search = await stripe.promotionCodes.list({
+            code: body.discountCode.trim(),
+            active: true,
+            limit: 1,
+          });
+          const promo = search.data[0];
+          if (!promo) {
+            return NextResponse.json({ error: "Invalid or expired promo code" }, { status: 400 });
+          }
+          const couponRef = promo.promotion?.coupon;
+          resolvedCoupon = typeof couponRef === "string" ? couponRef : couponRef?.id;
+          if (!resolvedCoupon) {
+            return NextResponse.json({ error: "Promo code has no coupon" }, { status: 400 });
+          }
+        } catch {
+          return NextResponse.json({ error: "Failed to validate promo code" }, { status: 400 });
+        }
+      }
+
       updatedSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
         items: [{ id: item.id, price: targetPriceId }],
         proration_behavior: "always_invoice",
         payment_behavior: "default_incomplete",
         expand: ["latest_invoice.confirmation_secret"],
+        ...(resolvedCoupon ? { discounts: [{ coupon: resolvedCoupon }] } : {}),
         ...(needsUncancel ? { cancel_at_period_end: false } : {}),
       });
 

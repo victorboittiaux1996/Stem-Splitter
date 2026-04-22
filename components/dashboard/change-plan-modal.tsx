@@ -7,8 +7,7 @@ import { PLANS, type PlanId, type BillingPeriod } from "@/lib/plans";
 import { toast } from "sonner";
 import { RiLoader4Line } from "@remixicon/react";
 
-// Lazy Stripe.js loader — only instantiated the first time an upgrade needs
-// 3DS/SCA confirmation, so the script isn't loaded on every modal open.
+// Lazy Stripe.js loader — only loaded the first time an upgrade needs 3DS/SCA.
 let stripePromise: Promise<Stripe | null> | null = null;
 function getStripe(): Promise<Stripe | null> {
   if (!stripePromise) {
@@ -35,9 +34,13 @@ interface Preview {
   netMajor: number;
   taxMajor: number;
   totalMajor: number;
+  discountMajor?: number;
+  discountLabel?: string;
+  discountPercentOff?: number | null;
   perPeriodMajor: number;
+  nextBillingDate: string | null;
+  nextBillingAmountMajor: number;
   currency: string;
-  subtitle?: string;
   notice: string;
   minutesLost?: number;
 }
@@ -64,26 +67,53 @@ function formatMoney(amount: number, currency: string) {
   }
 }
 
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
 export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, onSuccess }: Props) {
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
-  React.useEffect(() => {
-    if (!open || !targetPlan) {
-      setPreview(null);
-      return;
-    }
+
+  // Promo code state — collapsible input, only appears when the user opens it.
+  const [promoOpen, setPromoOpen] = React.useState(false);
+  const [promoInput, setPromoInput] = React.useState("");
+  // `appliedCode` is the code actually applied to the preview. Empty until
+  // the user hits Apply and the backend validates. We re-fetch preview each
+  // time it changes so the modal totals always reflect the exact invoice.
+  const [appliedCode, setAppliedCode] = React.useState<string>("");
+  const [validatingPromo, setValidatingPromo] = React.useState(false);
+
+  const fetchPreview = React.useCallback((codeToApply: string) => {
+    if (!targetPlan) return;
     setLoading(true);
     fetch("/api/subscription/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan: targetPlan, billing: targetBilling }),
+      body: JSON.stringify({
+        plan: targetPlan,
+        billing: targetBilling,
+        ...(codeToApply ? { discountCode: codeToApply } : {}),
+      }),
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.error) {
-          toast.error(data.error);
-          onClose();
+          // Preview-level error on the code → clear it, keep the modal open.
+          if (codeToApply) {
+            toast.error(data.error);
+            setAppliedCode("");
+            setPromoInput("");
+          } else {
+            toast.error(data.error);
+            onClose();
+          }
           return;
         }
         setPreview(data);
@@ -92,17 +122,43 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
         toast.error("Failed to load preview");
         onClose();
       })
-      .finally(() => setLoading(false));
-  }, [open, targetPlan, targetBilling, onClose]);
+      .finally(() => {
+        setLoading(false);
+        setValidatingPromo(false);
+      });
+  }, [targetPlan, targetBilling, onClose]);
+
+  React.useEffect(() => {
+    if (!open || !targetPlan) {
+      setPreview(null);
+      setPromoOpen(false);
+      setPromoInput("");
+      setAppliedCode("");
+      return;
+    }
+    fetchPreview("");
+  }, [open, targetPlan, targetBilling, fetchPreview]);
 
   if (!targetPlan) return null;
+
+  const handleApplyPromo = () => {
+    const code = promoInput.trim();
+    if (!code) return;
+    setValidatingPromo(true);
+    setAppliedCode(code);
+    fetchPreview(code);
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedCode("");
+    setPromoInput("");
+    fetchPreview("");
+  };
 
   const handleConfirm = async () => {
     if (!preview) return;
     setSubmitting(true);
 
-    // Defensive fallback: free users should not reach this modal, but if they do
-    // (e.g. stale pendingPlanChange), redirect to checkout instead of calling the wrong API.
     if (preview.kind === "new") {
       try {
         const res = await fetch("/api/checkout", {
@@ -128,15 +184,12 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           plan: targetPlan,
           billing: targetBilling,
           action: "change",
+          ...(appliedCode ? { discountCode: appliedCode } : {}),
         }),
       });
       const data = await res.json();
 
-      // 3DS / SCA challenge required (EU cards + regulated transactions).
-      // The backend returned the invoice's client_secret — we complete the
-      // confirmation via Stripe.js on the user's browser, which opens Stripe's
-      // hosted 3DS challenge in a popup. On success, the webhook invoice.paid
-      // fires and our DB sync picks up the plan change.
+      // 3DS / SCA challenge required
       if (data.action === "requires_action" && data.clientSecret) {
         const stripe = await getStripe();
         if (!stripe) {
@@ -150,7 +203,6 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           setSubmitting(false);
           return;
         }
-        // Confirmed — webhook will sync in seconds. Show success optimistically.
         toast.success(`Upgraded to ${PLANS[targetPlan].label}`);
         window.dispatchEvent(new CustomEvent("usage-updated"));
         onSuccess?.();
@@ -193,24 +245,20 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
     resume: `Resume ${targetCfg.label}`,
   };
 
-  const subtitleByKind = (p: Preview) => {
-    // Preview API now returns a context-specific subtitle (e.g. "Effective immediately.
-    // Net prorated charge today."). Fall back to price + period if absent.
-    if (p.subtitle) return p.subtitle;
-    const perPeriod = targetBilling === "annual" ? "per year" : "per month";
-    return `${fmt(p.perPeriodMajor)} ${perPeriod}`;
-  };
+  const paysToday = preview && (preview.kind === "upgrade" || preview.kind === "billing_switch");
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && !submitting && onClose()}>
-      <DialogContent className="sm:max-w-[460px]" style={{ backgroundColor: C.bg, color: C.text, padding: 0, border: `1px solid ${C.text}1A` }}>
+      <DialogContent className="sm:max-w-[480px]" style={{ backgroundColor: C.bg, color: C.text, padding: 0, border: `1px solid ${C.text}1A` }}>
         <div style={{ padding: 24 }}>
           <DialogHeader>
             <DialogTitle style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>
               {preview ? titleByKind[preview.kind] : `Change to ${targetCfg.label}`}
             </DialogTitle>
             <DialogDescription style={{ fontSize: 13, color: C.textMuted, marginTop: 4 }}>
-              {preview ? subtitleByKind(preview) : "Loading…"}
+              {preview
+                ? `${fmt(preview.perPeriodMajor)} ${preview.targetBilling === "annual" ? "per year" : "per month"}`
+                : "Loading…"}
             </DialogDescription>
           </DialogHeader>
 
@@ -223,12 +271,13 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
             {preview && !loading && (
               <>
-                {/* Proration box: only for upgrades + billing switches (charge today).
-                    Downgrades are scheduled at renewal (no charge now → box hidden).
-                    All numbers come from stripe.invoices.createPreview — exact to
-                    the cent, including tax and any existing subscription discount. */}
-                {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (
+                {/* ── Today's charge breakdown — only for flows that charge today ── */}
+                {paysToday && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
+                      Today's charge
+                    </div>
+
                     {preview.creditMajor > 0 && (
                       <Row
                         label={`Credit for unused ${PLANS[preview.currentPlan].label} time`}
@@ -245,21 +294,29 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       value={fmt(preview.chargeMajor)}
                       C={C}
                     />
+
+                    {preview.discountMajor && preview.discountMajor > 0 && (
+                      <Row
+                        label={`Promo code${preview.discountLabel ? ` (${preview.discountLabel})` : ""}${typeof preview.discountPercentOff === "number" ? ` — ${preview.discountPercentOff}% off` : ""}`}
+                        value={`−${fmt(preview.discountMajor)}`}
+                        C={C}
+                        accent
+                      />
+                    )}
+
                     {preview.taxMajor > 0 && (
                       <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
                     )}
+
                     <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
-                    <Row
-                      label="Total today"
-                      value={fmt(preview.totalMajor)}
-                      C={C}
-                      bold
-                    />
+                    <Row label="Total today" value={fmt(preview.totalMajor)} C={C} bold />
+                    <p style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.4, letterSpacing: "0.02em" }}>
+                      Calculated by Stripe — this is the exact amount that will be charged to your card.
+                    </p>
                   </div>
                 )}
 
-                {/* Minutes-lost warning for downgrades (Splice-style). Show only if the
-                    rounded loss is at least 1 minute — fractional amounts are noise. */}
+                {/* ── Minutes lost warning on downgrade ── */}
                 {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 && (
                   <div style={{ backgroundColor: "#FF6B0015", padding: "10px 14px", marginBottom: 12, borderLeft: "3px solid #FF6B00" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B00", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
@@ -271,15 +328,100 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 )}
 
+                {/* ── Next billing — always visible (except "same") ── */}
+                {preview.kind !== "same" && preview.nextBillingDate && (
+                  <div style={{ backgroundColor: C.bgSubtle, padding: 14, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
+                      Next billing
+                    </div>
+                    <div style={{ fontSize: 13, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span>{formatDate(preview.nextBillingDate)}</span>
+                      <span style={{ fontWeight: 600 }}>
+                        {fmt(preview.nextBillingAmountMajor)} {preview.targetBilling === "annual" ? "/ year" : "/ month"}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Notice — short context sentence ── */}
                 <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
                   {preview.notice}
                 </p>
 
-                {/* Promo codes only apply at initial checkout (Stripe Checkout has
-                    `allow_promotion_codes`). For plan changes on an active sub, the
-                    existing discount carries through — we don't expose new-code entry
-                    here because Stripe applies it only to the NEXT invoice. */}
+                {/* ── Promo code input — collapsible, only for flows that pay today ── */}
+                {paysToday && (
+                  <div style={{ marginBottom: 16 }}>
+                    {!promoOpen && !appliedCode && (
+                      <button
+                        onClick={() => setPromoOpen(true)}
+                        style={{
+                          background: "none", border: "none", padding: 0,
+                          fontSize: 12, color: C.textMuted, cursor: "pointer",
+                          textDecoration: "underline", letterSpacing: "0.02em",
+                        }}
+                      >
+                        I have a promo code
+                      </button>
+                    )}
+                    {appliedCode && !promoOpen && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                        <span style={{ color: C.accent, fontWeight: 600 }}>✓ {appliedCode} applied</span>
+                        <button
+                          onClick={handleRemovePromo}
+                          style={{
+                            background: "none", border: "none", padding: 0,
+                            fontSize: 12, color: C.textMuted, cursor: "pointer",
+                            textDecoration: "underline",
+                          }}
+                        >
+                          remove
+                        </button>
+                      </div>
+                    )}
+                    {promoOpen && (
+                      <div className="flex items-center gap-[6px]">
+                        <input
+                          type="text"
+                          value={promoInput}
+                          onChange={(e) => setPromoInput(e.target.value)}
+                          placeholder="Promo code"
+                          disabled={validatingPromo || submitting}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleApplyPromo(); }}
+                          style={{
+                            flex: 1, padding: "10px 12px", fontSize: 13,
+                            backgroundColor: C.bgSubtle, color: C.text,
+                            border: `1px solid ${C.text}14`,
+                            letterSpacing: "0.04em", textTransform: "uppercase",
+                          }}
+                        />
+                        <button
+                          onClick={handleApplyPromo}
+                          disabled={!promoInput.trim() || validatingPromo || submitting}
+                          style={{
+                            padding: "10px 14px", fontSize: 12, fontWeight: 600,
+                            backgroundColor: C.bgHover, color: C.text, border: "none",
+                            cursor: (!promoInput.trim() || validatingPromo) ? "not-allowed" : "pointer",
+                            opacity: (!promoInput.trim() || validatingPromo) ? 0.5 : 1,
+                          }}
+                        >
+                          {validatingPromo ? "…" : "Apply"}
+                        </button>
+                        <button
+                          onClick={() => { setPromoOpen(false); if (!appliedCode) setPromoInput(""); }}
+                          style={{
+                            padding: "10px 12px", fontSize: 12, fontWeight: 600,
+                            backgroundColor: "transparent", color: C.textMuted, border: "none",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
+                {/* ── CTAs ── */}
                 <div className="flex items-center gap-[8px]">
                   <button
                     onClick={onClose}
@@ -322,11 +464,11 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
   );
 }
 
-function Row({ label, value, C, bold }: { label: string; value: string; C: C; bold?: boolean }) {
+function Row({ label, value, C, bold, accent }: { label: string; value: string; C: C; bold?: boolean; accent?: boolean }) {
   return (
     <div className="flex items-center justify-between" style={{ paddingTop: 4, paddingBottom: 4 }}>
-      <span style={{ fontSize: 13, color: bold ? C.text : C.textMuted, fontWeight: bold ? 700 : 400 }}>{label}</span>
-      <span style={{ fontSize: 13, color: C.text, fontWeight: bold ? 700 : 500 }}>{value}</span>
+      <span style={{ fontSize: 13, color: bold ? C.text : accent ? C.accent : C.textMuted, fontWeight: bold ? 700 : accent ? 600 : 400 }}>{label}</span>
+      <span style={{ fontSize: 13, color: accent ? C.accent : C.text, fontWeight: bold ? 700 : accent ? 600 : 500 }}>{value}</span>
     </div>
   );
 }

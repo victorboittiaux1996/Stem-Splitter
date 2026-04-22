@@ -6,22 +6,31 @@ import { PLANS, type PlanId, type BillingPeriod } from "@/lib/plans";
 import { stripe, getPriceId } from "@/lib/stripe";
 
 // Subscription change preview — uses stripe.invoices.createPreview to get the
-// EXACT amount Stripe will charge (or refund). No math on our side, no
-// approximation, no currency handling — Stripe does it all natively.
+// EXACT amount Stripe will charge (or refund). No math on our side.
 //
-// Three kinds we preview:
-//   - upgrade   : higher tier OR monthly→annual same tier → charge today
-//   - downgrade : lower tier OR annual→monthly same tier → applied at renewal
-//   - billing_switch : same tier, different interval (counts as upgrade if
-//                      monthly→annual since user commits longer)
+// Supported kinds:
+//   new              : user is free → checkout flow, preview shows sticker price
+//   same             : user is already on this plan → no-op
+//   resume           : user canceled but still active, target = current plan → uncancel
+//   upgrade          : tier up (Pro → Studio) or monthly→annual → charge today
+//   billing_switch   : same tier monthly→annual (commit longer) → charge today
+//   downgrade        : tier down OR annual→monthly → applied at next renewal
 //
-// "resume" (uncancel) and "same" are handled without a Stripe preview call.
+// Optional body: { discountCode?: string } — passes the coupon/promotion code
+// to Stripe's createPreview so the preview reflects the real invoice total.
+// When confirming via /api/subscription/change the same code is attached to
+// the subscription, ensuring modal total = invoice charged, to the cent.
 
-type Body = { plan: PlanId; billing: BillingPeriod };
+type Body = { plan: PlanId; billing: BillingPeriod; discountCode?: string };
 type ChangeKind = "new" | "upgrade" | "downgrade" | "billing_switch" | "same" | "resume";
 
 function planRank(plan: PlanId): number {
   return plan === "free" ? 0 : plan === "pro" ? 1 : 2;
+}
+
+function formatDate(tsSec: number | null | undefined): string | null {
+  if (!tsSec) return null;
+  return new Date(tsSec * 1000).toISOString();
 }
 
 export async function POST(req: NextRequest) {
@@ -50,8 +59,41 @@ export async function POST(req: NextRequest) {
     const currentBilling: BillingPeriod = (sub?.billing_interval === "year" ? "annual" : "monthly") as BillingPeriod;
     const targetPriceId = getPriceId(targetPlan, targetBilling);
 
-    // Brand-new customer (never paid). Return the sticker price — real
-    // currency + tax resolve at Checkout via Stripe Tax + currency_options.
+    // Resolve promo code if provided — valid + get the coupon id for preview.
+    let discountCoupon: string | undefined;
+    let discountLabel: string | undefined;
+    let discountPercentOff: number | null = null;
+    let discountAmountOff: { amount: number; currency: string } | null = null;
+    if (body.discountCode && body.discountCode.trim()) {
+      const code = body.discountCode.trim();
+      try {
+        const search = await stripe.promotionCodes.list({ code, active: true, limit: 1 });
+        const promo = search.data[0];
+        if (!promo) {
+          return NextResponse.json({ error: "Invalid or expired promo code" }, { status: 400 });
+        }
+        const couponRef = promo.promotion?.coupon;
+        const couponObj = typeof couponRef === "string"
+          ? await stripe.coupons.retrieve(couponRef)
+          : couponRef;
+        if (!couponObj) {
+          return NextResponse.json({ error: "Invalid or expired promo code" }, { status: 400 });
+        }
+        discountCoupon = couponObj.id;
+        discountLabel = promo.code;
+        if (typeof couponObj.percent_off === "number") {
+          discountPercentOff = couponObj.percent_off;
+        }
+        if (typeof couponObj.amount_off === "number" && couponObj.currency) {
+          discountAmountOff = { amount: couponObj.amount_off, currency: couponObj.currency };
+        }
+      } catch {
+        return NextResponse.json({ error: "Invalid or expired promo code" }, { status: 400 });
+      }
+    }
+
+    // Brand-new customer (never paid). Return the sticker price (currency_options
+    // resolved at Checkout). No createPreview call — no subscription yet.
     if (currentPlan === "free" || !sub?.stripe_subscription_id) {
       const price = await stripe.prices.retrieve(targetPriceId, {
         expand: ["currency_options"],
@@ -71,19 +113,21 @@ export async function POST(req: NextRequest) {
         totalMajor: defaultAmount / 100,
         taxMajor: 0,
         perPeriodMajor: defaultAmount / 100,
+        nextBillingDate: null,
+        nextBillingAmountMajor: defaultAmount / 100,
         currency: (price.currency ?? "usd").toUpperCase(),
         currencyOptions: Object.fromEntries(
           Object.entries(currencyOpts).map(([c, v]) => [c, (v.unit_amount ?? 0) / 100]),
         ),
-        subtitle: `${defaultAmount / 100} ${(price.currency ?? "usd").toUpperCase()} ${targetBilling === "annual" ? "per year" : "per month"}`,
         notice: `You'll start a new ${targetLabel} subscription at checkout. Tax calculated at checkout.`,
       });
     }
 
-    // Same plan + same billing cycle — either "same" or "resume" if canceled.
     const currentSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
     const currentPriceId = currentSub.items.data[0]?.price.id;
+    const currentPeriodEnd = currentSub.items.data[0]?.current_period_end ?? null;
 
+    // Same plan + same billing cycle — either "same" or "resume" if canceled.
     if (currentPriceId === targetPriceId) {
       if (isCanceledButActive) {
         return NextResponse.json({
@@ -98,6 +142,8 @@ export async function POST(req: NextRequest) {
           totalMajor: 0,
           taxMajor: 0,
           perPeriodMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
+          nextBillingDate: formatDate(currentPeriodEnd),
+          nextBillingAmountMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
           currency: (sub.currency ?? "usd").toUpperCase(),
           notice: "Your subscription will continue without interruption.",
         });
@@ -114,6 +160,8 @@ export async function POST(req: NextRequest) {
         totalMajor: 0,
         taxMajor: 0,
         perPeriodMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
+        nextBillingDate: formatDate(currentPeriodEnd),
+        nextBillingAmountMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
         currency: (sub.currency ?? "usd").toUpperCase(),
         notice: "You are already on this plan.",
       });
@@ -129,8 +177,13 @@ export async function POST(req: NextRequest) {
       kind = "downgrade";
     }
 
-    // Downgrade: no charge today, change applied at period end. We still show
-    // a preview of the next invoice so the user knows what they'll pay.
+    // Target plan price for "next renewal amount" display. Retrieve explicitly
+    // so we can show the correct local-currency price whether or not the user
+    // will be charged today.
+    const targetPrice = await stripe.prices.retrieve(targetPriceId);
+
+    // Downgrade: no charge today, change applied at period end. The next
+    // invoice (at renewal) will be the target plan's full price.
     if (kind === "downgrade") {
       const minutesLost = await computeMinutesLost(user.id, currentPlan, targetPlan, sub.period_start);
       return NextResponse.json({
@@ -144,40 +197,51 @@ export async function POST(req: NextRequest) {
         netMajor: 0,
         totalMajor: 0,
         taxMajor: 0,
-        perPeriodMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
-        currency: (sub.currency ?? "usd").toUpperCase(),
+        perPeriodMajor: (targetPrice.unit_amount ?? 0) / 100,
+        nextBillingDate: formatDate(currentPeriodEnd),
+        nextBillingAmountMajor: (targetPrice.unit_amount ?? 0) / 100,
+        currency: (targetPrice.currency ?? "usd").toUpperCase(),
         minutesLost,
-        notice: buildDowngradeNotice(currentPlan, targetPlan, minutesLost, currentSub.items.data[0]?.current_period_end ?? null),
+        notice: buildDowngradeNotice(currentPlan, targetPlan, minutesLost, currentPeriodEnd),
       });
     }
 
-    // Upgrade / billing_switch → preview the invoice Stripe will create.
-    // This is the exact amount the customer will be charged today (with tax,
-    // discount, proration all handled by Stripe).
+    // Upgrade / billing_switch → createPreview returns the EXACT invoice.
     const itemId = currentSub.items.data[0]?.id;
     if (!itemId) {
       return NextResponse.json({ error: "Subscription has no items" }, { status: 500 });
     }
 
-    const preview = await stripe.invoices.createPreview({
+    const previewParams: Stripe.InvoiceCreatePreviewParams = {
       subscription: sub.stripe_subscription_id,
       subscription_details: {
         items: [{ id: itemId, price: targetPriceId }],
         proration_behavior: "always_invoice",
       },
-    });
+    };
+    // Apply promo code to the preview (Stripe supports this on subscription
+    // updates — contrast with Polar where codes only applied at next cycle).
+    if (discountCoupon) {
+      previewParams.discounts = [{ coupon: discountCoupon }];
+    }
+
+    const preview = await stripe.invoices.createPreview(previewParams);
 
     const currency = (preview.currency ?? "usd").toLowerCase();
     const subtotalMajor = (preview.subtotal ?? 0) / 100;
     const totalMajor = (preview.total ?? 0) / 100;
-    // `total_taxes` replaces the old `tax` root field in API 2024+.
     const taxMinor = (preview.total_taxes ?? []).reduce(
       (sum: number, t: { amount: number | null }) => sum + (t.amount ?? 0),
       0,
     );
     const taxMajor = taxMinor / 100;
+    const discountTotalMinor = (preview.total_discount_amounts ?? []).reduce(
+      (sum: number, d: { amount: number | null }) => sum + (d.amount ?? 0),
+      0,
+    );
 
-    // Extract the proration credit vs charge lines for display.
+    // Split proration lines into credit (negative) and charge (positive).
+    // Ignore lines that are purely discount adjustments.
     let creditMinor = 0;
     let chargeMinor = 0;
     for (const line of preview.lines.data) {
@@ -185,6 +249,11 @@ export async function POST(req: NextRequest) {
       if (amount < 0) creditMinor += Math.abs(amount);
       else chargeMinor += amount;
     }
+
+    // Next billing: when and how much. For billing_switch monthly→annual the
+    // new cycle starts today → next billing = today + 1 year at annual price.
+    // For tier upgrade same-interval → period_end unchanged, at target price.
+    const nextBillingEnd = preview.lines.data[preview.lines.data.length - 1]?.period?.end ?? currentPeriodEnd;
 
     return NextResponse.json({
       kind,
@@ -197,9 +266,14 @@ export async function POST(req: NextRequest) {
       netMajor: subtotalMajor,
       taxMajor,
       totalMajor,
-      perPeriodMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
+      discountMajor: discountTotalMinor / 100,
+      discountLabel,
+      discountPercentOff,
+      discountAmountOff,
+      perPeriodMajor: (targetPrice.unit_amount ?? 0) / 100,
+      nextBillingDate: formatDate(nextBillingEnd ?? currentPeriodEnd),
+      nextBillingAmountMajor: (targetPrice.unit_amount ?? 0) / 100,
       currency: currency.toUpperCase(),
-      subtitle: kind === "upgrade" ? "Effective immediately." : "New cycle starts today.",
       notice: buildUpgradeNotice(kind, currentPlan, targetPlan, targetBilling),
     });
   } catch (err) {
@@ -255,13 +329,12 @@ function buildUpgradeNotice(
   targetPlan: PlanId,
   targetBilling: BillingPeriod,
 ): string {
-  const targetLabel = PLANS[targetPlan].label;
   if (kind === "billing_switch") {
     return targetBilling === "annual"
       ? `New annual cycle starts today — you save 30% vs monthly.`
       : `New monthly cycle starts today.`;
   }
-  // upgrade
   const currentLabel = PLANS[currentPlan].label;
+  const targetLabel = PLANS[targetPlan].label;
   return `Effective immediately. Credit for unused ${currentLabel} time applied to the new ${targetLabel} charge. Your renewal date is unchanged.`;
 }
