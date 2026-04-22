@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { polar, productIdToPlan } from "@/lib/polar";
+import { stripe, priceIdToPlan } from "@/lib/stripe";
 import { getAuthUser } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-// GET /api/subscription/pending — returns the scheduled (pending) plan change
-// on the user's Polar subscription, if any. Used to display the "Your plan will
-// change to X on DATE" banner when the user has scheduled a downgrade (or other
-// plan change) via the Polar customer portal.
+// GET /api/subscription/pending — returns the scheduled plan change on the
+// user's Stripe subscription, if any. Reads from subscription.schedule (a
+// Subscription Schedule with multiple phases). The next phase's first item
+// price id tells us the target plan, and phase.start_date is when it applies.
 
 export async function GET() {
   try {
@@ -23,17 +23,30 @@ export async function GET() {
       return NextResponse.json({ pending: null });
     }
 
-    const polarSub = await polar.subscriptions.get({ id: sub.stripe_subscription_id });
-    const pending = polarSub.pendingUpdate;
-    if (!pending || !pending.productId) {
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id, {
+      expand: ["schedule"],
+    });
+
+    const schedule = stripeSub.schedule;
+    if (!schedule || typeof schedule === "string") {
       return NextResponse.json({ pending: null });
     }
 
-    const pendingPlan = productIdToPlan(pending.productId);
+    // Find the NEXT phase (not the current one). Phases are ordered; the one
+    // whose start_date is in the future is the pending change.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const nextPhase = schedule.phases.find((p) => (p.start_date ?? 0) > nowSec);
+    if (!nextPhase) return NextResponse.json({ pending: null });
+
+    const firstItem = nextPhase.items[0];
+    const priceRef = firstItem?.price;
+    const priceId = typeof priceRef === "string" ? priceRef : priceRef?.id;
+    if (!priceId) return NextResponse.json({ pending: null });
+
     return NextResponse.json({
       pending: {
-        plan: pendingPlan,
-        appliesAt: pending.appliesAt instanceof Date ? pending.appliesAt.toISOString() : String(pending.appliesAt),
+        plan: priceIdToPlan(priceId),
+        appliesAt: new Date((nextPhase.start_date ?? 0) * 1000).toISOString(),
       },
     });
   } catch (err) {

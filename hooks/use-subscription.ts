@@ -13,6 +13,7 @@ interface SubscriptionState {
   cancelAtPeriodEnd: boolean;
   periodEnd: string | null;
   currentBilling: "monthly" | "annual";
+  currency: string; // 'usd' | 'eur' | 'gbp' | … (lowercase ISO 4217)
   loading: boolean;
 }
 
@@ -48,6 +49,7 @@ export function useSubscription(userId: string | undefined) {
       cancelAtPeriodEnd: false,
       periodEnd: null,
       currentBilling: "monthly",
+      currency: "usd",
       loading: true,
     };
   });
@@ -56,7 +58,7 @@ export function useSubscription(userId: string | undefined) {
     if (!userId) { setState(prev => ({ ...prev, loading: false })); return; }
     const supabase = createClient();
     Promise.all([
-      supabase.from("subscriptions").select("plan, status, period_start, current_period_end, cancel_at_period_end").eq("user_id", userId).maybeSingle(),
+      supabase.from("subscriptions").select("plan, status, period_start, current_period_end, cancel_at_period_end, currency, billing_interval").eq("user_id", userId).maybeSingle(),
       supabase.from("profiles").select("created_at").eq("id", userId).maybeSingle(),
     ]).then(([subResult, profileResult]) => {
       // Plan stays active as long as Polar status is active, even if cancelAtPeriodEnd=true.
@@ -67,15 +69,20 @@ export function useSubscription(userId: string | undefined) {
       const periodStart = subResult.data?.period_start ?? null;
       const isPaidPlan = plan === "pro" || plan === "studio";
 
-      // Derive billing period from period length. ~30 days = monthly, ~365 = annual.
-      // Threshold 60 days splits them cleanly.
+      // billing_interval column is the source of truth (Stripe writes it via
+      // webhook). Fall back to period-length heuristic for legacy rows that
+      // predate the Stripe migration.
       let currentBilling: "monthly" | "annual" = "monthly";
-      if (periodStart && periodEnd) {
+      const intervalCol = subResult.data?.billing_interval;
+      if (intervalCol === "year") {
+        currentBilling = "annual";
+      } else if (!intervalCol && periodStart && periodEnd) {
         const start = new Date(periodStart + "T00:00:00").getTime();
         const end = new Date(periodEnd).getTime();
         const days = Math.round((end - start) / 86400000);
         currentBilling = days > 60 ? "annual" : "monthly";
       }
+      const currency = (subResult.data?.currency ?? "usd").toLowerCase();
 
       let anchor: Date;
       if (isPaidPlan && periodStart) {
@@ -95,7 +102,7 @@ export function useSubscription(userId: string | undefined) {
           const minutesUsed = data?.tracks_used ?? 0;
           const rolloverMinutes = PLANS[plan].minutesNeverReset ? (data?.rollover_minutes ?? 0) : 0;
           localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed, rolloverMinutes }));
-          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, currentBilling, loading: false });
+          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, currentBilling, currency, loading: false });
         });
     }).catch(() => setState(prev => ({ ...prev, loading: false })));
   }, [userId]);
