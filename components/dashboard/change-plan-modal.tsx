@@ -295,14 +295,14 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       C={C}
                     />
 
-                    {preview.discountMajor && preview.discountMajor > 0 && (
+                    {typeof preview.discountMajor === "number" && preview.discountMajor > 0 ? (
                       <Row
                         label={`Promo code${preview.discountLabel ? ` (${preview.discountLabel})` : ""}${typeof preview.discountPercentOff === "number" ? ` — ${preview.discountPercentOff}% off` : ""}`}
                         value={`−${fmt(preview.discountMajor)}`}
                         C={C}
                         accent
                       />
-                    )}
+                    ) : null}
 
                     {preview.taxMajor > 0 && (
                       <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
@@ -317,7 +317,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                 )}
 
                 {/* ── Minutes lost warning on downgrade ── */}
-                {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 && (
+                {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 ? (
                   <div style={{ backgroundColor: "#FF6B0015", padding: "10px 14px", marginBottom: 12, borderLeft: "3px solid #FF6B00" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B00", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
                       You will lose {Math.round(preview.minutesLost ?? 0)} rollover minute{Math.round(preview.minutesLost ?? 0) === 1 ? "" : "s"}
@@ -326,7 +326,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       {PLANS[preview.targetPlan].label} quota is {PLANS[preview.targetPlan].minutesIncluded} min/month. Any balance above that is forfeited when you downgrade.
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 {/* ── Next billing — always visible (except "same") ── */}
                 {preview.kind !== "same" && preview.nextBillingDate && (

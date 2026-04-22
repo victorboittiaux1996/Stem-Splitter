@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useLocalPrices as useLocalPricesHome, formatCurrency as formatCurrencyHome } from "@/hooks/use-local-prices";
 import { motion, useInView } from "framer-motion";
 import { Logo } from "@/components/website/logo";
 import { Footer } from "@/components/website/footer";
@@ -948,12 +949,33 @@ function useHomePlanCTA(planId: HomePlanId, annual: boolean) {
   return { label: `Upgrade to ${PLANS[planId].label}`, href: checkoutUrl, isCurrent: false };
 }
 
-function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean }) {
+function HomePlanCard({ planId, annual, localPrices }: { planId: HomePlanId; annual: boolean; localPrices: ReturnType<typeof useLocalPricesHome> }) {
   const [hovered, setHovered] = useState(false);
   const plan = PLANS[planId];
   const accent = homePlanAccents[planId];
 
-  const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+  // Local currency pricing from Stripe's currency_options — falls back to
+  // the USD sticker in lib/plans.ts if the API is slow/down.
+  const localKey = planId === "pro"
+    ? (annual ? "pro_annual" : "pro_monthly")
+    : planId === "studio"
+    ? (annual ? "studio_annual" : "studio_monthly")
+    : null;
+  const local = localKey && localPrices ? localPrices.prices[localKey] : null;
+  let price: string;
+  if (planId === "free") {
+    price = "$0";
+  } else if (local) {
+    if (annual) {
+      // Annual total divided by 12 → shown as effective /mo.
+      const monthlyEffective = Math.round(local.amount / 12);
+      price = formatCurrencyHome(monthlyEffective, localPrices!.currency, { maxFractionDigits: 2 });
+    } else {
+      price = local.display;
+    }
+  } else {
+    price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+  }
   const period = planId === "free" ? "forever" : "/mo";
 
   const cta = useHomePlanCTA(planId, annual);
@@ -1015,24 +1037,34 @@ function HomePlanCard({ planId, annual }: { planId: HomePlanId; annual: boolean 
             </motion.span>
           </div>
           <div style={{ minHeight: annual ? 25 : 0, marginTop: annual ? 6 : 0, display: "flex", alignItems: "center", gap: 8 }}>
-            {annual && planId !== "free" && (
-              <>
-                <motion.span
-                  animate={{ color: hovered ? "#FFFFFF" : "#999999" }}
-                  transition={{ duration: 0.3 }}
-                  style={{ fontFamily: fonts.body, fontSize: 13, textDecoration: "line-through" }}
-                >
-                  ${plan.priceUSD}/mo
-                </motion.span>
-                <motion.span
-                  animate={{ color: hovered ? "#FFFFFF" : C.accent }}
-                  transition={{ duration: 0.3 }}
-                  style={{ fontFamily: fonts.body, fontSize: 13, fontWeight: 600 }}
-                >
-                  ${(plan.yearlyPriceUSD * 12).toFixed(0)}/yr
-                </motion.span>
-              </>
-            )}
+            {annual && planId !== "free" && (() => {
+              const monthlyKey = planId === "pro" ? "pro_monthly" : "studio_monthly";
+              const annualKey = planId === "pro" ? "pro_annual" : "studio_annual";
+              const monthlyLocal = localPrices?.prices[monthlyKey];
+              const annualLocal = localPrices?.prices[annualKey];
+              const strikeLabel = monthlyLocal?.display ?? `$${plan.priceUSD}`;
+              const yearlyTotal = annualLocal
+                ? formatCurrencyHome(annualLocal.amount, localPrices!.currency, { maxFractionDigits: 0 })
+                : `$${(plan.yearlyPriceUSD * 12).toFixed(0)}`;
+              return (
+                <>
+                  <motion.span
+                    animate={{ color: hovered ? "#FFFFFF" : "#999999" }}
+                    transition={{ duration: 0.3 }}
+                    style={{ fontFamily: fonts.body, fontSize: 13, textDecoration: "line-through" }}
+                  >
+                    {strikeLabel}/mo
+                  </motion.span>
+                  <motion.span
+                    animate={{ color: hovered ? "#FFFFFF" : C.accent }}
+                    transition={{ duration: 0.3 }}
+                    style={{ fontFamily: fonts.body, fontSize: 13, fontWeight: 600 }}
+                  >
+                    {yearlyTotal}/yr
+                  </motion.span>
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -1145,6 +1177,7 @@ function HomeBillingToggle({ annual, onToggle }: { annual: boolean; onToggle: ()
 
 function PricingSection() {
   const [annual, setAnnual] = useState(false);
+  const localPrices = useLocalPricesHome();
 
   return (
     <section id="pricing" style={{ backgroundColor: C.bgAlt, padding: "120px 0" }}>
@@ -1170,7 +1203,7 @@ function PricingSection() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
           {(["free", "pro", "studio"] as HomePlanId[]).map((id, i) => (
             <FadeIn key={id} delay={i * 0.08}>
-              <HomePlanCard planId={id} annual={annual} />
+              <HomePlanCard planId={id} annual={annual} localPrices={localPrices} />
             </FadeIn>
           ))}
         </div>

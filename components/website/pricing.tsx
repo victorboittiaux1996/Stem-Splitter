@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { stemColors } from "./theme";
 import { PLANS } from "@/lib/plans";
+import { useLocalPrices } from "@/hooks/use-local-prices";
 
 const F = "var(--font-futura), sans-serif";
 
@@ -23,45 +24,60 @@ interface PricingProps {
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
 }
 
-// Prices from central config, marketing features kept here (different tone than technical limits)
-const tiers = [
-  {
-    id: "free" as const,
-    name: PLANS.free.label,
-    tagline: PLANS.free.tagline,
-    monthlyPrice: `$${PLANS.free.priceUSD}`,
-    yearlyPrice: `$${PLANS.free.yearlyPriceUSD}`,
-    period: "forever",
-    highlighted: false,
-    badge: null,
-    cta: "Get started",
-    features: PLANS.free.features,
-  },
-  {
-    id: "pro" as const,
-    name: PLANS.pro.label,
-    tagline: PLANS.pro.tagline,
-    monthlyPrice: `$${PLANS.pro.priceUSD}`,
-    yearlyPrice: `$${PLANS.pro.yearlyPriceUSD}`,
-    period: "/mo",
-    highlighted: true,
-    badge: "Popular",
-    cta: "Start free trial",
-    features: PLANS.pro.features,
-  },
-  {
-    id: "studio" as const,
-    name: PLANS.studio.label,
-    tagline: PLANS.studio.tagline,
-    monthlyPrice: `$${PLANS.studio.priceUSD}`,
-    yearlyPrice: `$${PLANS.studio.yearlyPriceUSD}`,
-    period: "/mo",
-    highlighted: false,
-    badge: null,
-    cta: "Get Studio",
-    features: PLANS.studio.features,
-  },
-];
+type LocalPricesShape = ReturnType<typeof useLocalPrices>;
+
+// Build the tiers with multi-currency support. USD from lib/plans.ts is only
+// the fallback string — when `local` is provided, we use Stripe's
+// currency_options display for the visitor's currency.
+function buildTiers(local: LocalPricesShape) {
+  const priceOrFallback = (
+    key: "pro_monthly" | "pro_annual" | "studio_monthly" | "studio_annual",
+    fallbackUSD: number,
+  ) => {
+    const p = local?.prices[key];
+    return p ? p.display : `$${fallbackUSD}`;
+  };
+  return [
+    {
+      id: "free" as const,
+      name: PLANS.free.label,
+      tagline: PLANS.free.tagline,
+      monthlyPrice: "$0",
+      yearlyPrice: "$0",
+      period: "forever",
+      highlighted: false,
+      badge: null,
+      cta: "Get started",
+      features: PLANS.free.features,
+    },
+    {
+      id: "pro" as const,
+      name: PLANS.pro.label,
+      tagline: PLANS.pro.tagline,
+      monthlyPrice: priceOrFallback("pro_monthly", PLANS.pro.priceUSD),
+      yearlyPrice: priceOrFallback("pro_annual", PLANS.pro.yearlyPriceUSD),
+      period: "/mo",
+      highlighted: true,
+      badge: "Popular",
+      cta: "Start free trial",
+      features: PLANS.pro.features,
+    },
+    {
+      id: "studio" as const,
+      name: PLANS.studio.label,
+      tagline: PLANS.studio.tagline,
+      monthlyPrice: priceOrFallback("studio_monthly", PLANS.studio.priceUSD),
+      yearlyPrice: priceOrFallback("studio_annual", PLANS.studio.yearlyPriceUSD),
+      period: "/mo",
+      highlighted: false,
+      badge: null,
+      cta: "Get Studio",
+      features: PLANS.studio.features,
+    },
+  ];
+}
+
+type Tier = ReturnType<typeof buildTiers>[number];
 
 const barColors = [
   stemColors.vocals,
@@ -131,7 +147,7 @@ function CTAButton({
   );
 }
 
-function PricingCard({ tier, variant, onUpgrade, annual }: { tier: typeof tiers[number]; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void; annual: boolean }) {
+function PricingCard({ tier, variant, onUpgrade, annual }: { tier: Tier; variant: PricingVariant; onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void; annual: boolean }) {
   const [hovered, setHovered] = useState(false);
   const isHighlighted = tier.highlighted;
   const displayPrice = annual ? tier.yearlyPrice : tier.monthlyPrice;
@@ -294,6 +310,8 @@ function PricingCard({ tier, variant, onUpgrade, annual }: { tier: typeof tiers[
 
 export function Pricing({ variant, onUpgrade }: PricingProps) {
   const [annual, setAnnual] = useState(false);
+  const localPrices = useLocalPrices();
+  const tiers = buildTiers(localPrices);
 
   return (
     <section
