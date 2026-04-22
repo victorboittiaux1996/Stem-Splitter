@@ -602,11 +602,17 @@ def url_info(url: str = "", playlist: str = ""):
     try:
         result = subprocess.run(cmd, timeout=20, capture_output=True, check=True)
         data = json.loads(result.stdout)
-        return {
+        # `downloadable` is surfaced so the Next.js /api/url-info can reject
+        # stream-only SoundCloud tracks (only artist-enabled downloads allowed).
+        downloadable = data.get("downloadable")
+        response = {
             "duration": data.get("duration") or 0,
             "title": data.get("title") or "",
             "isPlaylist": False,
         }
+        if downloadable is not None:
+            response["downloadable"] = bool(downloadable)
+        return response
     except subprocess.TimeoutExpired:
         return {"error": "Metadata fetch timed out", "duration": 0, "title": ""}
     except subprocess.CalledProcessError as e:
@@ -707,50 +713,93 @@ def _download_dropbox(url: str, output_dir: str) -> str:
         raise Exception(f"Dropbox download failed: {e.reason}")
 
 
-def _resolve_spotify_to_ytsearch(url: str) -> str:
-    """Convert a Spotify track URL to a YouTube search query.
+def _download_gdrive(url: str, output_dir: str) -> str:
+    """Download audio from a Google Drive share link.
 
-    Spotify links can't be downloaded directly (DRM).
-    Scrape the Spotify embed page for artist+title, then search YouTube.
+    Handles the >100MB confirmation page: Google serves an HTML virus-scan
+    warning above that threshold, which we parse for the download form action
+    (newer response) or the `confirm=` token (legacy response).
     """
-    import re
-    import json
     import urllib.request
+    import urllib.error
+    import re
 
-    track_id_match = re.search(r'track/([a-zA-Z0-9]+)', url)
-    if not track_id_match:
-        raise Exception("Invalid Spotify URL — only track links are supported")
+    m = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+    if not m:
+        m = re.search(r'[?&]id=([a-zA-Z0-9_-]+)', url)
+    if not m:
+        raise Exception("Invalid Google Drive URL — make sure you copied a share link")
+    file_id = m.group(1)
 
-    embed_url = f"https://open.spotify.com/embed/track/{track_id_match.group(1)}"
-    req = urllib.request.Request(embed_url, headers={
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    })
+    def _fetch(target_url: str, cookie_header: str = ""):
+        req = urllib.request.Request(target_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        })
+        if cookie_header:
+            req.add_header('Cookie', cookie_header)
+        return urllib.request.urlopen(req, timeout=120)
+
+    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        resp = _fetch(download_url)
+        content_type = resp.headers.get('Content-Type', '').lower()
+
+        # Large files (>100MB) return an HTML confirm page — parse either the
+        # new download form (drive.usercontent.google.com/download?...) or the
+        # legacy confirm= token from the page body.
+        if 'text/html' in content_type:
+            set_cookies = resp.headers.get_all('Set-Cookie') or []
+            cookie_header = '; '.join(c.split(';', 1)[0] for c in set_cookies)
             html = resp.read().decode('utf-8', errors='replace')
-    except Exception as e:
-        raise Exception(f"Failed to fetch Spotify embed: {e}")
 
-    match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html)
-    if not match:
-        raise Exception("Could not parse Spotify embed data")
+            form_match = re.search(
+                r'<form[^>]*action="(https://drive\.usercontent\.google\.com/download[^"]+)"',
+                html,
+            )
+            if form_match:
+                action = form_match.group(1).replace('&amp;', '&')
+                resp = _fetch(action, cookie_header)
+            else:
+                token_match = re.search(r'confirm=([a-zA-Z0-9_-]+)', html)
+                if not token_match:
+                    raise Exception(
+                        "Could not bypass Google Drive confirmation page — "
+                        "make sure the file is shared with 'anyone with the link'"
+                    )
+                resp = _fetch(f"{download_url}&confirm={token_match.group(1)}", cookie_header)
 
-    data = json.loads(match.group(1))
-    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity')
-    if not entity:
-        raise Exception("No entity found in Spotify embed data")
+        cd = resp.headers.get('Content-Disposition', '')
+        filename = 'audio'
+        if 'filename=' in cd:
+            fm = re.search(r'filename[*]?=(?:UTF-\d\'\')?["\']?([^"\';\n]+)', cd)
+            if fm:
+                filename = os.path.basename(fm.group(1).strip())
 
-    title = entity.get('name', '')
-    artists = entity.get('artists', [])
-    artist = ', '.join(a.get('name', '') for a in artists) if artists else ''
-    query = f"{artist} - {title}" if artist else title
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in ('.mp3', '.wav', '.flac', '.aif', '.aiff', '.ogg', '.m4a', '.aac', '.webm'):
+            ext = '.mp3'
+            filename = f'audio{ext}'
 
-    if not query.strip():
-        raise Exception("Could not extract artist/title from Spotify")
+        output_path = os.path.join(output_dir, filename)
+        with open(output_path, 'wb') as f:
+            while True:
+                chunk = resp.read(8192)
+                if not chunk:
+                    break
+                f.write(chunk)
 
-    print(f"Spotify → YouTube search: {query}")
-    return f"ytsearch:{query}"
+        if os.path.getsize(output_path) < 1000:
+            raise Exception("Downloaded file is too small — make sure the Google Drive link is shared publicly")
+
+        return output_path
+    except urllib.error.HTTPError as e:
+        raise Exception(
+            f"Google Drive download failed (HTTP {e.code}) — "
+            f"make sure the link is shared with 'anyone with the link'"
+        )
+    except urllib.error.URLError as e:
+        raise Exception(f"Google Drive download failed: {e.reason}")
 
 
 def _redact_cookies(s: str) -> str:
@@ -805,7 +854,7 @@ def classify_error(stderr: str) -> tuple[str, bool]:
 # User-facing error messages for URL download failures — shared by download_audio (CPU)
 # and the legacy download path in separate() for audio_b64 / direct mode.
 _ERROR_MESSAGES = {
-    "bot_detected": "YouTube is temporarily blocking this request. Try again or upload the audio file directly.",
+    "bot_detected": "The source is temporarily blocking this request. Try again or upload the audio file directly.",
     "private": "This video is private and cannot be imported.",
     "removed": "This video is no longer available.",
     "geo_blocked": "This video is geo-restricted and cannot be imported.",
@@ -820,23 +869,39 @@ _ERROR_MESSAGES = {
 def download_from_url(url: str, output_dir: str, job_id: str = "unknown") -> str:
     """Download audio from URL at best available quality.
 
-    Dropbox links are downloaded directly via HTTP.
-    Spotify links are resolved to YouTube search (DRM protection).
-    YouTube/SoundCloud/Deezer use yt-dlp with the full hardening stack:
-      - Authenticated cookies (Modal Secret youtube-cookies-jar)
-      - bgutil PO token provider sidecar
-      - Client fallback chain: web_safari → tv_simply → mweb → android_sdkless
-      - Residential proxy (YT_PROXY_URL) — used directly for YouTube when set,
-        since Modal datacenter IPs are always blocked by YouTube's anti-bot layer.
-        Skipping the primary path avoids wasting 30-60s on retries that always fail.
+    Supported sources (2026-04-21 onward):
+      - Dropbox / Google Drive: direct HTTP download (user's own cloud files).
+      - SoundCloud: yt-dlp, but only tracks the artist flagged as downloadable
+        (the /api/url-info route enforces this before the job reaches the worker).
+
+    Streaming services (YouTube, Spotify, Deezer, Apple Music) are rejected upstream
+    in /api/url-info for legal reasons (DRM, ToS, RIAA jurisprudence). The YT-specific
+    hardening below (bgutil sidecar, cookie jars, proxy chain) is left in place as
+    dead-but-harmless: never invoked because the API won't let YT URLs through, and
+    cheap to re-enable via the `archive/streaming-imports-v2` tag if needed.
     """
+    # Defense-in-depth whitelist: reject anything that's not an allowed source
+    # BEFORE reaching the YT/Spotify code paths. /api/upload should already have
+    # blocked these, but we enforce at the worker boundary too so a misrouted
+    # or directly-invoked call can't sneak a streaming URL through.
+    _ALLOWED_DOMAINS = (
+        'dropbox.com', 'dropboxusercontent.com',
+        'drive.google.com',
+        'soundcloud.com',
+    )
+    if not any(d in url for d in _ALLOWED_DOMAINS):
+        raise Exception(
+            "unsupported:This source is not supported. "
+            "Use Dropbox, Google Drive, or SoundCloud — or upload the audio file directly."
+        )
+
     # Dropbox: direct HTTP download (yt-dlp doesn't support it)
     if 'dropbox.com' in url or 'dropboxusercontent.com' in url:
         return _download_dropbox(url, output_dir)
 
-    # Spotify: resolve to YouTube search (yt-dlp can't handle Spotify DRM)
-    if 'spotify.com' in url:
-        url = _resolve_spotify_to_ytsearch(url)
+    # Google Drive: direct download with confirm-token handling for >100MB files
+    if 'drive.google.com' in url:
+        return _download_gdrive(url, output_dir)
 
     # Start bgutil sidecar if needed (YouTube only, noop for other platforms)
     if _is_youtube_url(url):

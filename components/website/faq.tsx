@@ -15,7 +15,7 @@ const faqItems = [
   {
     question: "What audio formats are supported?",
     answer:
-      "MP3, WAV, FLAC, AIFF, OGG, M4A, and AAC. Free plan supports files up to 200 MB, paid plans up to 2 GB. Pro and Studio users can also paste a YouTube, SoundCloud, or Spotify URL.",
+      "MP3, WAV, FLAC, AIFF, OGG, M4A, and AAC. Free plan supports files up to 200 MB, paid plans up to 2 GB. Pro and Studio users can also paste a SoundCloud, Dropbox, or Google Drive link.",
   },
   {
     question: "How long does separation take?",

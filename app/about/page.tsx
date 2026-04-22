@@ -111,7 +111,7 @@ export default function AboutPage() {
                   44Stems uses state-of-the-art machine learning models to separate any audio file into clean, isolated stems: vocals, drums, bass, piano, guitar, and more. Separation runs on H100 GPUs in the cloud — the same hardware used for frontier AI research — so you get results that are accurate and fast.
                 </p>
                 <p style={{ marginTop: 12 }}>
-                  You can upload audio files directly from your computer, import tracks from YouTube, SoundCloud, Spotify, or Deezer, and download your stems as lossless WAV files. Everything runs in your browser. No plugins, no installs.
+                  You can upload audio files directly from your computer, import tracks from Dropbox, Google Drive, or SoundCloud, and download your stems as lossless WAV files. Everything runs in your browser. No plugins, no installs.
                 </p>
               </div>
             </FadeIn>
