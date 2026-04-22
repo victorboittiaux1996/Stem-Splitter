@@ -1,19 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { polar, getProductId } from "@/lib/polar";
+import { stripe, getPriceId, getCurrencyFromHeaders } from "@/lib/stripe";
 import { getAuthUser } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+
+// Stripe Checkout Session creation.
+//   - New customer (no existing Stripe customer_id in our DB): plain Checkout
+//     with customer_email + client_reference_id=user.id for the webhook link.
+//   - Existing customer (already has stripe_customer_id): pass `customer` so
+//     Stripe reuses their stored payment methods and tax address.
+//   - Existing paid sub: redirect to Billing Portal (plan changes happen in
+//     our in-app modal via /api/subscription/change, not via checkout).
+//   - Existing paid sub canceled-but-active: bounce back to /app so the in-app
+//     modal handles resume.
 
 export async function POST(req: NextRequest) {
   try {
     const user = await getAuthUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user.email) return NextResponse.json({ error: "Account has no email" }, { status: 400 });
 
-    const { plan, billing = "monthly", discountId } = await req.json() as {
+    const { plan, billing = "monthly" } = (await req.json()) as {
       plan: string;
       billing?: string;
-      discountId?: string;
     };
     if (plan !== "pro" && plan !== "studio") {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
@@ -22,87 +30,65 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid billing period" }, { status: 400 });
     }
 
-    if (!user.email) {
-      return NextResponse.json({ error: "Account has no email address" }, { status: 400 });
-    }
-
-    const productId = getProductId(plan, billing);
+    const priceId = getPriceId(plan, billing);
     const appUrl = (
       process.env.NEXT_PUBLIC_APP_URL ??
       `${req.headers.get("x-forwarded-proto") ?? "https"}://${req.headers.get("host")}`
     ).trim();
 
-    // Fetch subscription + profile in parallel to minimize latency.
-    const [{ data: existingSub }, { data: profile }] = await Promise.all([
-      supabaseAdmin
-        .from("subscriptions")
-        .select("stripe_customer_id, plan, status, cancel_at_period_end")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      supabaseAdmin
-        .from("profiles")
-        .select("name")
-        .eq("id", user.id)
-        .maybeSingle(),
-    ]);
+    const { data: existingSub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("stripe_customer_id, plan, status, cancel_at_period_end")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    // User has an active paid sub. Three sub-states:
-    //  (a) active, not canceled → portal for billing/plan change
-    //  (b) active, canceled at period end → redirect to in-app modal (resume/change)
-    //  (c) canceled (status=canceled, period ended) → fall through to new checkout
     const hasActivePaidSub =
       existingSub &&
-      existingSub.stripe_customer_id &&
       existingSub.plan !== "free" &&
       (existingSub.status === "active" || existingSub.status === "trialing" || existingSub.status === "past_due");
 
     if (hasActivePaidSub && existingSub.cancel_at_period_end) {
-      // User canceled but still has access. Bounce to in-app settings so the
-      // ChangePlanModal can handle resume or plan change with proration preview.
       return NextResponse.json({
         url: `${appUrl}/app?upgrade=${plan}&billing=${billing}`,
       });
     }
 
-    if (hasActivePaidSub) {
-      const session = await polar.customerSessions.create({
-        customerId: existingSub.stripe_customer_id!,
+    if (hasActivePaidSub && existingSub.stripe_customer_id) {
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: existingSub.stripe_customer_id,
+        return_url: `${appUrl}/app`,
       });
-      if (!session.customerPortalUrl) {
-        return NextResponse.json({ error: "Failed to create portal session" }, { status: 502 });
-      }
-      return NextResponse.json({ url: session.customerPortalUrl });
+      return NextResponse.json({ url: portal.url });
     }
 
-    const customerName = profile?.name ?? undefined;
+    const currency = getCurrencyFromHeaders(req.headers);
 
-    // Collision guard: if a customer already exists in Polar with this email but
-    // was attached to a different Supabase user_id (e.g. account was deleted
-    // then recreated with the same email), we pass the CURRENT user.id as the
-    // external id but DO NOT force Polar to look up by external id — Polar will
-    // match by email and create a fresh checkout attached to that customer
-    // record. The externalCustomerId only sets our metadata link.
-    // If we detect a stale subscription row on our side with a different
-    // stripe_customer_id but no active sub, we just proceed — the new checkout
-    // creates a new subscription, and our webhook handler writes the new
-    // customer_id on the user row.
-    const checkout = await polar.checkouts.create({
-      products: [productId],
-      customerEmail: user.email,
-      customerName,
-      externalCustomerId: user.id,
-      requireBillingAddress: true,
-      ...(discountId ? { discountId } : {}),
-      successUrl: `${appUrl}/app?checkout=success&checkoutId={CHECKOUT_ID}`,
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      currency,
+      automatic_tax: { enabled: true },
+      tax_id_collection: { enabled: true },
+      billing_address_collection: "required",
+      customer_email: existingSub?.stripe_customer_id ? undefined : user.email,
+      customer: existingSub?.stripe_customer_id ?? undefined,
+      client_reference_id: user.id,
+      subscription_data: {
+        metadata: { supabase_user_id: user.id },
+      },
+      metadata: { supabase_user_id: user.id },
+      allow_promotion_codes: true,
+      success_url: `${appUrl}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/app?checkout=canceled`,
     });
 
-    if (!checkout.url) {
-      return NextResponse.json({ error: "Failed to get checkout URL" }, { status: 502 });
+    if (!session.url) {
+      return NextResponse.json({ error: "Failed to create Checkout session" }, { status: 502 });
     }
-
-    return NextResponse.json({ url: checkout.url });
+    return NextResponse.json({ url: session.url });
   } catch (error) {
     console.error("Checkout error:", error);
-    return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Failed to create checkout";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,10 +1,26 @@
 "use client";
 
 import React from "react";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PLANS, type PlanId, type BillingPeriod } from "@/lib/plans";
 import { toast } from "sonner";
 import { RiLoader4Line } from "@remixicon/react";
+
+// Lazy Stripe.js loader — only instantiated the first time an upgrade needs
+// 3DS/SCA confirmation, so the script isn't loaded on every modal open.
+let stripePromise: Promise<Stripe | null> | null = null;
+function getStripe(): Promise<Stripe | null> {
+  if (!stripePromise) {
+    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    if (!key) {
+      console.error("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set — SCA confirmation will fail");
+      return Promise.resolve(null);
+    }
+    stripePromise = loadStripe(key);
+  }
+  return stripePromise;
+}
 
 type PreviewKind = "new" | "upgrade" | "downgrade" | "billing_switch" | "same" | "resume";
 
@@ -14,20 +30,15 @@ interface Preview {
   currentBilling?: BillingPeriod;
   targetPlan: PlanId;
   targetBilling: BillingPeriod;
-  daysRemaining?: number;
-  daysInPeriod?: number;
   creditMajor: number;
   chargeMajor: number;
   netMajor: number;
-  taxMajor?: number;
-  totalMajor?: number;
-  vatRate?: number;
-  vatKnown?: boolean;
+  taxMajor: number;
+  totalMajor: number;
   perPeriodMajor: number;
   currency: string;
   subtitle?: string;
   notice: string;
-  creditIsEstimate?: boolean;
   minutesLost?: number;
 }
 
@@ -120,6 +131,33 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
         }),
       });
       const data = await res.json();
+
+      // 3DS / SCA challenge required (EU cards + regulated transactions).
+      // The backend returned the invoice's client_secret — we complete the
+      // confirmation via Stripe.js on the user's browser, which opens Stripe's
+      // hosted 3DS challenge in a popup. On success, the webhook invoice.paid
+      // fires and our DB sync picks up the plan change.
+      if (data.action === "requires_action" && data.clientSecret) {
+        const stripe = await getStripe();
+        if (!stripe) {
+          toast.error("Payment authentication unavailable — contact support.");
+          setSubmitting(false);
+          return;
+        }
+        const { error } = await stripe.confirmCardPayment(data.clientSecret);
+        if (error) {
+          toast.error(error.message ?? "Payment authentication failed");
+          setSubmitting(false);
+          return;
+        }
+        // Confirmed — webhook will sync in seconds. Show success optimistically.
+        toast.success(`Upgraded to ${PLANS[targetPlan].label}`);
+        window.dispatchEvent(new CustomEvent("usage-updated"));
+        onSuccess?.();
+        onClose();
+        return;
+      }
+
       if (data.ok) {
         toast.success(
           preview.kind === "resume"
@@ -185,19 +223,19 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
             {preview && !loading && (
               <>
-                {/* Proration box: only for upgrades and billing switches that pay today.
-                    Downgrades use prorationBehavior:"next_period" (no charge now → box hidden).
-                    Numbers come from the server, which ports Polar's exact proration
-                    formula (server/polar/subscription/update.py) — credit and charge
-                    are post-discount, seconds-level precision, tax derived from the
-                    user's last order. Expected accuracy vs real invoice: ±$0.01. */}
+                {/* Proration box: only for upgrades + billing switches (charge today).
+                    Downgrades are scheduled at renewal (no charge now → box hidden).
+                    All numbers come from stripe.invoices.createPreview — exact to
+                    the cent, including tax and any existing subscription discount. */}
                 {(preview.kind === "upgrade" || preview.kind === "billing_switch") && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
-                    <Row
-                      label={`Credit for unused ${PLANS[preview.currentPlan].label} time${preview.creditIsEstimate ? " (estimate)" : ""}`}
-                      value={preview.creditMajor > 0 ? `−${fmt(preview.creditMajor)}` : fmt(0)}
-                      C={C}
-                    />
+                    {preview.creditMajor > 0 && (
+                      <Row
+                        label={`Credit for unused ${PLANS[preview.currentPlan].label} time`}
+                        value={`−${fmt(preview.creditMajor)}`}
+                        C={C}
+                      />
+                    )}
                     <Row
                       label={
                         preview.kind === "billing_switch"
@@ -207,25 +245,16 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       value={fmt(preview.chargeMajor)}
                       C={C}
                     />
-                    {preview.vatKnown && typeof preview.taxMajor === "number" && preview.taxMajor > 0 && (
-                      <Row
-                        label={`Tax${typeof preview.vatRate === "number" ? ` (${Math.round(preview.vatRate * 100)}%)` : ""}`}
-                        value={fmt(preview.taxMajor)}
-                        C={C}
-                      />
+                    {preview.taxMajor > 0 && (
+                      <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
                     )}
                     <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
                     <Row
                       label="Total today"
-                      value={fmt(typeof preview.totalMajor === "number" ? preview.totalMajor : preview.netMajor)}
+                      value={fmt(preview.totalMajor)}
                       C={C}
                       bold
                     />
-                    {!preview.vatKnown && (
-                      <p style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
-                        + tax calculated by Polar at checkout based on your billing address.
-                      </p>
-                    )}
                   </div>
                 )}
 
@@ -246,14 +275,10 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   {preview.notice}
                 </p>
 
-                {/* Promo code input intentionally removed from this modal. Per Polar docs
-                    (api-reference/subscriptions/update): "Update the subscription to apply
-                    a new discount... The change will be applied on the next billing cycle."
-                    So a code entered here would NOT reduce today's proration charge —
-                    showing the input was deceptive. Users with an active sub already get
-                    their existing discount applied server-side (reflected in chargeMajor).
-                    New codes can still be applied through the /api/polar/validate-discount
-                    route on initial checkout or a future "apply to next renewal" flow. */}
+                {/* Promo codes only apply at initial checkout (Stripe Checkout has
+                    `allow_promotion_codes`). For plan changes on an active sub, the
+                    existing discount carries through — we don't expose new-code entry
+                    here because Stripe applies it only to the NEXT invoice. */}
 
                 <div className="flex items-center gap-[8px]">
                   <button

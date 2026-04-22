@@ -1,19 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { polar, getProductId, POLAR_PRODUCTS } from "@/lib/polar";
+import Stripe from "stripe";
+import { stripe, getPriceId, STRIPE_PRICES } from "@/lib/stripe";
 import { getAuthUser } from "@/lib/supabase/auth-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { PlanId, BillingPeriod } from "@/lib/plans";
 
 // Apply a subscription change for an existing customer.
-// - Same product = no-op (400)
-// - Different product/billing = polar.subscriptions.update with proration: invoice
-// - Free customers must use /api/checkout (creates a new sub)
+//
+//   Action             | Stripe call
+//   ─────────────────────────────────────────────────────────────────────────
+//   cancel             | subscriptions.update(cancel_at_period_end=true)
+//   resume             | subscriptions.update(cancel_at_period_end=false)
+//   upgrade            | subscriptions.update(items, proration='always_invoice')
+//   billing_switch annual  | idem upgrade (new annual cycle starts today)
+//   downgrade same-interval| subscriptions.update(items, proration='none',
+//                             billing_cycle_anchor='unchanged') — effect at
+//                             next renewal, no charge today
+//   downgrade cross-interval (annual→monthly)
+//                      | subscriptionSchedules for clean phase boundary
+//
+// The authoritative source of truth remains Stripe webhooks. We do an
+// optimistic DB write from the API response to avoid a visible lag in the
+// UI, but webhooks re-sync within seconds.
 
 type Body = {
   plan: PlanId;
   billing: BillingPeriod;
   action?: "change" | "cancel" | "resume";
-  discountId?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -26,7 +39,7 @@ export async function POST(req: NextRequest) {
 
     const { data: sub } = await supabaseAdmin
       .from("subscriptions")
-      .select("plan, status, stripe_subscription_id, stripe_customer_id, cancel_at_period_end")
+      .select("plan, status, stripe_subscription_id, stripe_customer_id, cancel_at_period_end, billing_interval")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -38,26 +51,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "cancel") {
-      const updated = await polar.subscriptions.update({
-        id: sub.stripe_subscription_id,
-        subscriptionUpdate: { cancelAtPeriodEnd: true },
+      const updated = await stripe.subscriptions.update(sub.stripe_subscription_id, {
+        cancel_at_period_end: true,
       });
       return NextResponse.json({
         ok: true,
         action: "canceled",
-        endsAt: updated.endsAt ?? updated.currentPeriodEnd ?? null,
+        endsAt: updated.items.data[0]?.current_period_end ? new Date(updated.items.data[0].current_period_end * 1000).toISOString() : null,
       });
     }
 
     if (action === "resume") {
-      const updated = await polar.subscriptions.update({
-        id: sub.stripe_subscription_id,
-        subscriptionUpdate: { cancelAtPeriodEnd: false },
+      const updated = await stripe.subscriptions.update(sub.stripe_subscription_id, {
+        cancel_at_period_end: false,
       });
       return NextResponse.json({
         ok: true,
         action: "resumed",
-        currentPeriodEnd: updated.currentPeriodEnd ?? null,
+        currentPeriodEnd: updated.items.data[0]?.current_period_end ? new Date(updated.items.data[0].current_period_end * 1000).toISOString() : null,
       });
     }
 
@@ -68,63 +79,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid billing period" }, { status: 400 });
     }
 
-    const targetProductId = getProductId(body.plan, body.billing);
+    const targetPriceId = getPriceId(body.plan, body.billing);
 
-    const polarSub = await polar.subscriptions.get({ id: sub.stripe_subscription_id });
-    const currentProductId = polarSub.product?.id ?? polarSub.productId;
+    const currentSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
+    const item = currentSub.items.data[0];
+    if (!item) {
+      return NextResponse.json({ error: "Subscription has no items" }, { status: 500 });
+    }
+    const currentPriceId = item.price.id;
 
-    if (currentProductId === targetProductId && !sub.cancel_at_period_end) {
+    if (currentPriceId === targetPriceId && !sub.cancel_at_period_end) {
       return NextResponse.json({ error: "Already on this plan", action: "same" }, { status: 400 });
     }
 
-    const isBillingSwitch =
-      (currentProductId === POLAR_PRODUCTS.pro && targetProductId === POLAR_PRODUCTS.pro_annual) ||
-      (currentProductId === POLAR_PRODUCTS.pro_annual && targetProductId === POLAR_PRODUCTS.pro) ||
-      (currentProductId === POLAR_PRODUCTS.studio && targetProductId === POLAR_PRODUCTS.studio_annual) ||
-      (currentProductId === POLAR_PRODUCTS.studio_annual && targetProductId === POLAR_PRODUCTS.studio);
-
-    // Standard SaaS pattern (matches Claude, Netflix, Notion):
-    //   - Upgrade:   effective immediately, customer pays the delta today.
-    //                → prorationBehavior: "invoice"
-    //   - Downgrade: customer keeps the current plan until period end, then the
-    //                lower plan takes over at the next renewal. No charge today,
-    //                no refund.
-    //                → prorationBehavior: "next_period"
-    // Annual → monthly on the same plan counts as a downgrade (less commitment).
-    const tier = (pid: string): number => {
-      if (pid === POLAR_PRODUCTS.studio || pid === POLAR_PRODUCTS.studio_annual) return 2;
-      if (pid === POLAR_PRODUCTS.pro || pid === POLAR_PRODUCTS.pro_annual) return 1;
-      return 0;
-    };
-    const isAnnualCurrent = currentProductId === POLAR_PRODUCTS.pro_annual || currentProductId === POLAR_PRODUCTS.studio_annual;
-    const isAnnualTarget = targetProductId === POLAR_PRODUCTS.pro_annual || targetProductId === POLAR_PRODUCTS.studio_annual;
-    const isDowngrade =
-      tier(targetProductId) < tier(currentProductId) ||
-      (tier(targetProductId) === tier(currentProductId) && isAnnualCurrent && !isAnnualTarget);
-    const prorationBehavior: "invoice" | "next_period" = isDowngrade ? "next_period" : "invoice";
-
-    // If user previously canceled but is now changing plan or resuming same plan,
-    // uncancel first. SubscriptionUpdate is a union in the Polar SDK, so resume
-    // (cancelAtPeriodEnd=false) and product change require two sequential calls.
-    // To keep the two-step operation atomic we roll back the uncancel if the
-    // product update fails — otherwise the user ends up uncanceled on the old
-    // plan, which is not what they asked for.
-    const didUncancel = sub.cancel_at_period_end === true;
-    if (didUncancel) {
-      await polar.subscriptions.update({
-        id: sub.stripe_subscription_id,
-        subscriptionUpdate: { cancelAtPeriodEnd: false },
+    // If user had canceled and selects the same plan, just uncancel — no
+    // product change needed.
+    if (currentPriceId === targetPriceId && sub.cancel_at_period_end) {
+      await stripe.subscriptions.update(sub.stripe_subscription_id, {
+        cancel_at_period_end: false,
       });
-    }
-
-    // Same product but user was canceled → just resume, no product change needed.
-    if (currentProductId === targetProductId && didUncancel) {
       await supabaseAdmin
         .from("subscriptions")
-        .update({
-          cancel_at_period_end: false,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ cancel_at_period_end: false, updated_at: new Date().toISOString() })
         .eq("user_id", user.id);
       return NextResponse.json({
         ok: true,
@@ -134,57 +110,118 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    let updated;
-    try {
-      updated = await polar.subscriptions.update({
-        id: sub.stripe_subscription_id,
-        subscriptionUpdate: {
-          productId: targetProductId,
-          prorationBehavior,
-        },
+    const tier = (pid: string): number => {
+      if (pid === STRIPE_PRICES.studio_monthly || pid === STRIPE_PRICES.studio_annual) return 2;
+      if (pid === STRIPE_PRICES.pro_monthly || pid === STRIPE_PRICES.pro_annual) return 1;
+      return 0;
+    };
+    const isAnnualCurrent =
+      currentPriceId === STRIPE_PRICES.pro_annual || currentPriceId === STRIPE_PRICES.studio_annual;
+    const isAnnualTarget =
+      targetPriceId === STRIPE_PRICES.pro_annual || targetPriceId === STRIPE_PRICES.studio_annual;
+    const intervalChanged = isAnnualCurrent !== isAnnualTarget;
+
+    // Downgrade logic:
+    //   - tier goes down         → downgrade
+    //   - same tier, annual→monthly → downgrade (less commitment)
+    //   - tier up OR monthly→annual → upgrade (charge now)
+    const isDowngrade =
+      tier(targetPriceId) < tier(currentPriceId) ||
+      (tier(targetPriceId) === tier(currentPriceId) && isAnnualCurrent && !isAnnualTarget);
+
+    // Uncancel upfront if needed (one atomic update can do uncancel + product
+    // change thanks to Stripe's richer API — no rollback gymnastics).
+    const needsUncancel = sub.cancel_at_period_end === true;
+
+    let updatedSub: Stripe.Subscription;
+    if (isDowngrade && intervalChanged) {
+      // Annual → monthly: use a schedule so the new phase cleanly starts at
+      // the next period boundary. Simpler alternatives don't cleanly handle
+      // the cycle reset.
+      const existingScheduleId =
+        typeof currentSub.schedule === "string" ? currentSub.schedule : currentSub.schedule?.id;
+      if (existingScheduleId) {
+        // Release any existing schedule first — rare but possible if a prior
+        // downgrade was scheduled and the user changed their mind.
+        await stripe.subscriptionSchedules.release(existingScheduleId);
+      }
+      const schedule = await stripe.subscriptionSchedules.create({
+        from_subscription: sub.stripe_subscription_id,
       });
-    } catch (err) {
-      // Atomicity: if we just uncanceled and the product update fails, put the
-      // sub back into its previous canceled state so the user isn't stuck on
-      // the old plan without the cancel they had scheduled.
-      if (didUncancel) {
-        try {
-          await polar.subscriptions.update({
-            id: sub.stripe_subscription_id,
-            subscriptionUpdate: { cancelAtPeriodEnd: true },
-          });
-        } catch (rollbackErr) {
-          console.error("Rollback failed after product update failure:", rollbackErr);
-        }
-      }
-      throw err;
-    }
+      const currentPhase = schedule.phases[0];
+      await stripe.subscriptionSchedules.update(schedule.id, {
+        phases: [
+          {
+            items: [{ price: currentPriceId, quantity: 1 }],
+            start_date: currentPhase.start_date,
+            end_date: currentPhase.end_date,
+          },
+          {
+            items: [{ price: targetPriceId, quantity: 1 }],
+            proration_behavior: "none",
+          },
+        ],
+      });
+      // Schedule is set — pull the latest sub state for the DB write.
+      updatedSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
+    } else if (isDowngrade) {
+      // Same interval, tier goes down — simple update with no proration.
+      updatedSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
+        items: [{ id: item.id, price: targetPriceId }],
+        proration_behavior: "none",
+        billing_cycle_anchor: "unchanged",
+        ...(needsUncancel ? { cancel_at_period_end: false } : {}),
+      });
+    } else {
+      // Upgrade (tier up, or monthly→annual same tier) — charge prorata now.
+      // payment_behavior: 'default_incomplete' surfaces SCA/3DS challenges
+      // cleanly: sub.status = 'incomplete' + latest_invoice.confirmation_secret
+      // carries the client_secret the frontend uses to confirm.
+      updatedSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
+        items: [{ id: item.id, price: targetPriceId }],
+        proration_behavior: "always_invoice",
+        payment_behavior: "default_incomplete",
+        expand: ["latest_invoice.confirmation_secret"],
+        ...(needsUncancel ? { cancel_at_period_end: false } : {}),
+      });
 
-    // Apply discount separately if provided — SubscriptionUpdate is a union, so product
-    // change and discount application are two separate calls. If the discount call fails
-    // the plan change still stands; we log and continue.
-    if (body.discountId) {
-      try {
-        await polar.subscriptions.update({
-          id: sub.stripe_subscription_id,
-          subscriptionUpdate: { discountId: body.discountId },
+      const latestInvoice = updatedSub.latest_invoice;
+      if (
+        typeof latestInvoice !== "string" &&
+        latestInvoice?.confirmation_secret?.client_secret &&
+        updatedSub.status === "incomplete"
+      ) {
+        // 3DS / SCA challenge required — return the client secret so the
+        // frontend can open Stripe's confirm flow. DB write deferred until
+        // webhook invoice.paid arrives.
+        return NextResponse.json({
+          ok: true,
+          action: "requires_action",
+          clientSecret: latestInvoice.confirmation_secret.client_secret,
+          plan: body.plan,
+          billing: body.billing,
         });
-      } catch (discountErr) {
-        console.error("Failed to apply discount on plan change:", discountErr);
       }
     }
 
-    // Optimistic DB update from Polar's authoritative response — webhook will re-sync
-    // shortly. We write the full set of fields from `updated` to avoid a drift
-    // window where period_end / period_start still point to the old product.
-    const newPeriodEnd = updated.currentPeriodEnd ? new Date(updated.currentPeriodEnd).toISOString() : null;
-    const newPeriodStart = updated.currentPeriodStart ? new Date(updated.currentPeriodStart).toISOString().slice(0, 10) : null;
+    // Optimistic DB write — webhook will re-sync shortly.
+    // Period dates live on subscription items in API 2024+ (not the root).
+    const firstItem = updatedSub.items.data[0];
+    const newPeriodEnd = firstItem?.current_period_end
+      ? new Date(firstItem.current_period_end * 1000).toISOString()
+      : null;
+    const newPeriodStart = firstItem?.current_period_start
+      ? new Date(firstItem.current_period_start * 1000).toISOString().slice(0, 10)
+      : null;
     await supabaseAdmin
       .from("subscriptions")
       .update({
         plan: body.plan,
-        status: "active",
-        cancel_at_period_end: false,
+        status: updatedSub.status,
+        cancel_at_period_end: updatedSub.cancel_at_period_end === true,
+        currency: (updatedSub.items.data[0]?.price.currency ?? "usd").toLowerCase(),
+        billing_interval: body.billing === "annual" ? "year" : "month",
+        price_id: updatedSub.items.data[0]?.price.id ?? targetPriceId,
         updated_at: new Date().toISOString(),
         ...(newPeriodEnd ? { current_period_end: newPeriodEnd } : {}),
         ...(newPeriodStart ? { period_start: newPeriodStart } : {}),
@@ -193,14 +230,17 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      action: isBillingSwitch ? "billing_switch" : "plan_change",
+      action: isDowngrade ? "downgrade_scheduled" : "plan_changed",
       plan: body.plan,
       billing: body.billing,
-      currentPeriodEnd: updated.currentPeriodEnd ?? null,
+      currentPeriodEnd: newPeriodEnd,
     });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Failed to change subscription";
+  } catch (error) {
     console.error("Subscription change error:", error);
+    if (error instanceof Stripe.errors.StripeError) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
+    }
+    const msg = error instanceof Error ? error.message : "Failed to change subscription";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
