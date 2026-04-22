@@ -5,7 +5,7 @@ import { getAuthUser, getUserPlan, checkUsage, userWorkspaceId } from "@/lib/sup
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/plans";
 import { sendTelegramAlert } from "@/lib/telegram";
-import { detectPlatform, detectRejectedStreaming } from "@/lib/platforms";
+import { detectPlatform, detectRejectedStreaming, detectInvalidShareLink } from "@/lib/platforms";
 
 export const maxDuration = 300; // Modal processing can take up to 200s; after() keeps function alive
 
@@ -90,6 +90,18 @@ export async function POST(request: NextRequest) {
           {
             error: `${rejected} links are no longer supported. Download the audio locally and upload it, or paste a Dropbox / Google Drive / SoundCloud link.`,
             guideUrl: "/docs/download-before-upload",
+          },
+          { status: 400 }
+        );
+      }
+      // Supported domain but private/browsing URL — targeted hint so user can fix it
+      const invalidShare = detectInvalidShareLink(url);
+      if (invalidShare) {
+        return NextResponse.json(
+          {
+            error: `This ${invalidShare.service} link isn't a public share link.`,
+            hint: invalidShare.hint,
+            service: invalidShare.service,
           },
           { status: 400 }
         );
