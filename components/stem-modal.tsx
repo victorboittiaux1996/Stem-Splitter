@@ -85,8 +85,10 @@ interface StemModalProps {
   outputFormat?: "wav" | "mp3";
   /** Workspace ID for scoped API calls */
   workspaceId?: string;
-  /** Called when user clicks Share. Null = pro-gated (show disabled badge). Undefined = hide button. */
-  onShare?: (() => Promise<void>) | null;
+  /** Called when user clicks Share. Resolves with { reused } so the modal
+   *  can skip incrementing the quota counter when an existing link was returned.
+   *  Null = pro-gated (show disabled badge). Undefined = hide button. */
+  onShare?: (() => Promise<{ reused: boolean } | void>) | null;
 }
 
 export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemColors, isDark, labels, cachedStemUrls, cachedPeaks, outputFormat = "wav", workspaceId, onShare }: StemModalProps) {
@@ -103,19 +105,27 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   const [progress, setProgress] = useState(0);
   const [sharing, setSharing] = useState(false);
   const [shareUsage, setShareUsage] = useState<{ used: number; total: number } | null>(null);
+  const [existingShareUrl, setExistingShareUrl] = useState<string | null>(null);
   const [shareHover, setShareHover] = useState(false);
   const [downloadingStem, setDownloadingStem] = useState<string | null>(null);
   const [zipBuilding, setZipBuilding] = useState(false);
   const audioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
 
-  // Fetch share usage on mount
+  // Fetch share usage + existing-link-for-this-track on mount / track change.
+  // existingShareUrl lets the button render "COPY LINK" instead of "SHARE"
+  // when a link already exists — re-click won't consume a credit.
   useEffect(() => {
     if (onShare === undefined) return; // share button hidden
-    fetch("/api/share/usage").then(r => r.json()).then(d => {
-      if (d.used != null && d.total != null) setShareUsage(d);
-    }).catch(() => {});
-  }, [onShare]);
+    setExistingShareUrl(null);
+    fetch(`/api/share/usage?jobId=${encodeURIComponent(expandedFile)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.used != null && d.total != null) setShareUsage({ used: d.used, total: d.total });
+        if (d.existingUrl) setExistingShareUrl(d.existingUrl);
+      })
+      .catch(() => {});
+  }, [onShare, expandedFile]);
 
   // Load stem URLs when item changes — use cache if available
   useEffect(() => {
@@ -354,23 +364,52 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
             onShare ? (
               <div className="relative" onMouseEnter={() => setShareHover(true)} onMouseLeave={() => setShareHover(false)}>
                 {(() => {
-                  const quotaExhausted = shareUsage != null && shareUsage.used >= shareUsage.total;
+                  // When a link already exists for this track, the button
+                  // just copies it — no quota is consumed, so we never block
+                  // on "quota exhausted" in that case.
+                  const hasExisting = existingShareUrl != null;
+                  const quotaExhausted = !hasExisting && shareUsage != null && shareUsage.used >= shareUsage.total;
                   return (
                     <button
                       disabled={sharing || quotaExhausted}
-                      onClick={async () => { setSharing(true); try { await onShare(); setShareUsage(prev => prev ? { ...prev, used: prev.used + 1 } : prev); } finally { setSharing(false); } }}
+                      onClick={async () => {
+                        setSharing(true);
+                        try {
+                          const result = await onShare();
+                          // Optimistic counter bump only when a NEW link was created.
+                          // Reused links don't consume a credit.
+                          if (!result || (result as { reused: boolean }).reused !== true) {
+                            setShareUsage(prev => prev ? { ...prev, used: prev.used + 1 } : prev);
+                          }
+                          // After a successful call, the link exists for sure.
+                          // Re-flag the button so subsequent clicks show "COPY LINK".
+                          if (!existingShareUrl) {
+                            // URL is in the clipboard already; we just need a truthy marker.
+                            setExistingShareUrl("present");
+                          }
+                        } finally {
+                          setSharing(false);
+                        }
+                      }}
                       className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
-                      style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: quotaExhausted ? C.textMuted : C.text, backgroundColor: C.bgHover, opacity: sharing || quotaExhausted ? 0.6 : 1, cursor: sharing || quotaExhausted ? "default" : "pointer" }}>
+                      style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: quotaExhausted ? C.textMuted : C.text, backgroundColor: C.bgHover, opacity: sharing || quotaExhausted ? 0.6 : 1, cursor: sharing || quotaExhausted ? "default" : "pointer", minWidth: 112, justifyContent: "center" }}>
                       {sharing ? (
                         <span className="animate-spin" style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.text}`, borderTopColor: "transparent", borderRadius: "50%" }} />
                       ) : null}
-                      {sharing ? "SHARING…" : "SHARE"}
+                      {sharing
+                        ? (hasExisting ? "COPYING…" : "SHARING…")
+                        : (hasExisting ? "COPY LINK" : "SHARE")}
                     </button>
                   );
                 })()}
-                {shareHover && shareUsage && (
+                {shareHover && shareUsage && !existingShareUrl && (
                   <div style={{ position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", color: shareUsage.used >= shareUsage.total ? "#FF3B30" : C.textMuted, backgroundColor: C.bgElevated, whiteSpace: "nowrap", pointerEvents: "none" }}>
                     {shareUsage.used}/{shareUsage.total} this month
+                  </div>
+                )}
+                {shareHover && existingShareUrl && (
+                  <div style={{ position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", color: C.textMuted, backgroundColor: C.bgElevated, whiteSpace: "nowrap", pointerEvents: "none" }}>
+                    Link already shared · no credit used
                   </div>
                 )}
               </div>

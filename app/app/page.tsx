@@ -685,7 +685,7 @@ export default function AbletonDashboard() {
     progressTargetRef.current = 0; progressDisplayRef.current = 0;
   }, []);
 
-  const handleShare = useCallback(async (jId: string) => {
+  const handleShare = useCallback(async (jId: string): Promise<{ reused: boolean }> => {
     try {
       const res = await fetch("/api/share", {
         method: "POST",
@@ -695,12 +695,14 @@ export default function AbletonDashboard() {
       const data = await res.json();
       if (!res.ok) {
         toast.error(data.error || "Failed to create share link");
-        return;
+        return { reused: false };
       }
       await navigator.clipboard.writeText(data.url);
-      toast.success("Share link copied to clipboard!");
+      toast.success(data.reused ? "Link copied to clipboard" : "Share link copied to clipboard!");
+      return { reused: !!data.reused };
     } catch {
       toast.error("Failed to create share link");
+      return { reused: false };
     }
   }, []);
 
