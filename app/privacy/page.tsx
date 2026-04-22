@@ -149,7 +149,7 @@ export default function PrivacyPage() {
                 <ul style={{ marginTop: 12, paddingLeft: 24, display: "flex", flexDirection: "column", gap: 8 }}>
                   <li><strong>Account data:</strong> email address, authentication provider (Google, Apple), display name.</li>
                   <li><strong>Usage data:</strong> processing history (filenames, durations, timestamps), subscription plan, credit usage.</li>
-                  <li><strong>Payment data:</strong> subscription status, billing period. Payment card details are handled exclusively by Polar and are never stored by 44Stems.</li>
+                  <li><strong>Payment data:</strong> subscription status, billing period. Payment card details are handled exclusively by Stripe and are never stored by 44Stems.</li>
                   <li><strong>Technical data:</strong> IP address, browser type, operating system, referrer URL, and basic analytics (page views, feature usage).</li>
                 </ul>
               </div>
@@ -194,7 +194,7 @@ export default function PrivacyPage() {
                     { name: "Supabase", purpose: "Authentication and database", location: "US / EU" },
                     { name: "Cloudflare R2", purpose: "Audio file storage", location: "US" },
                     { name: "Modal Labs", purpose: "GPU processing (AI inference)", location: "US" },
-                    { name: "Polar", purpose: "Payment processing and subscriptions", location: "US" },
+                    { name: "Stripe", purpose: "Payment processing and subscriptions", location: "US / EU" },
                     { name: "Google", purpose: "OAuth authentication", location: "US / EU" },
                     { name: "Vercel", purpose: "Web hosting and CDN", location: "US / EU" },
                   ].map((p, i) => (
@@ -255,7 +255,7 @@ export default function PrivacyPage() {
                   8. International Transfers
                 </h2>
                 <p>
-                  Some of our processors (Modal, Cloudflare, Supabase, Polar, Vercel) operate in the United States. Transfers to the US are covered by Standard Contractual Clauses (SCCs) or the EU-US Data Privacy Framework where applicable.
+                  Some of our processors (Modal, Cloudflare, Supabase, Stripe, Vercel) operate in the United States. Transfers to the US are covered by Standard Contractual Clauses (SCCs) or the EU-US Data Privacy Framework where applicable.
                 </p>
                 <p style={{ marginTop: 12 }}>
                   Audio processing via Modal runs in US-based data centers. If regional data residency is important to your use case, contact us to discuss options.

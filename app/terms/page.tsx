@@ -171,7 +171,7 @@ export default function TermsPage() {
                   4. Plans & Billing
                 </h2>
                 <p>
-                  The Service offers three tiers: <strong>Free</strong>, <strong>Pro</strong>, and <strong>Studio</strong>. Paid plans are processed through Polar and are subject to auto-renewal unless cancelled before the renewal date.
+                  The Service offers three tiers: <strong>Free</strong>, <strong>Pro</strong>, and <strong>Studio</strong>. Paid plans are processed through Stripe and are subject to auto-renewal unless cancelled before the renewal date.
                 </p>
                 <p style={{ marginTop: 12 }}>
                   Credits (minutes of audio) are allocated per billing period. Unused credits may roll over subject to your plan limits. Credits have no monetary value and cannot be refunded or exchanged for cash.

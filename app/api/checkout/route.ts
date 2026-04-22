@@ -42,10 +42,19 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
+    // Legacy Polar customer IDs are raw UUIDs (e.g. "8581e27e-ea91-..."); Stripe
+    // customer IDs always start with "cus_". Ignore anything that isn't a
+    // Stripe customer so migrated users with stale Polar IDs start clean.
+    const stripeCustomerId =
+      existingSub?.stripe_customer_id?.startsWith("cus_")
+        ? existingSub.stripe_customer_id
+        : null;
+
     const hasActivePaidSub =
       existingSub &&
       existingSub.plan !== "free" &&
-      (existingSub.status === "active" || existingSub.status === "trialing" || existingSub.status === "past_due");
+      (existingSub.status === "active" || existingSub.status === "trialing" || existingSub.status === "past_due") &&
+      stripeCustomerId !== null;
 
     if (hasActivePaidSub && existingSub.cancel_at_period_end) {
       return NextResponse.json({
@@ -53,9 +62,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (hasActivePaidSub && existingSub.stripe_customer_id) {
+    if (hasActivePaidSub && stripeCustomerId) {
       const portal = await stripe.billingPortal.sessions.create({
-        customer: existingSub.stripe_customer_id,
+        customer: stripeCustomerId,
         return_url: `${appUrl}/app`,
       });
       return NextResponse.json({ url: portal.url });
@@ -70,8 +79,8 @@ export async function POST(req: NextRequest) {
       automatic_tax: { enabled: true },
       tax_id_collection: { enabled: true },
       billing_address_collection: "required",
-      customer_email: existingSub?.stripe_customer_id ? undefined : user.email,
-      customer: existingSub?.stripe_customer_id ?? undefined,
+      customer_email: stripeCustomerId ? undefined : user.email,
+      customer: stripeCustomerId ?? undefined,
       client_reference_id: user.id,
       subscription_data: {
         metadata: { supabase_user_id: user.id },
