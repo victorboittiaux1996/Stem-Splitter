@@ -33,6 +33,69 @@ function formatDate(tsSec: number | null | undefined): string | null {
   return new Date(tsSec * 1000).toISOString();
 }
 
+/**
+ * Return the unit amount (minor units) for a Stripe Price in the given
+ * currency. Reads currency_options[currency].unit_amount when available
+ * (multi-currency price) and falls back to price.unit_amount otherwise
+ * (single-currency price or missing currency_options).
+ *
+ * Without this helper, reading `price.unit_amount` directly always returns
+ * the default-currency amount (USD for our Prices) regardless of what
+ * currency the subscription is billed in — leading to modals that show
+ * "€67.08" with the EUR symbol but the USD amount.
+ */
+function amountForCurrency(
+  price: Stripe.Price,
+  currency: string,
+): number {
+  const options = (price as Stripe.Price & {
+    currency_options?: Record<string, { unit_amount: number | null }> | null;
+  }).currency_options;
+  const fromOptions = options?.[currency.toLowerCase()]?.unit_amount;
+  if (typeof fromOptions === "number") return fromOptions;
+  return price.unit_amount ?? 0;
+}
+
+type DiscountInfo = {
+  label: string | undefined;
+  percentOff: number | null;
+  amountOff: { amount: number; currency: string } | null;
+};
+
+/**
+ * Extract a display label + percent/amount off from a Stripe Subscription's
+ * existing discounts. Used when the user has a coupon attached via
+ * subscriptions.update (either at checkout or by us via API) so the modal
+ * can show the promo name even when the user didn't type it this session.
+ */
+async function extractActiveSubDiscount(
+  sub: Stripe.Subscription,
+): Promise<DiscountInfo | null> {
+  const discounts = (sub as Stripe.Subscription & { discounts?: Array<string | Stripe.Discount> }).discounts;
+  if (!discounts || discounts.length === 0) return null;
+  const first = discounts[0];
+  const discount = typeof first === "string"
+    ? await stripe.subscriptions.retrieve(sub.id, { expand: ["discounts"] }).then((s) => {
+        const d = (s as Stripe.Subscription & { discounts?: Array<Stripe.Discount> }).discounts?.[0];
+        return d && typeof d !== "string" ? d : null;
+      })
+    : first;
+  if (!discount) return null;
+  // API 2024+: Discount.coupon moved to Discount.source.coupon.
+  const couponRef = discount.source?.coupon;
+  const coupon = typeof couponRef === "string"
+    ? await stripe.coupons.retrieve(couponRef).catch(() => null)
+    : couponRef;
+  if (!coupon) return null;
+  return {
+    label: coupon.name ?? coupon.id,
+    percentOff: typeof coupon.percent_off === "number" ? coupon.percent_off : null,
+    amountOff: typeof coupon.amount_off === "number" && coupon.currency
+      ? { amount: coupon.amount_off, currency: coupon.currency }
+      : null,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const user = await getAuthUser();
@@ -92,15 +155,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Brand-new customer (never paid). Return the sticker price (currency_options
-    // resolved at Checkout). No createPreview call — no subscription yet.
+    // Brand-new customer (never paid). Return the sticker price for the
+    // visitor's detected currency (EUR/GBP/USD), not the default USD — the
+    // Checkout page will charge the same amount via currency_options.
     if (currentPlan === "free" || !sub?.stripe_subscription_id) {
       const price = await stripe.prices.retrieve(targetPriceId, {
         expand: ["currency_options"],
       });
+      const visitorCurrency = (sub?.currency
+        ?? req.headers.get("cf-ipcountry") === "GB" ? "gbp"
+        : ["FR","DE","IT","ES","NL","BE","AT","PT","IE","FI","SE","DK","PL","CZ","HU","GR","RO","BG","HR","SI","SK","LT","LV","EE","MT","CY","LU"].includes(req.headers.get("cf-ipcountry") ?? "") ? "eur"
+        : "usd");
       const currencyOpts =
         (price as { currency_options?: Record<string, { unit_amount: number | null }> }).currency_options ?? {};
-      const defaultAmount = price.unit_amount ?? 0;
+      const amount = amountForCurrency(price, visitorCurrency);
       const targetLabel = PLANS[targetPlan].label;
       return NextResponse.json({
         kind: "new" as ChangeKind,
@@ -108,14 +176,14 @@ export async function POST(req: NextRequest) {
         targetPlan,
         targetBilling,
         creditMajor: 0,
-        chargeMajor: defaultAmount / 100,
-        netMajor: defaultAmount / 100,
-        totalMajor: defaultAmount / 100,
+        chargeMajor: amount / 100,
+        netMajor: amount / 100,
+        totalMajor: amount / 100,
         taxMajor: 0,
-        perPeriodMajor: defaultAmount / 100,
+        perPeriodMajor: amount / 100,
         nextBillingDate: null,
-        nextBillingAmountMajor: defaultAmount / 100,
-        currency: (price.currency ?? "usd").toUpperCase(),
+        nextBillingAmountMajor: amount / 100,
+        currency: visitorCurrency.toUpperCase(),
         currencyOptions: Object.fromEntries(
           Object.entries(currencyOpts).map(([c, v]) => [c, (v.unit_amount ?? 0) / 100]),
         ),
@@ -126,9 +194,18 @@ export async function POST(req: NextRequest) {
     const currentSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
     const currentPriceId = currentSub.items.data[0]?.price.id;
     const currentPeriodEnd = currentSub.items.data[0]?.current_period_end ?? null;
+    // Currency the sub is billed in — source of truth over the DB column,
+    // because Stripe is the only system that actually charges the customer.
+    const subCurrency = (currentSub.currency ?? sub.currency ?? "usd").toLowerCase();
+    // Discount currently attached to the sub (if any). Exposed on all kinds
+    // so the modal can show "Promo code X (−100%)" even when the user didn't
+    // re-type it this session.
+    const activeDiscount = await extractActiveSubDiscount(currentSub);
 
     // Same plan + same billing cycle — either "same" or "resume" if canceled.
     if (currentPriceId === targetPriceId) {
+      const currentPrice = currentSub.items.data[0]?.price;
+      const perPeriod = currentPrice ? amountForCurrency(currentPrice, subCurrency) : 0;
       if (isCanceledButActive) {
         return NextResponse.json({
           kind: "resume" as ChangeKind,
@@ -141,10 +218,12 @@ export async function POST(req: NextRequest) {
           netMajor: 0,
           totalMajor: 0,
           taxMajor: 0,
-          perPeriodMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
+          perPeriodMajor: perPeriod / 100,
           nextBillingDate: formatDate(currentPeriodEnd),
-          nextBillingAmountMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
-          currency: (sub.currency ?? "usd").toUpperCase(),
+          nextBillingAmountMajor: perPeriod / 100,
+          currency: subCurrency.toUpperCase(),
+          discountLabel: activeDiscount?.label,
+          discountPercentOff: activeDiscount?.percentOff ?? null,
           notice: "Your subscription will continue without interruption.",
         });
       }
@@ -159,10 +238,12 @@ export async function POST(req: NextRequest) {
         netMajor: 0,
         totalMajor: 0,
         taxMajor: 0,
-        perPeriodMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
+        perPeriodMajor: perPeriod / 100,
         nextBillingDate: formatDate(currentPeriodEnd),
-        nextBillingAmountMajor: (currentSub.items.data[0]?.price.unit_amount ?? 0) / 100,
-        currency: (sub.currency ?? "usd").toUpperCase(),
+        nextBillingAmountMajor: perPeriod / 100,
+        currency: subCurrency.toUpperCase(),
+        discountLabel: activeDiscount?.label,
+        discountPercentOff: activeDiscount?.percentOff ?? null,
         notice: "You are already on this plan.",
       });
     }
@@ -177,10 +258,12 @@ export async function POST(req: NextRequest) {
       kind = "downgrade";
     }
 
-    // Target plan price for "next renewal amount" display. Retrieve explicitly
-    // so we can show the correct local-currency price whether or not the user
-    // will be charged today.
-    const targetPrice = await stripe.prices.retrieve(targetPriceId);
+    // Target plan price for "next renewal amount" display. Expand
+    // currency_options so we can read the price in the sub's currency.
+    const targetPrice = await stripe.prices.retrieve(targetPriceId, {
+      expand: ["currency_options"],
+    });
+    const targetAmountInSubCurrency = amountForCurrency(targetPrice, subCurrency);
 
     // Downgrade: no charge today, change applied at period end. The next
     // invoice (at renewal) will be the target plan's full price.
@@ -197,10 +280,12 @@ export async function POST(req: NextRequest) {
         netMajor: 0,
         totalMajor: 0,
         taxMajor: 0,
-        perPeriodMajor: (targetPrice.unit_amount ?? 0) / 100,
+        perPeriodMajor: targetAmountInSubCurrency / 100,
         nextBillingDate: formatDate(currentPeriodEnd),
-        nextBillingAmountMajor: (targetPrice.unit_amount ?? 0) / 100,
-        currency: (targetPrice.currency ?? "usd").toUpperCase(),
+        nextBillingAmountMajor: targetAmountInSubCurrency / 100,
+        currency: subCurrency.toUpperCase(),
+        discountLabel: activeDiscount?.label,
+        discountPercentOff: activeDiscount?.percentOff ?? null,
         minutesLost,
         notice: buildDowngradeNotice(currentPlan, targetPlan, minutesLost, currentPeriodEnd),
       });
@@ -255,6 +340,13 @@ export async function POST(req: NextRequest) {
     // For tier upgrade same-interval → period_end unchanged, at target price.
     const nextBillingEnd = preview.lines.data[preview.lines.data.length - 1]?.period?.end ?? currentPeriodEnd;
 
+    // If no code was typed this session but the sub already has a discount
+    // (e.g. from initial checkout or attached via API), surface its label so
+    // the modal can show "Promo code X (-Y%)" transparently.
+    const effectiveDiscountLabel = discountLabel ?? activeDiscount?.label;
+    const effectiveDiscountPercent = discountPercentOff ?? activeDiscount?.percentOff ?? null;
+    const effectiveDiscountAmount = discountAmountOff ?? activeDiscount?.amountOff ?? null;
+
     return NextResponse.json({
       kind,
       currentPlan,
@@ -267,13 +359,13 @@ export async function POST(req: NextRequest) {
       taxMajor,
       totalMajor,
       discountMajor: discountTotalMinor / 100,
-      discountLabel,
-      discountPercentOff,
-      discountAmountOff,
-      perPeriodMajor: (targetPrice.unit_amount ?? 0) / 100,
+      discountLabel: effectiveDiscountLabel,
+      discountPercentOff: effectiveDiscountPercent,
+      discountAmountOff: effectiveDiscountAmount,
+      perPeriodMajor: targetAmountInSubCurrency / 100,
       nextBillingDate: formatDate(nextBillingEnd ?? currentPeriodEnd),
-      nextBillingAmountMajor: (targetPrice.unit_amount ?? 0) / 100,
-      currency: currency.toUpperCase(),
+      nextBillingAmountMajor: targetAmountInSubCurrency / 100,
+      currency: (currency || subCurrency).toUpperCase(),
       notice: buildUpgradeNotice(kind, currentPlan, targetPlan, targetBilling),
     });
   } catch (err) {
