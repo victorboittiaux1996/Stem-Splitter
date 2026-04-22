@@ -142,7 +142,7 @@ const FEATURES = [
     icon: IconURL,
     color: stemColors.other,
     title: "URL Import",
-    desc: "Paste a SoundCloud, Dropbox, or Google Drive URL. No upload required.",
+    desc: "Paste a Dropbox, Google Drive, or SoundCloud URL. No upload required.",
   },
 ] as const;
 

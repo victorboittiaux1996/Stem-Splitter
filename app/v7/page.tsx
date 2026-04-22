@@ -304,7 +304,7 @@ const FEATURES = [
   { color: stemColors.drums, title: "SOTA AI Models", desc: "MelBand RoFormer + BS-RoFormer. The highest-rated open-source separation models, running on our cloud.", icon: RiCpuFill },
   { color: stemColors.bass, title: "H100 GPU Speed", desc: "Full track processed in under 40 seconds. LALAL.AI takes 58s. Moises takes 75s. We're faster.", icon: RiFlashlightFill },
   { color: stemColors.guitar, title: "Batch Processing", desc: "Upload an entire album. Process multiple tracks simultaneously in the background while you work.", icon: RiStackFill },
-  { color: stemColors.piano, title: "Link Import", desc: "Paste a SoundCloud, Dropbox, or Google Drive link. No file upload needed. We handle the rest.", icon: RiLinkM },
+  { color: stemColors.piano, title: "Link Import", desc: "Paste a Dropbox, Google Drive, or SoundCloud link. No file upload needed. We handle the rest.", icon: RiLinkM },
   { color: stemColors.other, title: "WAV 24-Bit Output", desc: "Lossless studio quality output. Every stem at full resolution, ready for mixing in your DAW.", icon: RiSoundModuleFill },
 ];
 

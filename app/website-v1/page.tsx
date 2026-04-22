@@ -61,7 +61,7 @@ const STEM_FEATURES = [
   {
     icon: "⊟",
     title: "Batch & URL Import",
-    desc: "Drop a folder or paste a SoundCloud / Dropbox / Google Drive URL. Done.",
+    desc: "Drop a folder or paste a Dropbox / Google Drive / SoundCloud URL. Done.",
   },
 ] as const;
 
@@ -94,7 +94,7 @@ const STEPS = [
   {
     n: "01",
     title: "Upload",
-    desc: "Drag and drop your audio file, select a folder, or paste a SoundCloud / Dropbox / Google Drive URL.",
+    desc: "Drag and drop your audio file, select a folder, or paste a Dropbox / Google Drive / SoundCloud URL.",
   },
   {
     n: "02",
