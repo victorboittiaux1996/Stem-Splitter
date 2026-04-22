@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (!sub?.stripe_customer_id) {
+    // Legacy Polar customer IDs are raw UUIDs; Stripe customer IDs always
+    // start with "cus_". Reject anything that isn't a Stripe customer so
+    // migrated users don't blow up with "No such customer".
+    const stripeCustomerId = sub?.stripe_customer_id?.startsWith("cus_")
+      ? sub.stripe_customer_id
+      : null;
+    if (!stripeCustomerId) {
       return NextResponse.json({ error: "No active subscription found" }, { status: 404 });
     }
 
@@ -29,7 +35,7 @@ export async function POST(req: NextRequest) {
     ).trim();
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: sub.stripe_customer_id,
+      customer: stripeCustomerId,
       return_url: `${appUrl}/app?portal_return=true`,
     });
 
