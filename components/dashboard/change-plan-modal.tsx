@@ -1,10 +1,26 @@
 "use client";
 
 import React from "react";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PLANS, type PlanId, type BillingPeriod } from "@/lib/plans";
 import { toast } from "sonner";
 import { RiLoader4Line } from "@remixicon/react";
+
+// Lazy Stripe.js loader — only instantiated the first time an upgrade needs
+// 3DS/SCA confirmation, so the script isn't loaded on every modal open.
+let stripePromise: Promise<Stripe | null> | null = null;
+function getStripe(): Promise<Stripe | null> {
+  if (!stripePromise) {
+    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    if (!key) {
+      console.error("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set — SCA confirmation will fail");
+      return Promise.resolve(null);
+    }
+    stripePromise = loadStripe(key);
+  }
+  return stripePromise;
+}
 
 type PreviewKind = "new" | "upgrade" | "downgrade" | "billing_switch" | "same" | "resume";
 
@@ -115,6 +131,33 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
         }),
       });
       const data = await res.json();
+
+      // 3DS / SCA challenge required (EU cards + regulated transactions).
+      // The backend returned the invoice's client_secret — we complete the
+      // confirmation via Stripe.js on the user's browser, which opens Stripe's
+      // hosted 3DS challenge in a popup. On success, the webhook invoice.paid
+      // fires and our DB sync picks up the plan change.
+      if (data.action === "requires_action" && data.clientSecret) {
+        const stripe = await getStripe();
+        if (!stripe) {
+          toast.error("Payment authentication unavailable — contact support.");
+          setSubmitting(false);
+          return;
+        }
+        const { error } = await stripe.confirmCardPayment(data.clientSecret);
+        if (error) {
+          toast.error(error.message ?? "Payment authentication failed");
+          setSubmitting(false);
+          return;
+        }
+        // Confirmed — webhook will sync in seconds. Show success optimistically.
+        toast.success(`Upgraded to ${PLANS[targetPlan].label}`);
+        window.dispatchEvent(new CustomEvent("usage-updated"));
+        onSuccess?.();
+        onClose();
+        return;
+      }
+
       if (data.ok) {
         toast.success(
           preview.kind === "resume"

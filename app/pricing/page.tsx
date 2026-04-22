@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
 import { Header } from "@/components/website/header";
 import { Footer } from "@/components/website/footer";
@@ -13,6 +13,40 @@ import { useSubscription } from "@/hooks/use-subscription";
 import { RiCheckLine } from "@remixicon/react";
 
 const PLAN_ORDER: PlanId[] = ["free", "pro", "studio"];
+
+type LocalPrices = {
+  currency: string;
+  prices: {
+    pro_monthly: { amount: number; display: string };
+    pro_annual: { amount: number; display: string };
+    studio_monthly: { amount: number; display: string };
+    studio_annual: { amount: number; display: string };
+  };
+};
+
+// Pricing data is fetched from /api/pricing/prices on mount. The API reads
+// CF-IPCountry, looks up currency_options on each Stripe Price, and returns
+// the amount + formatted display string in the visitor's local currency
+// (EUR for EU, GBP for UK, USD elsewhere in V1). The server is the source of
+// truth — Stripe Price currency_options drive both display and checkout, so
+// they can never drift.
+function useLocalPrices(): LocalPrices | null {
+  const [data, setData] = useState<LocalPrices | null>(null);
+  useEffect(() => {
+    let canceled = false;
+    fetch("/api/pricing/prices")
+      .then((r) => r.json())
+      .then((json: LocalPrices) => {
+        if (!canceled && json.prices) setData(json);
+      })
+      .catch(() => {
+        // Fallback: use hardcoded USD prices from lib/plans.ts — handled
+        // downstream via the `prices` prop being null.
+      });
+    return () => { canceled = true; };
+  }, []);
+  return data;
+}
 
 function usePlanCTA(planId: PlanId, annual: boolean) {
   const { user, loading: authLoading } = useAuth();
@@ -102,12 +136,28 @@ const planAccents: Record<PlanId, string> = {
   studio: stemColors.drums,
 };
 
-function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
+function PlanCard({ planId, annual, localPrices }: { planId: PlanId; annual: boolean; localPrices: LocalPrices | null }) {
   const [hovered, setHovered] = useState(false);
   const plan = PLANS[planId];
   const accent = planAccents[planId];
 
-  const price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+  // Localized price: EUR/GBP/USD from Stripe currency_options. Falls back to
+  // the USD sticker from lib/plans.ts if the API is slow/unavailable.
+  const localKey = planId === "pro"
+    ? (annual ? "pro_annual" : "pro_monthly")
+    : planId === "studio"
+    ? (annual ? "studio_annual" : "studio_monthly")
+    : null;
+  const local = localKey && localPrices ? localPrices.prices[localKey] : null;
+
+  let price: string;
+  if (planId === "free") {
+    price = "$0";
+  } else if (local) {
+    price = local.display;
+  } else {
+    price = annual ? `$${plan.yearlyPriceUSD}` : `$${plan.priceUSD}`;
+  }
   const period = planId === "free" ? "forever" : "/mo";
 
   // Hover state: full white text for max contrast on colored bg
@@ -178,24 +228,34 @@ function PlanCard({ planId, annual }: { planId: PlanId; annual: boolean }) {
           </div>
           {/* Annual savings — reserve height so buttons stay aligned */}
           <div style={{ minHeight: annual ? 25 : 0, marginTop: annual ? 6 : 0, display: "flex", alignItems: "center", gap: 8 }}>
-            {annual && planId !== "free" && (
-              <>
-                <motion.span
-                  animate={{ color: hovered ? "#FFFFFF" : "#999999" }}
-                  transition={{ duration: 0.3 }}
-                  style={{ fontFamily: F, fontSize: 13, textDecoration: "line-through" }}
-                >
-                  ${plan.priceUSD}/mo
-                </motion.span>
-                <motion.span
-                  animate={{ color: hovered ? "#FFFFFF" : C.accent }}
-                  transition={{ duration: 0.3 }}
-                  style={{ fontFamily: F, fontSize: 13, fontWeight: 600 }}
-                >
-                  ${(plan.yearlyPriceUSD * 12).toFixed(0)}/yr
-                </motion.span>
-              </>
-            )}
+            {annual && planId !== "free" && (() => {
+              const monthlyKey = planId === "pro" ? "pro_monthly" : "studio_monthly";
+              const monthlyLocal = localPrices?.prices[monthlyKey];
+              const annualKey = planId === "pro" ? "pro_annual" : "studio_annual";
+              const annualLocal = localPrices?.prices[annualKey];
+              const strikeLabel = monthlyLocal?.display ?? `$${plan.priceUSD}`;
+              const yearlyTotal = annualLocal
+                ? formatCurrency(annualLocal.amount, localPrices!.currency, { maxFractionDigits: 0 })
+                : `$${(plan.yearlyPriceUSD * 12).toFixed(0)}`;
+              return (
+                <>
+                  <motion.span
+                    animate={{ color: hovered ? "#FFFFFF" : "#999999" }}
+                    transition={{ duration: 0.3 }}
+                    style={{ fontFamily: F, fontSize: 13, textDecoration: "line-through" }}
+                  >
+                    {strikeLabel}/mo
+                  </motion.span>
+                  <motion.span
+                    animate={{ color: hovered ? "#FFFFFF" : C.accent }}
+                    transition={{ duration: 0.3 }}
+                    style={{ fontFamily: F, fontSize: 13, fontWeight: 600 }}
+                  >
+                    {yearlyTotal}/yr
+                  </motion.span>
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -307,9 +367,25 @@ const VALUE_PROPS = [
   },
 ];
 
+// Reused by the annual savings row to format the yearly total display.
+function formatCurrency(amountMinor: number, currency: string, opts?: { maxFractionDigits?: number }): string {
+  const major = amountMinor / 100;
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+      minimumFractionDigits: amountMinor % 100 === 0 ? 0 : 2,
+      maximumFractionDigits: opts?.maxFractionDigits ?? 2,
+    }).format(major);
+  } catch {
+    return `${major.toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+
 // ─── Page ───────────────────────────────────────────────────
 export default function PricingPage() {
   const [annual, setAnnual] = useState(false);
+  const localPrices = useLocalPrices();
 
   return (
     <div style={{ backgroundColor: C.bg, minHeight: "100vh" }}>
@@ -346,7 +422,7 @@ export default function PricingPage() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
               {(["free", "pro", "studio"] as PlanId[]).map((id, i) => (
                 <FadeIn key={id} delay={i * 0.08}>
-                  <PlanCard planId={id} annual={annual} />
+                  <PlanCard planId={id} annual={annual} localPrices={localPrices} />
                 </FadeIn>
               ))}
             </div>
