@@ -10,7 +10,7 @@ import { StemModal } from "@/components/stem-modal";
 import { WelcomeModal } from "@/components/welcome-modal";
 import Link from "next/link";
 import type { Job, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
-import { detectPlatform, PLATFORMS, detectRejectedStreaming } from "@/lib/platforms";
+import { detectPlatform, PLATFORMS, detectRejectedStreaming, detectInvalidShareLink } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
@@ -371,6 +371,7 @@ export default function AbletonDashboard() {
   // Platform detection (shared with /api/url-info)
   const detectedPlatform = detectPlatform(urlInput);
   const detectedRejected = detectRejectedStreaming(urlInput);
+  const detectedInvalidShare = detectInvalidShareLink(urlInput);
   const isValidUrl = detectedPlatform !== null;
   const [urlDurationLoading, setUrlDurationLoading] = useState(false);
   const [urlTitle, setUrlTitle] = useState<string | null>(null);
@@ -1134,6 +1135,18 @@ export default function AbletonDashboard() {
                               style={{ fontSize: 12, color: C.accent, textDecoration: "underline", letterSpacing: "0.04em", marginTop: 2 }}>
                               How to download from {detectedRejected} →
                             </a>
+                            <button onClick={() => { setUrlInput(""); }}
+                              style={{ fontSize: 12, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>CLEAR</button>
+                          </div>
+                        ) : detectedInvalidShare ? (
+                          /* URL is on a supported domain but not a public share link */
+                          <div className="flex flex-col items-center justify-center w-full gap-[6px]" style={{ position: "relative", padding: "0 24px", textAlign: "center" }}>
+                            <span style={{ fontSize: 14, color: "#C8301C", fontWeight: 500, letterSpacing: "0.01em" }}>
+                              This {detectedInvalidShare.service} link isn&rsquo;t a public share link.
+                            </span>
+                            <span style={{ fontSize: 13, color: C.textMuted, letterSpacing: "0.01em", lineHeight: 1.45, maxWidth: 520 }}>
+                              {detectedInvalidShare.hint}
+                            </span>
                             <button onClick={() => { setUrlInput(""); }}
                               style={{ fontSize: 12, color: C.textMuted, textDecoration: "underline", letterSpacing: "0.03em", position: "absolute", bottom: -30 }}>CLEAR</button>
                           </div>

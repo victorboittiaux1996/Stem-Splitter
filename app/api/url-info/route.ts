@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { detectPlatform, isPlaylistUrl, detectRejectedStreaming } from "@/lib/platforms";
+import { detectPlatform, isPlaylistUrl, detectRejectedStreaming, detectInvalidShareLink } from "@/lib/platforms";
 
 const MODAL_URL_INFO_URL = process.env.MODAL_URL_INFO_URL;
 
@@ -124,6 +124,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       error: `${rejected} links are no longer supported. Download the audio locally and upload it, or paste a Dropbox / Google Drive / SoundCloud link.`,
       guideUrl: "/docs/download-before-upload",
+    }, { status: 400 });
+  }
+
+  // Supported domain but not a public share link — return a targeted hint
+  // instead of the generic "unsupported" error so the user can fix their link.
+  const invalidShare = detectInvalidShareLink(url);
+  if (invalidShare) {
+    return NextResponse.json({
+      error: `This ${invalidShare.service} link isn't a public share link.`,
+      hint: invalidShare.hint,
+      service: invalidShare.service,
     }, { status: 400 });
   }
 
