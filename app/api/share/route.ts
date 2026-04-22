@@ -49,19 +49,50 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createClient();
 
-  // Count links created this calendar month
+  const appUrl = (
+    process.env.APP_URL ??
+    `${request.headers.get("x-forwarded-proto") ?? "https"}://${request.headers.get("host")}`
+  ).trim();
+
+  // Idempotency: if a share link already exists for this (user, job),
+  // return it — no new row, no quota consumed. "3 share links/month"
+  // means "3 distinct tracks", not "3 API calls".
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing } = await (supabase as any)
+    .from("share_links")
+    .select("id, slug")
+    .eq("user_id", user.id)
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    const slug = existing.slug ? `/${existing.slug}` : "";
+    return NextResponse.json({
+      id: existing.id,
+      url: `${appUrl}/share/${existing.id}${slug}`,
+      reused: true,
+    });
+  }
+
+  // Count DISTINCT tracks shared this calendar month. Using distinct job_ids
+  // (not raw rows) is the correct semantic for "3 share links/month", and
+  // it also auto-heals any legacy duplicate rows from before this fix.
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count } = await (supabase as any)
+  const { data: monthRows } = await (supabase as any)
     .from("share_links")
-    .select("*", { count: "exact", head: true })
+    .select("job_id")
     .eq("user_id", user.id)
     .gte("created_at", monthStart.toISOString());
 
-  if ((count ?? 0) >= quota) {
+  const usedCount = new Set((monthRows ?? []).map((r: { job_id: string }) => r.job_id)).size;
+
+  if (usedCount >= quota) {
     return NextResponse.json(
       { error: `Share link quota reached (${quota}/${quota} used this month).` },
       { status: 429 }
@@ -85,11 +116,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create share link" }, { status: 500 });
   }
 
-  const appUrl = (
-    process.env.APP_URL ??
-    `${request.headers.get("x-forwarded-proto") ?? "https"}://${request.headers.get("host")}`
-  ).trim();
-
   const slug = data.slug ? `/${data.slug}` : "";
-  return NextResponse.json({ id: data.id, url: `${appUrl}/share/${data.id}${slug}` });
+  return NextResponse.json({ id: data.id, url: `${appUrl}/share/${data.id}${slug}`, reused: false });
 }

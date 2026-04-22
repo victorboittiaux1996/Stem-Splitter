@@ -27,7 +27,7 @@ interface Props {
   onNavigateToSplit: () => void;
   stemUrlCacheRef: React.MutableRefObject<Record<string, Record<string, string>>>;
   stemPeaksCacheRef: React.MutableRefObject<Record<string, Record<string, number[]>>>;
-  onShare: ((jobId: string) => Promise<void>) | null;
+  onShare: ((jobId: string) => Promise<{ reused: boolean } | void>) | null;
 }
 
 const DownloadIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
@@ -429,7 +429,7 @@ export function FilesView(props: Props) {
             cachedPeaks={stemPeaksCacheRef.current[expandedFile]}
             outputFormat={outputFormat}
             workspaceId={workspaceId}
-            onShare={isPro && onShare ? async () => { await onShare(expandedFile); } : null}
+            onShare={isPro && onShare ? () => onShare(expandedFile) : null}
           />
         )}
       </AnimatePresence>
