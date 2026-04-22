@@ -41,12 +41,15 @@ export async function middleware(request: NextRequest) {
     p === "/" ? request.nextUrl.pathname === "/" : request.nextUrl.pathname.startsWith(p)
   );
 
-  // Allow webhook callbacks (Modal worker + Polar payment webhooks + Telegram bot) + public API endpoints
+  // Allow webhook callbacks (Modal worker + Stripe payment webhooks + Telegram bot) + public API endpoints
   const isWebhook =
     (request.nextUrl.pathname.startsWith("/api/jobs/") && request.method === "PATCH") ||
     (request.nextUrl.pathname.startsWith("/api/webhooks/") && request.method === "POST") ||
     (request.nextUrl.pathname === "/api/telegram/webhook" && request.method === "POST") ||
-    (request.nextUrl.pathname.startsWith("/api/og/"));
+    (request.nextUrl.pathname.startsWith("/api/og/")) ||
+    // Public pricing API — consumed by /pricing page before login (display
+    // local currency). No user context needed, read-only.
+    (request.nextUrl.pathname === "/api/pricing/prices" && request.method === "GET");
 
   // Dev bypass — skip auth on localhost
   const isDev = request.nextUrl.hostname === "localhost" || request.nextUrl.hostname === "127.0.0.1";
