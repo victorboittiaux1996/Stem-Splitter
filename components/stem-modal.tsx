@@ -12,7 +12,7 @@ const DownloadIcon = ({ size = 14, color = "currentColor" }: { size?: number; co
 );
 import { motion } from "framer-motion";
 import { WaveformVariant } from "@/components/dashboard/waveform-variants";
-import { downloadStem, downloadStemsZip } from "@/lib/download";
+import { downloadStem, downloadStemsZip, sanitizeTrackName } from "@/lib/download";
 import type { HistoryItem } from "@/lib/types";
 
 // ─── Audio peak utils (moved here from stem-variants) ────────
@@ -374,7 +374,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                       if (downloadingStem === stem) return;
                       setDownloadingStem(stem);
                       try {
-                        const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
+                        const trackName = sanitizeTrackName(currentItem.name);
                         const label = stem.charAt(0).toUpperCase() + stem.slice(1);
                         await downloadStem(stemUrls[stem], `${trackName} - ${label}${fmtExt}`, fmt);
                       } finally {
@@ -498,7 +498,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
               if (Object.keys(stemUrls).length === 0 || zipBuilding) return;
               setZipBuilding(true);
               try {
-                const trackName = currentItem.name.replace(/\.[^/.]+$/, "");
+                const trackName = sanitizeTrackName(currentItem.name);
                 const stemList = Object.entries(stemUrls).map(([name, url]) => ({ name, url }));
                 await downloadStemsZip(stemList, trackName, fmt);
               } finally {

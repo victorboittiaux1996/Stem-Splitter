@@ -724,14 +724,15 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   }, [refillRow, baseHistory]);
   const visibleRows = showAll ? historyData : historyData.slice(0, 10);
 
-  // Walk OLDEST → NEWEST from a 0 base, summing each effect (credit/usage)
-  // to compute the balance AFTER each event. This guarantees the credit row
-  // lands on the exact plan quota (no float drift from "current remaining"),
-  // and subsequent splits subtract their exact duration.
+  // Walk OLDEST → NEWEST from the rollover balance, summing each effect
+  // (credit/usage) to compute the balance AFTER each event. Starting from
+  // rolloverMinutes (preserved from previous period for Pro "minutes never
+  // reset"; 0 for Free) means the renewal row adds plan quota on top of
+  // the carried balance, which lines up with the "Used X of Y" header.
   // Display TIME and BALANCE in exact MM:SS — no rounding.
   const visibleRowsWithBalance = React.useMemo(() => {
     const balances = new Array<number>(visibleRows.length);
-    let runningSec = 0;
+    let runningSec = Math.max(0, rolloverMinutes * 60);
     for (let i = visibleRows.length - 1; i >= 0; i--) {
       const effectSec = parseTimeToSec(visibleRows[i].time);
       runningSec = Math.max(0, runningSec + effectSec);
@@ -744,7 +745,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
       const displayBalance = formatPaddedMMSS(balances[i]);
       return { ...row, balanceSec: balances[i], displayTime, displayBalance };
     });
-  }, [visibleRows]);
+  }, [visibleRows, rolloverMinutes]);
 
   // Preferences persisted in localStorage
   const [notifSplitComplete, setNotifSplitComplete] = React.useState(true);
@@ -998,13 +999,13 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                 </div>
               ))}
 
-              {!showAll && USAGE_HISTORY.length > 10 && (
+              {!showAll && historyData.length > 10 && (
                 <div className="text-center" style={{ paddingTop: 16 }}>
                   <button
                     onClick={() => setShowAll(true)}
                     style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: C.textMuted, cursor: "pointer" }}
                   >
-                    SHOW MORE ({USAGE_HISTORY.length - 10} HIDDEN)
+                    SHOW MORE ({historyData.length - 10} HIDDEN)
                   </button>
                 </div>
               )}

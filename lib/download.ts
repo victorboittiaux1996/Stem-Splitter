@@ -32,6 +32,21 @@ function buildStemUrl(url: string, format: string): string {
 }
 
 /**
+ * Strip the source-file extension and replace filesystem-forbidden characters.
+ * Shared with lib/download-stems.ts and components/dashboard/files/export-modal.tsx
+ * so every download path produces the same naming convention:
+ * `{TrackName} - {Stem}.{ext}` with safe characters.
+ */
+export function sanitizeTrackName(name: string): string {
+  return name
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "track";
+}
+
+/**
  * Download a single stem with the correct filename.
  * Handles the format URL param and delegates to downloadBlob.
  */
