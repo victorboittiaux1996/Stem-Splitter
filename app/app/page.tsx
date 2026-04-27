@@ -139,15 +139,12 @@ const STAGES = [
 ];
 
 const PROCESSING_AGENTS = [
-  { name: "Uploading to GPU cluster", threshold: 0 },
-  { name: "Analyzing spectral data", threshold: 10 },
-  { name: "Isolating vocals", threshold: 25 },
-  { name: "Isolating drums", threshold: 38 },
-  { name: "Isolating bass", threshold: 50 },
-  { name: "Isolating harmonics", threshold: 62 },
-  { name: "Cross-validating models", threshold: 74 },
-  { name: "Removing artifacts", threshold: 84 },
-  { name: "Rendering stems", threshold: 93 },
+  { name: "Connecting to GPU cluster", threshold: 0 },
+  { name: "Loading AI models", threshold: 12 },
+  { name: "Isolating vocals", threshold: 22 },
+  { name: "Isolating instruments", threshold: 55 },
+  { name: "Mastering stems", threshold: 82 },
+  { name: "Encoding files", threshold: 92 },
 ];
 
 const STEM_CONFIGS: Record<string, { label: string; color: string; playedColor: string }> = {
@@ -1792,7 +1789,7 @@ function ProcessingSection({ progress, activeAgentIdx, C, queueItems, activeItem
   const tapRef = useRef<number[]>([]);
 
   const song = BPM_SONGS[songIdx];
-  const shimmerMsg = activeAgentIdx <= 1 ? "PREPARING AUDIO" : activeAgentIdx <= 5 ? "ISOLATING STEMS" : "FINALIZING";
+  const shimmerMsg = activeAgentIdx <= 1 ? "PREPARING AUDIO" : activeAgentIdx <= 3 ? "ISOLATING STEMS" : "FINALIZING";
 
   const shimmerStyle = useMemo(() => ({
     background: `linear-gradient(90deg, ${C.textMuted} 0%, ${C.text} 40%, ${C.text} 60%, ${C.textMuted} 100%)`,

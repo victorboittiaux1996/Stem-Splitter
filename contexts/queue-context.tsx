@@ -56,6 +56,11 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   const progressDisplayRef = useRef(0);
   const progressRafRef = useRef(0);
   const progressLastTickRef = useRef(0);
+  // Time-based drift: timestamp when active item entered "processing" status.
+  // Drift fills the gap when the worker is silent (cold start, between stages).
+  // Worker progress always wins when higher (we take the max).
+  const processingStartTimeRef = useRef(0);
+  const PROCESSING_BASELINE_MS = 90_000;
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -586,12 +591,33 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItemId, items.find(i => i.id === activeItemId)?.jobId, items.find(i => i.id === activeItemId)?.status]);
 
+  // ─── Time-based drift clock: tied to the active item's processing status ──
+
+  const activeStatus = items.find(i => i.id === activeItemId)?.status;
+  useEffect(() => {
+    if (activeStatus === "processing") {
+      if (processingStartTimeRef.current === 0) processingStartTimeRef.current = Date.now();
+    } else {
+      processingStartTimeRef.current = 0;
+    }
+  }, [activeStatus]);
+
   // ─── rAF progress animation ────────────────────────────────────────────
 
   useEffect(() => {
     const tick = (now: number) => {
       const elapsed = progressLastTickRef.current ? now - progressLastTickRef.current : 16;
       progressLastTickRef.current = now;
+
+      // Time-based drift: fills the silence between worker updates so the bar
+      // never stalls (e.g. cold start, between stages). Worker overrides via the
+      // poll handler whenever its real progress is higher.
+      if (processingStartTimeRef.current > 0) {
+        const elapsedMs = Date.now() - processingStartTimeRef.current;
+        const driftPct = Math.min(95, (elapsedMs / PROCESSING_BASELINE_MS) * 95);
+        if (driftPct > progressTargetRef.current) progressTargetRef.current = driftPct;
+      }
+
       const target = progressTargetRef.current;
       const current = progressDisplayRef.current;
 
