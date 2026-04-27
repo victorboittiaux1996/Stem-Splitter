@@ -9,8 +9,6 @@ import { sendTelegramAlert } from "@/lib/telegram";
 export const maxDuration = 30;
 
 
-const OVERLAP_LABEL: Record<number, string> = { 2: "Fast", 8: "Balanced", 16: "High" };
-
 function fmtSeconds(s: number) {
   if (s < 60) return `${s.toFixed(0)}s`;
   const m = Math.floor(s / 60);
@@ -25,9 +23,8 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
   const trackDur = typeof job.duration === "number" ? job.duration : null; // audio duration from Modal
   const errorCode = (job.error_code as string | undefined) ?? null;
   const phase = job.phase_timings as Record<string, number> | undefined;
-  const processingDur = phase?.total_wall_time ?? null; // actual GPU processing time
+  const processingDur = phase?.total_wall_time ?? null; // worker wall time (used as fallback)
   const modalCost = typeof job.modal_cost === "number" ? job.modal_cost : (phase?.modal_cost ?? null);
-  const overlap = typeof job.overlap === "number" ? job.overlap : null;
   const bpm = typeof job.bpm === "number" ? job.bpm : null;
   const key = (job.key as string | undefined) ?? null;
   // User-perceived wall time: from upload click → result ready in UI
@@ -40,115 +37,105 @@ async function notifyJob(status: "completed" | "failed", job: Record<string, unk
   let msg = status === "completed" ? `✅ <b>Completed</b>\n` : `❌ <b>Failed</b>\n`;
   msg += `🎵 ${fileName}\n`;
 
-  // Settings
-  const settings = [
+  // Combined settings + track info on one line
+  const headerParts = [
     mode,
-    overlap != null ? (OVERLAP_LABEL[overlap] ?? `overlap=${overlap}`) : null,
-  ].filter(Boolean).join(" · ");
-  if (settings) msg += `⚙️ ${settings}\n`;
-
-  // Track info
-  const trackInfo = [
     trackDur != null ? fmtSeconds(trackDur) : null,
     bpm != null ? `${Math.round(bpm)} BPM` : null,
     key ?? null,
-  ].filter(Boolean).join(" · ");
-  if (trackInfo) msg += `🎼 ${trackInfo}\n`;
+  ].filter(Boolean);
+  if (headerParts.length) msg += `⚙️ ${headerParts.join(" · ")}\n`;
 
   if (status === "completed") {
-    const dlCpu = phase?.download_cpu ?? 0;
-    const totalEnd2End = processingDur != null ? processingDur + dlCpu : null;
-    if (totalEnd2End != null) {
-      const procLabel = dlCpu > 0
-        ? `${fmtSeconds(totalEnd2End)} total (${fmtSeconds(processingDur!)} GPU)`
-        : `${fmtSeconds(processingDur!)} processing`;
-      msg += userWall != null
-        ? `⏱ <b>${fmtSeconds(userWall)}</b> user · ${procLabel}\n`
-        : `⏱ <b>${procLabel}</b>\n`;
+    const wall = phase?.total_wall_time ?? processingDur ?? 0;
+    const boot = phase?.container_boot ?? 0;
+    const idleSec = typeof phase?.idle_seconds === "number" ? phase.idle_seconds : 0;
+    const isCold = phase?.cold === 1;
+    const billedGpu = wall + boot;
+    const billedTotal = billedGpu + idleSec;
+    const callbackFree = userWall != null ? Math.max(0, userWall - wall - boot) : 0;
+
+    // ─── User time + billed segments ───
+    if (userWall != null) {
+      msg += `\n⏱ <b>${fmtSeconds(userWall)}</b> user time\n`;
+      const fmtVal = (s: number) => fmtSeconds(s).padStart(4);
+      const segs: string[] = [];
+      if (boot > 0) segs.push(`   ❄️ ${fmtVal(boot)}   container boot      ← billed`);
+      if (wall > 0) segs.push(`   ⚙️ ${fmtVal(wall)}   processing          ← billed`);
+      if (callbackFree >= 1) segs.push(`   📡 ${fmtVal(callbackFree)}   callbacks           free`);
+      if (segs.length) msg += `<pre>${segs.join("\n")}</pre>\n`;
     }
+
+    // ─── Phase breakdown (grouped, wall-time aligned) ───
     if (phase) {
+      const dl = (phase.download_cpu ?? 0) + (phase.download_input ?? 0);
+      const transcode = phase.wav24_transcode ?? 0;
+      const warmup = phase.warmup ?? 0;
+      const prepSec = dl + transcode + warmup;
+      const voc = phase.sep_vocal_infer ?? 0;
+      const inst = phase.sep_instru_infer ?? 0;
+      const gpuWall = phase.sep_parallel_wall ?? Math.max(voc, inst);
+      const merge = phase.merge_stems ?? 0;
+      const postParallel = phase.post_parallel ?? 0;
+      const postWall = merge + postParallel;
+      const analyze = phase.analyze_track ?? 0;
+
       const lines: string[] = [];
-
-      // Prep
-      const prep: Array<[string, string]> = [
-        ["download_cpu",    "dl_url    "],
-        ["download_input",  "dl_r2     "],
-        ["wav24_transcode", "transcode "],
-      ];
-      const prepLines = prep
-        .map(([k, l]) => phase[k] != null ? `  ${l} ${fmtSeconds(phase[k])}` : null)
-        .filter((v): v is string => v != null);
-      if (prepLines.length) lines.push(...prepLines);
-
-      // GPU inference (parallel)
-      const hasInfer = phase.sep_vocal_infer != null || phase.sep_instru_infer != null;
-      if (hasInfer) {
-        lines.push(`  ─── GPU ∥ ───`);
-        if (phase.sep_vocal_infer != null) lines.push(`  infer_voc  ${fmtSeconds(phase.sep_vocal_infer)}`);
-        if (phase.sep_instru_infer != null) lines.push(`  infer_inst ${fmtSeconds(phase.sep_instru_infer)}`);
-        if (phase.sep_parallel_wall != null) lines.push(`  wall       ${fmtSeconds(phase.sep_parallel_wall)}`);
+      const fmtVal = (s: number) => fmtSeconds(s).padStart(4);
+      if (prepSec > 0) {
+        const det: string[] = [];
+        if (dl > 0) det.push(`dl ${fmtSeconds(dl)}`);
+        if (transcode > 0) det.push(`transcode ${fmtSeconds(transcode)}`);
+        if (warmup > 0) det.push(`warmup ${fmtSeconds(warmup)}`);
+        lines.push(`prep    ${fmtVal(prepSec)}  (${det.join(" · ")})`);
       }
-
-      // Post-processing
-      const post: Array<[string, string]> = [
-        ["merge_stems",   "merge     "],
-        ["post_parallel", "post_proc "],
-        ["peaks",         "  peaks    "],
-        ["wav_upload",    "  wav_up  ∥"],
-        ["mp3_encode",    "  mp3_enc ∥"],
-        ["upload_mp3",    "  mp3_up  ∥"],
-      ];
-      const postLines = post
-        .map(([k, l]) => phase[k] != null ? `  ${l} ${fmtSeconds(phase[k])}` : null)
-        .filter((v): v is string => v != null);
-      if (postLines.length) lines.push(...postLines);
-
-      // CPU parallel (analyze runs during GPU inference)
-      if (phase.analyze_track != null) {
-        lines.push(`  ─── CPU ∥ ───`);
-        lines.push(`  analyze    ${fmtSeconds(phase.analyze_track)}`);
+      if (gpuWall > 0) {
+        lines.push(`GPU     ${fmtVal(gpuWall)}  (voc ${fmtSeconds(voc)} + inst ${fmtSeconds(inst)}, parallel)`);
       }
-      if (phase.cold === 1 && phase.warmup != null && phase.warmup > 0) {
-        lines.push(`  warmup     ${fmtSeconds(phase.warmup)}`);
+      if (postWall > 0) {
+        lines.push(`post    ${fmtVal(postWall)}  (merge + encode + upload, parallel)`);
       }
-      if (lines.length) msg += `<pre>${lines.join("\n")}</pre>`;
-      if (phase.cold === 1) msg += "🥶 Cold start\n";
-      // GPU diagnostics
-      const gpuName = (phase as Record<string, unknown>).gpu_name as string | undefined;
-      const gpuClock = phase.gpu_clock_mhz;
-      const gpuClockMax = phase.gpu_clock_max_mhz;
-      const gpuTemp = phase.gpu_temp_c;
-      const gpuPower = phase.gpu_power_w;
-      const gpuPowerLimit = phase.gpu_power_limit_w;
-      if (gpuName) {
-        const shortName = gpuName.replace("NVIDIA ", "").replace(" 80GB HBM3", "").replace(" 80GB HBM3e", "");
-        // Prefer post-inference metrics (captured under load)
-        const clockPost = phase.gpu_clock_post_mhz;
-        const tempPost = phase.gpu_temp_post_c;
-        const powerPost = phase.gpu_power_post_w;
-        let gpuLine = `🖥 ${shortName}`;
-        if (clockPost && gpuClockMax) gpuLine += ` ${clockPost}/${gpuClockMax}MHz`;
-        else if (gpuClock && gpuClockMax) gpuLine += ` ${gpuClock}/${gpuClockMax}MHz`;
-        if (tempPost) gpuLine += ` ${tempPost}°C`;
-        else if (gpuTemp) gpuLine += ` ${gpuTemp}°C`;
-        if (powerPost && gpuPowerLimit) gpuLine += ` ${Math.round(powerPost)}/${Math.round(gpuPowerLimit)}W`;
-        else if (gpuPower && gpuPowerLimit) gpuLine += ` ${Math.round(gpuPower)}/${Math.round(gpuPowerLimit)}W`;
-        msg += gpuLine + "\n";
+      if (analyze > 0) {
+        lines.push(`analyze ${fmtVal(analyze)}  (free, parallel with GPU)`);
       }
+      if (lines.length) msg += `<pre>${lines.join("\n")}</pre>\n`;
     }
+
+    // ─── Cost breakdown ───
     if (modalCost != null) {
       const costPerMin = trackDur != null && trackDur > 0 ? (modalCost / (trackDur / 60)) : null;
-      msg += `💰 <b>$${modalCost.toFixed(4)}</b>`;
+      msg += `\n💰 <b>$${modalCost.toFixed(4)}</b>`;
       if (costPerMin != null) msg += ` ($${costPerMin.toFixed(3)}/min audio)`;
       msg += "\n";
       const costGpu = typeof phase?.modal_cost_gpu === "number" ? phase.modal_cost_gpu : null;
       const costIdle = typeof phase?.modal_cost_idle === "number" ? phase.modal_cost_idle : null;
-      const idleSec = typeof phase?.idle_seconds === "number" ? phase.idle_seconds : null;
       if (costGpu != null && costIdle != null) {
-        msg += `   GPU  $${costGpu.toFixed(4)}\n`;
-        const idleLabel = phase?.cold === 1 ? "scaledown" : "gap user→next";
-        const idleSuffix = idleSec != null ? ` (${idleLabel} ${idleSec.toFixed(0)}s)` : "";
-        msg += `   idle $${costIdle.toFixed(4)}${idleSuffix}\n`;
+        const idleNote = isCold ? "scaledown, container kept warm" : "gap user→next";
+        const lines: string[] = [];
+        const gpuNote = isCold
+          ? `(boot ${fmtSeconds(boot)} + processing ${fmtSeconds(wall)})`
+          : `(processing ${fmtSeconds(wall)}, warm)`;
+        lines.push(`GPU      $${costGpu.toFixed(4)}  · billed ${billedGpu.toFixed(0).padStart(2)}s  ${gpuNote}`);
+        lines.push(`idle     $${costIdle.toFixed(4)}  · billed ${idleSec.toFixed(0).padStart(2)}s  (${idleNote})`);
+        lines.push(`total billed                ${billedTotal.toFixed(0).padStart(3)}s`);
+        msg += `<pre>${lines.join("\n")}</pre>\n`;
+      }
+    }
+
+    // ─── GPU diagnostics (last line) ───
+    if (phase) {
+      const gpuName = (phase as Record<string, unknown>).gpu_name as string | undefined;
+      if (gpuName) {
+        const shortName = gpuName.replace("NVIDIA ", "").replace(" 80GB HBM3", "").replace(" 80GB HBM3e", "");
+        // Prefer under-load metrics
+        const clock = phase.gpu_clock_post_mhz ?? phase.gpu_clock_mhz;
+        const temp = phase.gpu_temp_post_c ?? phase.gpu_temp_c;
+        const power = phase.gpu_power_post_w ?? phase.gpu_power_w;
+        const parts: string[] = [shortName];
+        if (clock) parts.push(`${clock}MHz`);
+        if (temp) parts.push(`${temp}°C`);
+        if (power) parts.push(`${Math.round(power)}W`);
+        msg += `🖥 ${parts.join(" · ")}\n`;
       }
     }
   }
