@@ -101,6 +101,8 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   const nextItem = currentIdx < items.length - 1 ? items[currentIdx + 1] : null;
 
   const [stemUrls, setStemUrls] = useState<Record<string, string>>({});
+  const [fetchedPeaks, setFetchedPeaks] = useState<Record<string, number[]> | null>(null);
+  const [decodedPeaks, setDecodedPeaks] = useState<Record<string, number[]>>({});
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [sharing, setSharing] = useState(false);
@@ -131,28 +133,73 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   useEffect(() => {
     setPlayingStem(null);
     setProgress(0);
+    setFetchedPeaks(null);
+    setDecodedPeaks({});
     Object.values(audioRef.current).forEach(a => { a.pause(); a.src = ""; });
     audioRef.current = {};
 
     if (cachedStemUrls && Object.keys(cachedStemUrls).length > 0) {
       setStemUrls(cachedStemUrls);
-      return;
+    } else {
+      setStemUrls({});
+      fetch(`/api/download/${expandedFile}`, {
+        headers: workspaceId ? { "x-workspace-id": workspaceId } : {},
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.stems) {
+            const urls = Object.fromEntries((d.stems as { name: string; url: string }[]).map(s => [s.name, s.url]));
+            setStemUrls(urls);
+          }
+        })
+        .catch(() => {});
     }
 
-    setStemUrls({});
-    fetch(`/api/download/${expandedFile}`, {
-      headers: workspaceId ? { "x-workspace-id": workspaceId } : {},
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (d.stems) {
-          const urls = Object.fromEntries((d.stems as { name: string; url: string }[]).map(s => [s.name, s.url]));
-          setStemUrls(urls);
-          prefetchStemPeaks(urls);
-        }
+    // Fetch server-computed peaks if parent didn't prefetch them in time.
+    // Triggers a re-render with real waveforms instead of seed-generated placeholder.
+    if (!cachedPeaks || Object.keys(cachedPeaks).length === 0) {
+      fetch(`/api/jobs/${expandedFile}`, {
+        headers: workspaceId ? { "x-workspace-id": workspaceId } : {},
       })
-      .catch(() => {});
-  }, [expandedFile, cachedStemUrls]);
+        .then(r => r.json())
+        .then(job => {
+          if (job?.peaks && Object.keys(job.peaks).length > 0) {
+            setFetchedPeaks(job.peaks);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [expandedFile, cachedStemUrls, cachedPeaks, workspaceId]);
+
+  // Client-side decode fallback for legacy jobs without server-side peaks.
+  // Runs only when neither parent cache nor /api/jobs returned peaks.
+  useEffect(() => {
+    const haveServer = (cachedPeaks && Object.keys(cachedPeaks).length > 0)
+      || (fetchedPeaks && Object.keys(fetchedPeaks).length > 0);
+    if (haveServer) return;
+    const entries = Object.entries(stemUrls);
+    if (entries.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const [name, url] of entries) {
+        if (cancelled) return;
+        try {
+          const cached = _peakCache.get(url);
+          const peaks = cached ?? await fetchAudioPeaks(url);
+          if (!cached) {
+            _peakCache.set(url, peaks);
+            if (_peakCache.size > PEAK_CACHE_MAX) {
+              const firstKey = _peakCache.keys().next().value;
+              if (firstKey) _peakCache.delete(firstKey);
+            }
+          }
+          if (!cancelled) setDecodedPeaks(prev => ({ ...prev, [name]: peaks }));
+        } catch {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stemUrls, cachedPeaks, fetchedPeaks]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -294,7 +341,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                   <WaveformVariant variant={11} seed={(si + 1) * 3571 + 42} color={color} playedColor={color}
                     progress={isPlayingThis ? progress : 0} height={36}
                     onSeek={(p) => seekStem(stem, p)}
-                    data={cachedPeaks?.[stem] || _peakCache.get(stemUrls[stem]) || undefined}
+                    data={cachedPeaks?.[stem] || fetchedPeaks?.[stem] || decodedPeaks[stem] || undefined}
                     cursorColor={isDark ? "#fff" : "#000"} />
                 </div>
                 <span style={{ fontSize: 14, color: C.textMuted }}>{fmt.toUpperCase()}</span>
