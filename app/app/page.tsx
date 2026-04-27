@@ -1742,6 +1742,7 @@ export default function AbletonDashboard() {
           {view === "settings" && (
             <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} rolloverMinutes={rolloverMinutes} minutesAvailable={minutesAvailable} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} minutesNeverReset={minutesNeverReset} isCanceledButActive={isCanceledButActive} periodEnd={periodEnd} periodStart={periodStart} currentBilling={currentBilling} onUpgrade={handleUpgrade} onPlanChanged={() => { refetchSubscription(); setTimeout(() => refetchSubscription(), 1500); }} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={() => setPendingPlanChange(null)} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} createdAt={createdAt} usageHistory={history.map(h => ({
               date: new Date(h.completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+              sortAt: h.completedAt,
               details: h.name,
               type: `${h.stems}-stem`,
               time: `−${h.duration ?? "0:00"}`,

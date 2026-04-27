@@ -30,6 +30,7 @@ export async function downloadAllStemsZip(
   const JSZip = JSZipModule.default;
   const zip = new JSZip();
   const ext = format === "mp3" ? ".mp3" : ".wav";
+  const baseName = sanitizeFolder(track.name);
 
   const results = await Promise.allSettled(
     stems.map(async (stem) => {
@@ -38,7 +39,7 @@ export async function downloadAllStemsZip(
       if (!res.ok) throw new Error(`${stem}: ${res.status}`);
       const blob = await res.blob();
       const label = stem.charAt(0).toUpperCase() + stem.slice(1);
-      zip.file(`${label}${ext}`, blob);
+      zip.file(`${baseName} - ${label}${ext}`, blob);
     }),
   );
 

@@ -63,14 +63,14 @@ interface AccountViewProps {
   initials?: string;
   avatarUrl?: string | null;
   createdAt?: string;
-  usageHistory?: { date: string; details: string; type: string; time: string; positive: boolean }[];
+  usageHistory?: { date: string; sortAt?: number; details: string; type: string; time: string; positive: boolean }[];
   onPlanChanged?: () => void;
   pendingPlanChange?: { plan: "pro" | "studio"; billing: "monthly" | "annual" } | null;
   onConsumePendingPlanChange?: () => void;
 }
 
 // Mock usage history data
-const USAGE_HISTORY = [
+const USAGE_HISTORY: { date: string; sortAt?: number; details: string; type: string; time: string; positive: boolean }[] = [
   { date: "Mar 31, 2026", details: "Daily Free Credits",          type: "Credit", time: "+5:00",  positive: true  },
   { date: "Mar 31, 2026", details: "Ibiza Afterhours Tech",       type: "6-stem", time: "−3:45",  positive: false },
   { date: "Mar 30, 2026", details: "Daily Free Credits",          type: "Credit", time: "+5:00",  positive: true  },
@@ -700,6 +700,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
     if (!refillAt || isNaN(refillAt.getTime())) return null;
     return {
       date: refillAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      sortAt: refillAt.getTime(),
       details: isPro ? `${planLabel} renewal` : "Free credits",
       type: "Credit",
       time: `+${formatPaddedMMSS(minutesIncluded * 60)}`,
@@ -707,24 +708,29 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
     };
   }, [isPro, periodStart, periodEnd, daysUntilReset, planLabel, minutesIncluded]);
 
+  // Sort by exact timestamp (sortAt) so same-day events keep their real order.
+  // The DATE column still shows just the day; only the sort uses seconds.
   const historyData = React.useMemo(() => {
     const merged = refillRow ? [refillRow, ...baseHistory] : baseHistory;
-    return merged.slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return merged.slice().sort((a, b) => {
+      const at = a.sortAt ?? new Date(a.date).getTime();
+      const bt = b.sortAt ?? new Date(b.date).getTime();
+      return bt - at;
+    });
   }, [refillRow, baseHistory]);
   const visibleRows = showAll ? historyData : historyData.slice(0, 10);
 
   // Walk back from current remaining to compute the running balance after each
   // transaction (newest = current, older = current minus already-applied effects).
-  // Display everything in whole minutes — no MM:SS in the usage table.
+  // Display TIME and BALANCE in exact MM:SS — no rounding.
   const visibleRowsWithBalance = React.useMemo(() => {
     let runningSec = Math.max(0, (effectiveMinutes - minutesUsed) * 60);
     return visibleRows.map(row => {
       const balanceSec = runningSec;
       const effectSec = parseTimeToSec(row.time);
-      const effectMin = Math.max(1, Math.round(Math.abs(effectSec) / 60));
       const sign = effectSec >= 0 ? "+" : "−";
-      const displayTime = `${sign}${effectMin} min`;
-      const displayBalance = `${Math.round(balanceSec / 60)} min`;
+      const displayTime = `${sign}${formatPaddedMMSS(effectSec)}`;
+      const displayBalance = formatPaddedMMSS(balanceSec);
       runningSec = Math.max(0, runningSec - effectSec);
       return { ...row, balanceSec, displayTime, displayBalance };
     });

@@ -124,8 +124,8 @@ export function ExportModal(props: Props) {
       const JSZip = JSZipModule.default;
       const zip = new JSZip();
       const ext = format === "mp3" ? ".mp3" : ".wav";
-      type ZipFolder = typeof zip;
-      const folderCache = new Map<string, ZipFolder>();
+      const baseNameCache = new Map<string, string>();
+      const isMulti = tracks.length > 1;
 
       const results = await Promise.allSettled(
         targets.map(async ({ track, stem }) => {
@@ -133,14 +133,18 @@ export function ExportModal(props: Props) {
           const res = await fetch(url, { signal: controller.signal });
           if (!res.ok) throw new Error(`${track.name}/${stem}: ${res.status}`);
           const blob = await res.blob();
-          let folder = folderCache.get(track.id);
-          if (!folder) {
-            folder = zip.folder(sanitizeFolder(track.name)) ?? zip;
-            folderCache.set(track.id, folder);
+          let baseName = baseNameCache.get(track.id);
+          if (!baseName) {
+            baseName = sanitizeFolder(track.name);
+            baseNameCache.set(track.id, baseName);
           }
           const label = stem.charAt(0).toUpperCase() + stem.slice(1);
+          const fileName = `${baseName} - ${label}${ext}`;
+          // Multi-track ZIPs nest each track in its own "{Track} - Stems/" folder
+          // so the structure mirrors a single-track ZIP. Single-track stays flat.
+          const path = isMulti ? `${baseName} - Stems/${fileName}` : fileName;
           // STORE: audio is already compressed/incompressible — skip DEFLATE.
-          folder.file(`${label}${ext}`, blob, { compression: "STORE" });
+          zip.file(path, blob, { compression: "STORE" });
         })
       );
 
@@ -165,7 +169,7 @@ export function ExportModal(props: Props) {
       const zipName =
         tracks.length === 1
           ? `${sanitizeFolder(tracks[0].name)} - Stems.zip`
-          : `${tracks.length}-tracks-stems.zip`;
+          : `${tracks.length} Tracks - Stems.zip`;
       a.download = zipName;
       a.click();
       setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
