@@ -232,6 +232,10 @@ export async function POST(req: NextRequest) {
         items: [{ id: item.id, price: targetPriceId }],
         proration_behavior: "always_invoice",
         payment_behavior: "default_incomplete",
+        // Enable Stripe Tax — also retro-enables on subs originally created
+        // without automatic_tax, so EU users get VAT on this and future
+        // invoices. Requires Stripe Tax activated in dashboard.
+        automatic_tax: { enabled: true },
         expand: ["latest_invoice.confirmation_secret"],
         ...(typeof freshProrationDate === "number" ? { proration_date: freshProrationDate } : {}),
         ...(resolvedCoupon ? { discounts: [{ coupon: resolvedCoupon }] } : {}),

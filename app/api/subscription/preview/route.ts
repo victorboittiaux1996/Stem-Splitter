@@ -310,6 +310,10 @@ export async function POST(req: NextRequest) {
         proration_behavior: "always_invoice",
         proration_date: prorationDate,
       },
+      // Force tax calculation in the preview even when the sub itself was
+      // created without automatic_tax (legacy). Mirror of what change/route
+      // sets on the actual update so preview total = invoice total.
+      automatic_tax: { enabled: true },
     };
     // Apply promo code to the preview (Stripe supports this on subscription
     // updates — contrast with Polar where codes only applied at next cycle).

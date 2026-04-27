@@ -286,7 +286,23 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       4. Tax (always shown, even at 0 for transparency)
                       5. Total today (bold)
                 ── */}
-                {paysToday && (
+                {paysToday && (() => {
+                  // Stripe sometimes returns one consolidated line (charge net of
+                  // credit) for billing_switch flows where the cycle resets to a
+                  // full new period. To keep the math visible to the user, we
+                  // force-display the new plan's full sticker price and derive
+                  // the credit as `sticker − subtotal_of_lines`.
+                  // For upgrade same-cycle (prorated until period end), Stripe
+                  // typically splits lines cleanly so we use the raw values.
+                  const isFullPeriodSwitch = preview.kind === "billing_switch";
+                  const subtotalOfLines = preview.chargeMajor - preview.creditMajor;
+                  const displayChargeMajor = isFullPeriodSwitch
+                    ? preview.perPeriodMajor
+                    : preview.chargeMajor;
+                  const derivedCredit = isFullPeriodSwitch
+                    ? Math.max(0, preview.perPeriodMajor - subtotalOfLines)
+                    : preview.creditMajor;
+                  return (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
                       Today's charge
@@ -298,14 +314,14 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                           ? `${targetCfg.label} ${preview.targetBilling === "annual" ? "annual — full year from today" : "monthly — full month from today"}`
                           : `${targetCfg.label} prorated until period end`
                       }
-                      value={fmt(preview.chargeMajor)}
+                      value={fmt(displayChargeMajor)}
                       C={C}
                     />
 
-                    {preview.creditMajor > 0 && (
+                    {derivedCredit > 0 && (
                       <Row
                         label={`Unused ${PLANS[preview.currentPlan].label} credit`}
-                        value={`−${fmt(preview.creditMajor)}`}
+                        value={`−${fmt(derivedCredit)}`}
                         C={C}
                       />
                     )}
@@ -324,7 +340,8 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                     <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
                     <Row label="Total today" value={fmt(preview.totalMajor)} C={C} bold />
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* ── Minutes lost warning on downgrade ── */}
                 {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 ? (
