@@ -237,7 +237,8 @@ function RangePopover({
               left: 0,
               zIndex: 30,
               backgroundColor: C.bgCard,
-              boxShadow: `0 1px 0 ${C.text}10, 0 8px 24px ${C.text}18`,
+              // Same shadow as the sidebar profile menu (app/page.tsx:932).
+              boxShadow: "0 8px 32px rgba(0,0,0,0.24)",
               padding: "14px 16px",
               minWidth: 240,
             }}
@@ -321,6 +322,8 @@ export interface FilesFiltersProps {
   setFilterBatch: (v: string | null) => void;
   clearFilters: () => void;
   hasActiveFilters: boolean;
+  /** Render only one of the two rows. Defaults to "both" (legacy callers). */
+  section?: "both" | "search" | "chips";
 }
 
 function pad2(n: number): string {
@@ -387,7 +390,10 @@ export function FilesFilters(props: FilesFiltersProps) {
     filterStems, setFilterStems,
     filterBatch, setFilterBatch,
     clearFilters, hasActiveFilters,
+    section = "both",
   } = props;
+  const showSearch = section === "both" || section === "search";
+  const showChips = section === "both" || section === "chips";
 
   const [keyNotation] = useKeyNotation();
 
@@ -411,26 +417,31 @@ export function FilesFilters(props: FilesFiltersProps) {
 
   return (
     <>
-      <div
-        className="flex items-center gap-[10px] px-[16px] py-[10px]"
-        style={{ borderBottom: `1px solid ${C.text}08` }}
-      >
-        <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
-        <input
-          type="text"
-          value={fileSearch}
-          onChange={(e) => setFileSearch(e.target.value)}
-          placeholder="SEARCH FILES"
-          className="flex-1 bg-transparent text-[13px] outline-none"
-          style={{ color: C.text, letterSpacing: "0.03em" }}
-        />
-      </div>
-
-      {history.length > 0 && (
+      {showSearch && (
         <div
-          className="flex items-center gap-[16px] px-[16px] py-[10px] flex-wrap"
+          className="flex items-center gap-[10px] px-[16px] py-[10px]"
           style={{ borderBottom: `1px solid ${C.text}08` }}
         >
+          <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
+          <input
+            type="text"
+            value={fileSearch}
+            onChange={(e) => setFileSearch(e.target.value)}
+            placeholder="SEARCH FILES"
+            className="flex-1 bg-transparent text-[13px] outline-none"
+            style={{ color: C.text, letterSpacing: "0.03em" }}
+          />
+        </div>
+      )}
+
+      {showChips && history.length > 0 && (
+        <div style={{ padding: "10px 16px 12px", borderBottom: `1px solid ${C.text}08` }}>
+          {/* "FILTERS" label on its own line — typography matched to the
+              SEARCH FILES placeholder for visual consistency. */}
+          <div style={{ fontSize: 13, letterSpacing: "0.03em", color: C.textMuted, textTransform: "uppercase", marginBottom: 10 }}>
+            Filters
+          </div>
+          <div className="flex items-center gap-[16px] flex-wrap">
           {/* BPM popover */}
           <RangePopover
             label="BPM"
@@ -594,6 +605,7 @@ export function FilesFilters(props: FilesFiltersProps) {
               CLEAR
             </button>
           )}
+          </div>
         </div>
       )}
     </>

@@ -396,7 +396,40 @@ export function FilesView(props: Props) {
           {isEmpty ? (
             <FilesEmptyState C={C} onSplit={onNavigateToSplit} />
           ) : (
-            <div style={{ backgroundColor: C.bgCard, overflow: "hidden" }}>
+            <>
+              {/* Layout E: chips card → gap → search-collé-table card.
+                  Search becomes a "find within table" affordance (attached to the
+                  table header). Chips remain global filters with their own block. */}
+              {/* overflow: visible so the BPM/DUR/DATE popovers (position:absolute,
+                  open downward) aren't clipped by the card boundary. */}
+              <div style={{ backgroundColor: C.bgCard, marginBottom: 16 }}>
+                <FilesFilters
+                  C={C}
+                  history={history}
+                  fileSearch={fileSearch}
+                  setFileSearch={setFileSearch}
+                  bpmRange={bpmRange}
+                  setBpmRange={setBpmRange}
+                  bpmBounds={bpmBounds}
+                  durRange={durRange}
+                  setDurRange={setDurRange}
+                  durBounds={durBounds}
+                  dateRange={dateRange}
+                  setDateRange={setDateRange}
+                  dateBounds={dateBounds}
+                  filterKey={filterKey}
+                  setFilterKey={setFilterKey}
+                  filterStems={filterStems}
+                  setFilterStems={setFilterStems}
+                  filterBatch={filterBatch}
+                  setFilterBatch={setFilterBatch}
+                  clearFilters={clearFilters}
+                  hasActiveFilters={hasActiveFilters}
+                  section="chips"
+                />
+              </div>
+
+              <div style={{ backgroundColor: C.bgCard, overflow: "hidden" }}>
               <FilesFilters
                 C={C}
                 history={history}
@@ -419,8 +452,8 @@ export function FilesView(props: Props) {
                 setFilterBatch={setFilterBatch}
                 clearFilters={clearFilters}
                 hasActiveFilters={hasActiveFilters}
+                section="search"
               />
-
               <FilesTable
                 C={C}
                 isDark={isDark}
@@ -448,7 +481,8 @@ export function FilesView(props: Props) {
                   </p>
                 </div>
               )}
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>

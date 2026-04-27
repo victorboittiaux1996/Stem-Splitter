@@ -12,7 +12,7 @@ import Link from "next/link";
 import type { Job, HistoryItem, SplitMode, QueueItem } from "@/lib/types";
 import { detectPlatform, PLATFORMS, detectRejectedStreaming, detectInvalidShareLink } from "@/lib/platforms";
 import { useQueue } from "@/contexts/queue-context";
-import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
+import { RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
 import { FilesView } from "@/components/dashboard/files/files-view";
 import { KeyBadge, keyColumnWidth } from "@/components/dashboard/files/key-badge";
@@ -185,6 +185,7 @@ export default function AbletonDashboard() {
   const [recentShareConfirmId, setRecentShareConfirmId] = useState<string | null>(null);
   const [recentSharingId, setRecentSharingId] = useState<string | null>(null);
   const [recentDownloadingId, setRecentDownloadingId] = useState<string | null>(null);
+  const [recentSearch, setRecentSearch] = useState("");
 
   // Handle checkout success redirect from Polar
   // Also handle ?upgrade=pro&billing=annual from /pricing page
@@ -903,7 +904,9 @@ export default function AbletonDashboard() {
                   <path d="M2 3.5L5 6.5L8 3.5" stroke={C.textMuted} strokeWidth="0.8" strokeLinejoin="miter"/>
                 </svg>
               </div>
-              <div style={{ fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{planLabel} · <span style={{ color: C.accent }}>Upgrade</span></div>
+              <div style={{ fontSize: 11, color: isPro ? C.accent : C.textMuted, whiteSpace: "nowrap", fontWeight: isPro ? 600 : 400 }}>
+                {planLabel}
+              </div>
             </div>
           </button>
           {!sidebarCollapsed && (
@@ -1447,7 +1450,7 @@ export default function AbletonDashboard() {
                       <div style={{ backgroundColor: C.bgCard }}>
                         <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
                           <Search className="h-[14px] w-[14px] shrink-0" style={{ color: C.textMuted }} strokeWidth={1.6} />
-                          <input type="text" placeholder="SEARCH HISTORY" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[13px]" style={{ color: C.text, letterSpacing: "0.03em" }} />
+                          <input type="text" placeholder="SEARCH HISTORY" value={recentSearch} onChange={(e) => setRecentSearch(e.target.value)} className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-[13px]" style={{ color: C.text, letterSpacing: "0.03em" }} />
                         </div>
                         <div className="flex items-center px-[16px] py-[8px]" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
                           <span className="flex-1">NAME</span>
@@ -1456,16 +1459,28 @@ export default function AbletonDashboard() {
                           <span className="w-[80px] text-right">TIME</span>
                           <span className="w-[100px]" />
                         </div>
-                        {history.map((item, i) => (
+                        {(() => {
+                          const q = recentSearch.trim().toLowerCase();
+                          const filtered = q
+                            ? history.filter((h) => h.name.toLowerCase().includes(q))
+                            : history;
+                          if (filtered.length === 0 && q) {
+                            return (
+                              <div className="px-[16px] py-[24px] text-center" style={{ fontSize: 13, color: C.textMuted }}>
+                                No splits match &quot;{recentSearch}&quot;
+                              </div>
+                            );
+                          }
+                          return filtered.map((item, i) => (
                           <div key={item.id}
                             className="flex items-center px-[16px] py-[14px] cursor-pointer transition-colors"
                             style={{
-                              borderBottom: i < history.length - 1 ? `1px solid ${C.text}08` : undefined,
+                              borderBottom: i < filtered.length - 1 ? `1px solid ${C.text}08` : undefined,
                             }}
                             onClick={() => setExpandedFile(item.id)}>
                             <div className="flex items-center gap-[12px] flex-1 min-w-0">
                               <div className="flex h-[36px] w-[36px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgHover }}>
-                                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
+                                <svg width="20" height="2" viewBox="0 0 20 2" fill="none"><line x1="0" y1="1" x2="20" y2="1" stroke={C.textMuted} strokeWidth="0.7"/></svg>
                               </div>
                               <div className="min-w-0">
                                 <p style={{ fontSize: 14, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
@@ -1520,7 +1535,8 @@ export default function AbletonDashboard() {
                               </button>
                             </div>
                           </div>
-                        ))}
+                        ));
+                        })()}
                       </div>
                     </div>
 

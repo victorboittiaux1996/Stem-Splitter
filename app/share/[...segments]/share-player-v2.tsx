@@ -1,10 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { RiPlayFill, RiStopFill, RiDownloadFill, RiVolumeUpFill, RiVolumeMuteFill } from "@remixicon/react";
+import { RiPlayFill, RiStopFill, RiVolumeUpFill, RiVolumeMuteFill } from "@remixicon/react";
 import { WaveformVariant } from "@/components/dashboard/waveform-variants";
 import { downloadBlob } from "@/lib/download";
 import { stemColors } from "@/components/website/theme";
+
+const DownloadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M8 2V9.5M5 8L8 11L11 8" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+    <line x1="3" y1="14" x2="13" y2="14" stroke={color} strokeWidth="0.7"/>
+  </svg>
+);
 
 // ─── Audio peak extraction ─────────────────────────────────
 const PEAK_CACHE = new Map<string, number[]>();
@@ -273,16 +280,12 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
             minWidth: 150,
           }}
         >
-          <span style={{ width: 11, height: 11, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-            {zipping ? (
-              <span
-                className="animate-spin inline-block"
-                style={{ width: 11, height: 11, border: "1.5px solid #FFFFFF", borderTopColor: "transparent", borderRadius: "50%" }}
-              />
-            ) : (
-              <RiDownloadFill size={11} />
-            )}
-          </span>
+          {zipping && (
+            <span
+              className="animate-spin inline-block"
+              style={{ width: 11, height: 11, border: "1.5px solid #FFFFFF", borderTopColor: "transparent", borderRadius: "50%" }}
+            />
+          )}
           {zipping ? "BUILDING ZIP…" : "DOWNLOAD .ZIP"}
         </button>
       </div>
@@ -398,7 +401,7 @@ export function SharePlayerV2({ stems, trackName, peaks: serverPeaks }: SharePla
                       style={{ width: 14, height: 14, border: `1.5px solid ${C.textMuted}`, borderTopColor: "transparent", borderRadius: "50%" }}
                     />
                   ) : (
-                    <RiDownloadFill size={16} />
+                    <DownloadIcon size={14} color={C.textMuted} />
                   )}
                 </span>
               </button>

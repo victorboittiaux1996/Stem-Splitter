@@ -2,7 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
-import { RiPlayFill, RiStopFill, RiDownloadFill } from "@remixicon/react";
+import { RiPlayFill, RiStopFill } from "@remixicon/react";
+
+const DownloadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M8 2V9.5M5 8L8 11L11 8" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+    <line x1="3" y1="14" x2="13" y2="14" stroke={color} strokeWidth="0.7"/>
+  </svg>
+);
 import { motion } from "framer-motion";
 import { WaveformVariant } from "@/components/dashboard/waveform-variants";
 import { downloadStem, downloadStemsZip } from "@/lib/download";
@@ -106,25 +113,41 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
   const [playingStem, setPlayingStem] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [sharing, setSharing] = useState(false);
-  const [shareUsage, setShareUsage] = useState<{ used: number; total: number } | null>(null);
-  const [existingShareUrl, setExistingShareUrl] = useState<string | null>(null);
+  // Seed from localStorage so the "out of credits" state is known on the first
+  // render — avoids the ~1s flash of an active-looking button that then greys
+  // out when /api/share/usage returns.
+  const [shareUsage, setShareUsage] = useState<{ used: number; total: number } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const cached = localStorage.getItem("44stems-share-usage");
+      if (!cached) return null;
+      const parsed = JSON.parse(cached);
+      if (typeof parsed.used !== "number" || typeof parsed.total !== "number") return null;
+      return { used: parsed.used, total: parsed.total };
+    } catch { return null; }
+  });
+  // Derived synchronously from the parent item on every render — no flicker on
+  // mount or on prev/next navigation. The parent updates `shareLinkId` after a
+  // successful share, so the button flips to COPY LINK without any fetch.
+  const hasExistingShare = currentItem.shareLinkId != null;
   const [shareHover, setShareHover] = useState(false);
   const [downloadingStem, setDownloadingStem] = useState<string | null>(null);
   const [zipBuilding, setZipBuilding] = useState(false);
   const audioRef = useRef<Record<string, HTMLAudioElement>>({});
   const rafRef = useRef<number>(0);
 
-  // Fetch share usage + existing-link-for-this-track on mount / track change.
-  // existingShareUrl lets the button render "COPY LINK" instead of "SHARE"
-  // when a link already exists — re-click won't consume a credit.
+  // Refresh quota counter in the background. The button label is derived
+  // synchronously from currentItem.shareLinkId, so this fetch never blocks UI.
   useEffect(() => {
     if (onShare === undefined) return; // share button hidden
-    setExistingShareUrl(null);
     fetch(`/api/share/usage?jobId=${encodeURIComponent(expandedFile)}`)
       .then(r => r.json())
       .then(d => {
-        if (d.used != null && d.total != null) setShareUsage({ used: d.used, total: d.total });
-        if (d.existingUrl) setExistingShareUrl(d.existingUrl);
+        if (d.used != null && d.total != null) {
+          const next = { used: d.used, total: d.total };
+          setShareUsage(next);
+          try { localStorage.setItem("44stems-share-usage", JSON.stringify(next)); } catch {}
+        }
       })
       .catch(() => {});
   }, [onShare, expandedFile]);
@@ -304,12 +327,12 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
         <div className="flex items-center justify-between px-[24px] py-[18px]" style={{ backgroundColor: C.bgHover }}>
           <div className="flex items-center gap-[14px] min-w-0">
             <div className="flex h-[40px] w-[40px] items-center justify-center shrink-0" style={{ backgroundColor: C.bgSubtle }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
+              <svg width="20" height="2" viewBox="0 0 20 2" fill="none"><line x1="0" y1="1" x2="20" y2="1" stroke={C.textMuted} strokeWidth="0.7"/></svg>
             </div>
             <div className="min-w-0">
               <p style={{ fontSize: 16, fontWeight: 600, color: C.text }} className="truncate">{currentItem.name}</p>
               <p style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>
-                {currentItem.date} · {currentItem.duration ?? "---"} · {currentItem.bpm != null ? Math.round(currentItem.bpm) : "---"} BPM · {currentItem.key} · {currentItem.format.toUpperCase()}
+                {currentItem.bpm != null ? Math.round(currentItem.bpm) : "---"} BPM · {currentItem.key}
               </p>
             </div>
           </div>
@@ -344,7 +367,6 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                     data={cachedPeaks?.[stem] || fetchedPeaks?.[stem] || decodedPeaks[stem] || undefined}
                     cursorColor={isDark ? "#fff" : "#000"} />
                 </div>
-                <span style={{ fontSize: 14, color: C.textMuted }}>{fmt.toUpperCase()}</span>
                 {stemUrls[stem] ? (
                   <button
                     disabled={downloadingStem === stem}
@@ -390,13 +412,13 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                           }}
                         />
                       ) : (
-                        <RiDownloadFill size={14} />
+                        <DownloadIcon size={14} color={C.textMuted} />
                       )}
                     </span>
                   </button>
                 ) : (
                   <button className="p-[4px]" style={{ color: C.textMuted, opacity: 0.3 }}>
-                    <RiDownloadFill size={14}/>
+                    <DownloadIcon size={14} color={C.textMuted}/>
                   </button>
                 )}
               </div>
@@ -414,8 +436,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                   // When a link already exists for this track, the button
                   // just copies it — no quota is consumed, so we never block
                   // on "quota exhausted" in that case.
-                  const hasExisting = existingShareUrl != null;
-                  const quotaExhausted = !hasExisting && shareUsage != null && shareUsage.used >= shareUsage.total;
+                  const quotaExhausted = !hasExistingShare && shareUsage != null && shareUsage.used >= shareUsage.total;
                   return (
                     <button
                       disabled={sharing || quotaExhausted}
@@ -426,35 +447,37 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
                           // Optimistic counter bump only when a NEW link was created.
                           // Reused links don't consume a credit.
                           if (!result || (result as { reused: boolean }).reused !== true) {
-                            setShareUsage(prev => prev ? { ...prev, used: prev.used + 1 } : prev);
+                            setShareUsage(prev => {
+                              if (!prev) return prev;
+                              const next = { ...prev, used: prev.used + 1 };
+                              try { localStorage.setItem("44stems-share-usage", JSON.stringify(next)); } catch {}
+                              return next;
+                            });
                           }
-                          // After a successful call, the link exists for sure.
-                          // Re-flag the button so subsequent clicks show "COPY LINK".
-                          if (!existingShareUrl) {
-                            // URL is in the clipboard already; we just need a truthy marker.
-                            setExistingShareUrl("present");
-                          }
+                          // No need to flag local state — the parent updates
+                          // currentItem.shareLinkId after a successful share,
+                          // which flips hasExistingShare on the next render.
                         } finally {
                           setSharing(false);
                         }
                       }}
-                      className="flex items-center gap-[6px] px-[12px] py-[7px] transition-colors"
-                      style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: quotaExhausted ? C.textMuted : C.text, backgroundColor: C.bgHover, opacity: sharing || quotaExhausted ? 0.6 : 1, cursor: sharing || quotaExhausted ? "default" : "pointer", minWidth: 112, justifyContent: "center" }}>
+                      className="flex items-center gap-[6px] px-[16px] py-[7px] transition-colors"
+                      style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: quotaExhausted ? C.textMuted : C.text, backgroundColor: C.bgHover, opacity: sharing || quotaExhausted ? 0.6 : 1, cursor: sharing || quotaExhausted ? "default" : "pointer", minWidth: 112, justifyContent: "center" }}>
                       {sharing ? (
                         <span className="animate-spin" style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.text}`, borderTopColor: "transparent", borderRadius: "50%" }} />
                       ) : null}
                       {sharing
-                        ? (hasExisting ? "COPYING…" : "SHARING…")
-                        : (hasExisting ? "COPY LINK" : "SHARE")}
+                        ? (hasExistingShare ? "COPYING…" : "SHARING…")
+                        : (hasExistingShare ? "COPY LINK" : "SHARE")}
                     </button>
                   );
                 })()}
-                {shareHover && shareUsage && !existingShareUrl && (
+                {shareHover && shareUsage && !hasExistingShare && (
                   <div style={{ position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", color: shareUsage.used >= shareUsage.total ? "#FF3B30" : C.textMuted, backgroundColor: C.bgElevated, whiteSpace: "nowrap", pointerEvents: "none" }}>
                     {shareUsage.used}/{shareUsage.total} this month
                   </div>
                 )}
-                {shareHover && existingShareUrl && (
+                {shareHover && hasExistingShare && (
                   <div style={{ position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, letterSpacing: "0.03em", color: C.textMuted, backgroundColor: C.bgElevated, whiteSpace: "nowrap", pointerEvents: "none" }}>
                     Link already shared · no credit used
                   </div>
@@ -462,8 +485,8 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
               </div>
             ) : (
               <button disabled
-                className="flex items-center gap-[6px] px-[12px] py-[7px]"
-                style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.04em", color: C.textMuted, backgroundColor: C.bgHover, opacity: 0.6, cursor: "default" }}>
+                className="flex items-center gap-[6px] px-[16px] py-[7px]"
+                style={{ fontSize: 15, fontWeight: 600, letterSpacing: "0.04em", color: C.textMuted, backgroundColor: C.bgHover, opacity: 0.6, cursor: "default" }}>
                 SHARE
                 <span style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.06em", marginLeft: 4, verticalAlign: "super" }}>PRO</span>
               </button>
@@ -496,30 +519,18 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
               minWidth: 180,
             }}
           >
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {zipBuilding ? (
-                <span
-                  className="animate-spin inline-block"
-                  style={{
-                    width: 12,
-                    height: 12,
-                    border: `1.5px solid ${C.accentText}`,
-                    borderTopColor: "transparent",
-                    borderRadius: "50%",
-                  }}
-                />
-              ) : (
-                <RiDownloadFill size={12} />
-              )}
-            </span>
+            {zipBuilding && (
+              <span
+                className="animate-spin inline-block"
+                style={{
+                  width: 12,
+                  height: 12,
+                  border: `1.5px solid ${C.accentText}`,
+                  borderTopColor: "transparent",
+                  borderRadius: "50%",
+                }}
+              />
+            )}
             {zipBuilding ? "BUILDING ZIP…" : "DOWNLOAD .ZIP"}
           </button>
           </div>

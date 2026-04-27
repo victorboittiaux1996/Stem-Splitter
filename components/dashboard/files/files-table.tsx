@@ -208,12 +208,8 @@ export function FilesTable(props: Props) {
                   className="flex items-center justify-center shrink-0"
                   style={{ height: 36, width: 36, backgroundColor: C.bgHover, borderRadius: 0 }}
                 >
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                    <rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5" />
-                    <rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7" />
-                    <rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted} />
-                    <rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7" />
-                    <rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5" />
+                  <svg width="20" height="2" viewBox="0 0 20 2" fill="none">
+                    <line x1="0" y1="1" x2="20" y2="1" stroke={C.textMuted} strokeWidth="0.7" />
                   </svg>
                 </div>
                 <div className="min-w-0">
