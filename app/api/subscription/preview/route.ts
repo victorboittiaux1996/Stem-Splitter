@@ -392,9 +392,12 @@ export async function POST(req: NextRequest) {
 async function computeMinutesLost(
   userId: string,
   currentPlan: PlanId,
-  targetPlan: PlanId,
+  _targetPlan: PlanId,
   periodStart: string | null,
 ): Promise<number> {
+  // On any downgrade, the entire unused balance is forfeited at period end —
+  // not just the portion above the target plan's quota. The new period starts
+  // fresh at the target plan's quota with no rollover.
   const { data: usageRow } = await supabaseAdmin
     .from("usage")
     .select("rollover_minutes, tracks_used")
@@ -404,9 +407,7 @@ async function computeMinutesLost(
   const currentRollover = Number(usageRow?.rollover_minutes ?? 0);
   const currentMonthUsed = Number(usageRow?.tracks_used ?? 0);
   const currentPlanMinutes = PLANS[currentPlan].minutesIncluded;
-  const newPlanMinutes = PLANS[targetPlan].minutesIncluded;
-  const unusedCurrent = Math.max(0, currentPlanMinutes + currentRollover - currentMonthUsed);
-  return Math.max(0, unusedCurrent - newPlanMinutes);
+  return Math.max(0, currentPlanMinutes + currentRollover - currentMonthUsed);
 }
 
 function buildDowngradeNotice(
@@ -422,7 +423,7 @@ function buildDowngradeNotice(
     : "the end of your current period";
   const base = `You'll keep ${currentLabel} access until ${renewalDate}, then switch to ${targetLabel} automatically. No charge today, no refund.`;
   if (Math.round(minutesLost) >= 1) {
-    return `You will lose ${Math.round(minutesLost)} rollover minute${Math.round(minutesLost) === 1 ? "" : "s"} above the ${targetLabel} quota (${PLANS[targetPlan].minutesIncluded} min/month). ${base}`;
+    return `All ${Math.round(minutesLost)} unused minute${Math.round(minutesLost) === 1 ? "" : "s"} will be forfeited at ${renewalDate} — ${targetLabel} starts fresh at ${PLANS[targetPlan].minutesIncluded} min/month. ${base}`;
   }
   return base;
 }

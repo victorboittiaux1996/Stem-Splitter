@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { stripe, priceIdToPlan, priceIdToInterval } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { PLANS, type PlanId } from "@/lib/plans";
+import { computePeriodKey } from "@/lib/period";
 
 // Stripe webhook handler — source of truth for subscription state.
 //
@@ -173,7 +175,7 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
 
   const { data: existing } = await supabaseAdmin
     .from("subscriptions")
-    .select("stripe_subscription_id")
+    .select("stripe_subscription_id, plan")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -183,6 +185,8 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
     );
     return;
   }
+
+  const oldPlan: PlanId = (existing?.plan as PlanId | undefined) ?? "pro";
 
   await supabaseAdmin
     .from("subscriptions")
@@ -196,6 +200,10 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId);
+
+  // End-of-period downgrade to Free: forfeit all leftover minutes (Free has
+  // minutesNeverReset=false → carry-over is 0 by the rule).
+  await applyPlanTransitionToUsage(userId, oldPlan, "free", sub);
 }
 
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
@@ -230,6 +238,10 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
 // Shared helper — writes a Stripe Subscription into our DB with all the fields
 // we care about. Picks the first active item's price as the source for
 // plan/interval/currency/price_id (we only ever ship one-item subscriptions).
+//
+// Side effect: also applies plan-transition logic to the usage row when the
+// plan changes (upgrade) or a new period starts (renewal / scheduled downgrade
+// kicking in). See maybeApplyPlanTransitionToUsage for the rules.
 async function writeSubscription(
   userId: string,
   sub: Stripe.Subscription,
@@ -241,6 +253,15 @@ async function writeSubscription(
     console.error(`Stripe webhook: subscription ${sub.id} has no items`);
     return;
   }
+
+  // Snapshot pre-upsert plan/period_start so we can detect transitions.
+  const { data: existingRow } = await supabaseAdmin
+    .from("subscriptions")
+    .select("plan, period_start")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const oldPlan: PlanId = (existingRow?.plan as PlanId | undefined) ?? "free";
+  const oldPeriodStart = existingRow?.period_start ?? null;
 
   const priceId = item.price.id;
   const plan = priceIdToPlan(priceId);
@@ -284,6 +305,158 @@ async function writeSubscription(
       },
       { onConflict: "user_id" },
     );
+
+  await maybeApplyPlanTransitionToUsage(userId, oldPlan, oldPeriodStart, plan, periodStartDate, sub);
+}
+
+/**
+ * Reset/initialise the user's `usage` row when the plan or period changes.
+ *
+ * Triggers a reset on:
+ *   - Upgrade (tier goes up — applies immediately, e.g. Free → Pro, Pro → Studio)
+ *   - New period_start (renewal of same plan, OR a scheduled downgrade kicking
+ *     in at period_end after Stripe transitions the sub to the new price)
+ *
+ * Skips on:
+ *   - Same plan + same period_start (no-op write — nothing changed)
+ *   - Click-time of a downgrade (plan changes in Stripe but period_start stays;
+ *     the actual reset happens at the next period boundary)
+ *
+ * Rollover rule (no cap — paid plans accumulate unused minutes indefinitely):
+ *   - Both old and new plan have minutesNeverReset AND not a downgrade →
+ *     carry the previous-period leftover into rollover_minutes.
+ *   - Otherwise (Free involved on either side, or downgrade) → rollover = 0,
+ *     all unused minutes are forfeited.
+ */
+async function maybeApplyPlanTransitionToUsage(
+  userId: string,
+  oldPlan: PlanId,
+  oldPeriodStart: string | null,
+  newPlan: PlanId,
+  newPeriodStart: string | null,
+  sub: Stripe.Subscription,
+) {
+  const tierMap: Record<PlanId, number> = { free: 0, pro: 1, studio: 2 };
+  const planChanged = oldPlan !== newPlan;
+  const isUpgrade = planChanged && tierMap[newPlan] > tierMap[oldPlan];
+  const isDowngrade = planChanged && tierMap[newPlan] < tierMap[oldPlan];
+  const periodStartChanged =
+    !!oldPeriodStart && !!newPeriodStart && oldPeriodStart !== newPeriodStart;
+
+  // Click-time of a downgrade: plan flipped but Stripe kept the same period.
+  // Skip the reset — the next period_start change will trigger it.
+  if (isDowngrade && !periodStartChanged) return;
+
+  // No transition signal — same plan, same period.
+  if (!isUpgrade && !periodStartChanged) return;
+
+  await applyPlanTransitionToUsage(userId, oldPlan, newPlan, sub);
+}
+
+/**
+ * Compute and upsert the new period's usage row.
+ *
+ * Anchor for the period_key:
+ *   - paid plans: sub.items[0].current_period_start (Stripe owns the boundary)
+ *   - free: profiles.created_at (anniversary billing)
+ *
+ * The most-recent usage row is read to derive the carry-over balance.
+ */
+async function applyPlanTransitionToUsage(
+  userId: string,
+  oldPlan: PlanId,
+  newPlan: PlanId,
+  sub: Stripe.Subscription,
+) {
+  const newPlanMinutes = PLANS[newPlan].minutesIncluded;
+  const oldNeverReset = PLANS[oldPlan].minutesNeverReset;
+  const newNeverReset = PLANS[newPlan].minutesNeverReset;
+
+  // Anchor for computePeriodKey
+  let anchorDate: Date;
+  const periodStartTs = sub.items.data[0]?.current_period_start;
+  if (newPlan !== "free" && periodStartTs) {
+    anchorDate = new Date(periodStartTs * 1000);
+  } else {
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("created_at")
+      .eq("id", userId)
+      .maybeSingle();
+    anchorDate = profile?.created_at ? new Date(profile.created_at) : new Date();
+  }
+  const newPeriodKey = computePeriodKey(anchorDate);
+
+  // Read the most recent row so we can carry over leftover minutes.
+  const { data: latest } = await supabaseAdmin
+    .from("usage")
+    .select("month, tracks_used, rollover_minutes, plan_minutes")
+    .eq("user_id", userId)
+    .order("month", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const oldUsed = Number(latest?.tracks_used ?? 0);
+  const oldRollover = Number(latest?.rollover_minutes ?? 0);
+  const oldPlanMinutes = Number(latest?.plan_minutes ?? 0);
+  const remaining = Math.max(0, oldPlanMinutes + oldRollover - oldUsed);
+
+  // Tier change direction (used to detect downgrade for rollover purposes)
+  const tierMap: Record<PlanId, number> = { free: 0, pro: 1, studio: 2 };
+  const isDowngrade = tierMap[newPlan] < tierMap[oldPlan];
+
+  // Carry over only if both plans never reset AND it's not a downgrade.
+  // Same plan (renewal) carries over; upgrades between paid plans carry over.
+  // Downgrades and any transition involving Free forfeit leftover minutes.
+  const carryOver = !isDowngrade && oldNeverReset && newNeverReset;
+  const newRollover = carryOver ? remaining : 0;
+
+  // Race-safety: if a row at newPeriodKey already exists AND its plan_minutes
+  // matches the new plan, it was created legitimately (either by a prior
+  // webhook fire, or by ensure_period_with_rollover after a split landed in
+  // the new period before the webhook arrived). Preserve tracks_used in that
+  // case — only correct plan_minutes/rollover_minutes. If the row is stale
+  // (plan_minutes from the old plan) or missing, do a full reset.
+  const { data: rowAtNewKey } = await supabaseAdmin
+    .from("usage")
+    .select("plan_minutes")
+    .eq("user_id", userId)
+    .eq("month", newPeriodKey)
+    .maybeSingle();
+  const isFreshNewPeriodRow =
+    rowAtNewKey != null && Number(rowAtNewKey.plan_minutes ?? 0) === newPlanMinutes;
+
+  const { error } = isFreshNewPeriodRow
+    ? await supabaseAdmin
+        .from("usage")
+        .update({
+          plan_minutes: newPlanMinutes,
+          rollover_minutes: newRollover,
+        })
+        .eq("user_id", userId)
+        .eq("month", newPeriodKey)
+    : await supabaseAdmin
+        .from("usage")
+        .upsert(
+          {
+            user_id: userId,
+            month: newPeriodKey,
+            tracks_used: 0,
+            rollover_minutes: newRollover,
+            plan_minutes: newPlanMinutes,
+          },
+          { onConflict: "user_id,month" },
+        );
+  if (error) {
+    console.error(
+      `Stripe webhook: usage reset failed for ${userId} (${oldPlan}→${newPlan}, key=${newPeriodKey})`,
+      error,
+    );
+    throw error;
+  }
+  console.log(
+    `Stripe webhook: usage reset ${oldPlan}→${newPlan} for ${userId} key=${newPeriodKey} rollover=${newRollover} plan_minutes=${newPlanMinutes} preservedTracksUsed=${isFreshNewPeriodRow}`,
+  );
 }
 
 /**
