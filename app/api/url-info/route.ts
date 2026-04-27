@@ -5,24 +5,76 @@ const MODAL_URL_INFO_URL = process.env.MODAL_URL_INFO_URL;
 
 // ── Direct-link metadata (no yt-dlp needed) ─────────────────────────────
 
-/** Dropbox: filename from URL path, duration resolved later by worker. */
-function fetchDropboxInfo(url: string) {
-  const pathname = new URL(url).pathname;
-  const filename = decodeURIComponent(pathname.split("/").pop() || "audio");
-  return { duration: null, title: filename };
+/** Probe the duration of an audio file by HTTP-Range fetching the first 256 KB
+ *  and parsing the header with music-metadata. Works for MP3, WAV, FLAC, AIFF,
+ *  M4A/AAC, OGG — covers everything we accept.
+ *
+ *  Returns null on any error (timeout, range not supported, HTML response from a
+ *  Drive confirm page, parse failure, exotic format). The full-file download at
+ *  SPLIT time is unaffected — this is purely a UX preview to show "X min" before
+ *  the user clicks SPLIT. */
+async function probeDurationFromUrl(directUrl: string): Promise<number | null> {
+  try {
+    const res = await fetch(directUrl, {
+      headers: { Range: "bytes=0-262143" },  // 256 KB headroom for M4A `moov` near start
+      signal: AbortSignal.timeout(8000),
+      redirect: "follow",
+    });
+    if (!res.ok && res.status !== 206) return null;
+    const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
+    // If Drive returned the >100MB confirm HTML page, bail — duration stays null.
+    if (contentType.includes("text/html")) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength < 100) return null;
+    const { parseBuffer } = await import("music-metadata");
+    const metadata = await parseBuffer(buf, contentType || undefined, { duration: true });
+    const dur = metadata.format?.duration;
+    return typeof dur === "number" && isFinite(dur) && dur > 0 ? Math.round(dur) : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Google Drive: extract file ID from share URL. Duration unknown until download.
+/** Transform a Dropbox share URL to a direct download URL by forcing dl=1.
+ *  Mirrors the worker's _download_dropbox transformation so the probe and the
+ *  actual download both fetch from the same canonical endpoint. */
+function dropboxDirectUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("dropbox.com")) {
+      u.searchParams.set("dl", "1");
+      return u.toString();
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/** Dropbox: filename from URL path + duration probe via Range request. */
+async function fetchDropboxInfo(url: string) {
+  const pathname = new URL(url).pathname;
+  const filename = decodeURIComponent(pathname.split("/").pop() || "audio");
+  const duration = await probeDurationFromUrl(dropboxDirectUrl(url));
+  return { duration, title: filename };
+}
+
+/** Google Drive: extract file ID from share URL + duration probe via Range request.
+ *  For files >100MB Google serves a confirm page instead of bytes; the probe falls
+ *  back to null silently and the worker handles the confirm token at SPLIT time.
+ *
  *  Supported URL shapes:
  *    - https://drive.google.com/file/d/{id}/view?usp=sharing
  *    - https://drive.google.com/open?id={id}
  *    - https://drive.google.com/uc?id={id}&export=download
  */
-function fetchGDriveInfo(url: string): { duration: null; title: string } | null {
+async function fetchGDriveInfo(url: string): Promise<{ duration: number | null; title: string } | null> {
   const idMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)
     || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (!idMatch) return null;
-  return { duration: null, title: "Google Drive audio" };
+  const directUrl = `https://drive.google.com/uc?export=download&id=${idMatch[1]}`;
+  const duration = await probeDurationFromUrl(directUrl);
+  return { duration, title: "Google Drive audio" };
 }
 
 // ── SoundCloud metadata via yt-dlp (local dev) or Modal CPU (prod) ─────
@@ -149,10 +201,10 @@ export async function GET(req: NextRequest) {
 
   try {
     if (platform === "DROPBOX") {
-      return NextResponse.json({ ...fetchDropboxInfo(url), platform, isPlaylist: false });
+      return NextResponse.json({ ...(await fetchDropboxInfo(url)), platform, isPlaylist: false });
     }
     if (platform === "GOOGLE DRIVE") {
-      const info = fetchGDriveInfo(url);
+      const info = await fetchGDriveInfo(url);
       if (!info) {
         return NextResponse.json({
           error: "Invalid Google Drive link. Make sure you copied a share URL (the file must be shared publicly or with 'anyone with the link').",
