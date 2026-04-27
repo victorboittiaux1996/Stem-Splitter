@@ -117,10 +117,23 @@ export async function POST(request: NextRequest) {
       const callbackUrl = `${appUrl}/api/jobs/${jobId}`;
       const key = jobKey(wsId, jobId);
 
+      // Resolve the fileName: prefer client-provided title (already extracted
+      // from /api/url-info → Content-Disposition / URL filename / yt-dlp track
+      // title). Fallback to the URL's last path segment so we never store a
+      // raw URL like "https://www.dropbox.com/scl/fi/.../file.mp3" as fileName.
+      const cleanTitle = typeof title === "string" && title.trim() ? title.trim() : null;
+      const urlFilenameFallback = (() => {
+        try {
+          const seg = decodeURIComponent(new URL(url).pathname.split("/").pop() || "");
+          return seg && !/^\s*$/.test(seg) ? seg : null;
+        } catch { return null; }
+      })();
+      const resolvedFileName = cleanTitle ?? urlFilenameFallback ?? "audio";
+
       const _tR2Write = Date.now();
       await writeJsonToR2(key, {
         id: jobId, status: "processing", mode, progress: 5,
-        stage: "Downloading audio...", createdAt: Date.now(), fileName: (typeof title === "string" && title) ? title : url, workspaceId: wsId, userId: user.id,
+        stage: "Downloading audio...", createdAt: Date.now(), fileName: resolvedFileName, workspaceId: wsId, userId: user.id,
         batchId: (typeof batchId === "string" && batchId) ? batchId : null,
       });
       console.log(`[TIMING] POST /api/upload phase=r2_write_job dur=${Date.now() - _tR2Write}ms`);
@@ -129,7 +142,7 @@ export async function POST(request: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       void (supabaseAdmin.from("jobs") as any).upsert({
         id: jobId, user_id: user.id, workspace_id: wsId,
-        file_name: (typeof title === "string" && title) ? title : url,
+        file_name: resolvedFileName,
         status: "processing", mode,
         batch_id: (typeof batchId === "string" && batchId) ? batchId : null,
       });

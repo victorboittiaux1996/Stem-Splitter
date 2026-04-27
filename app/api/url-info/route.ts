@@ -5,33 +5,58 @@ const MODAL_URL_INFO_URL = process.env.MODAL_URL_INFO_URL;
 
 // ── Direct-link metadata (no yt-dlp needed) ─────────────────────────────
 
-/** Probe the duration of an audio file by HTTP-Range fetching the first 256 KB
- *  and parsing the header with music-metadata. Works for MP3, WAV, FLAC, AIFF,
- *  M4A/AAC, OGG — covers everything we accept.
+/** Parse a filename out of an RFC 6266 Content-Disposition header.
+ *  Handles both `filename="..."` and `filename*=UTF-8''...` (encoded) forms. */
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  // RFC 5987 / 6266 encoded form takes precedence (proper UTF-8 support)
+  const starMatch = header.match(/filename\*\s*=\s*(?:UTF-8'[^']*')?([^;\n]+)/i);
+  if (starMatch?.[1]) {
+    try {
+      return decodeURIComponent(starMatch[1].trim().replace(/^"|"$/g, ""));
+    } catch { /* fall through */ }
+  }
+  const plainMatch = header.match(/filename\s*=\s*"?([^";\n]+)"?/i);
+  return plainMatch?.[1]?.trim() ?? null;
+}
+
+interface ProbedAudio {
+  duration: number | null;
+  /** Filename advertised by the server in Content-Disposition (Drive sends the user's
+   *  original filename here). Null if the header is missing or unparseable. */
+  filename: string | null;
+}
+
+/** Probe an audio file by HTTP-Range fetching the first 256 KB. Returns the
+ *  duration (parsed by music-metadata from the header) AND the server-advertised
+ *  filename (from Content-Disposition). Works for MP3, WAV, FLAC, AIFF, M4A/AAC,
+ *  OGG — covers everything we accept.
  *
- *  Returns null on any error (timeout, range not supported, HTML response from a
- *  Drive confirm page, parse failure, exotic format). The full-file download at
- *  SPLIT time is unaffected — this is purely a UX preview to show "X min" before
- *  the user clicks SPLIT. */
-async function probeDurationFromUrl(directUrl: string): Promise<number | null> {
+ *  Both fields fall back to null on any error (timeout, range not supported,
+ *  HTML response from a Drive confirm page, parse failure, exotic format). The
+ *  full-file download at SPLIT time is unaffected — this is purely a UX preview. */
+async function probeAudio(directUrl: string): Promise<ProbedAudio> {
+  const empty: ProbedAudio = { duration: null, filename: null };
   try {
     const res = await fetch(directUrl, {
       headers: { Range: "bytes=0-262143" },  // 256 KB headroom for M4A `moov` near start
       signal: AbortSignal.timeout(8000),
       redirect: "follow",
     });
-    if (!res.ok && res.status !== 206) return null;
+    if (!res.ok && res.status !== 206) return empty;
     const contentType = (res.headers.get("Content-Type") || "").toLowerCase();
     // If Drive returned the >100MB confirm HTML page, bail — duration stays null.
-    if (contentType.includes("text/html")) return null;
+    if (contentType.includes("text/html")) return empty;
+    const filename = parseContentDispositionFilename(res.headers.get("Content-Disposition"));
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength < 100) return null;
+    if (buf.byteLength < 100) return { duration: null, filename };
     const { parseBuffer } = await import("music-metadata");
     const metadata = await parseBuffer(buf, contentType || undefined, { duration: true });
     const dur = metadata.format?.duration;
-    return typeof dur === "number" && isFinite(dur) && dur > 0 ? Math.round(dur) : null;
+    const duration = typeof dur === "number" && isFinite(dur) && dur > 0 ? Math.round(dur) : null;
+    return { duration, filename };
   } catch {
-    return null;
+    return empty;
   }
 }
 
@@ -51,17 +76,21 @@ function dropboxDirectUrl(url: string): string {
   }
 }
 
-/** Dropbox: filename from URL path + duration probe via Range request. */
+/** Dropbox: title is the filename (from the URL path or Content-Disposition fallback). */
 async function fetchDropboxInfo(url: string) {
   const pathname = new URL(url).pathname;
-  const filename = decodeURIComponent(pathname.split("/").pop() || "audio");
-  const duration = await probeDurationFromUrl(dropboxDirectUrl(url));
-  return { duration, title: filename };
+  const urlFilename = decodeURIComponent(pathname.split("/").pop() || "");
+  const probed = await probeAudio(dropboxDirectUrl(url));
+  // URL filename is usually present and accurate for Dropbox; Content-Disposition
+  // is only used if the URL didn't carry a filename for some reason.
+  const title = urlFilename || probed.filename || "audio";
+  return { duration: probed.duration, title };
 }
 
-/** Google Drive: extract file ID from share URL + duration probe via Range request.
- *  For files >100MB Google serves a confirm page instead of bytes; the probe falls
- *  back to null silently and the worker handles the confirm token at SPLIT time.
+/** Google Drive: title is the user's original filename advertised by Drive in
+ *  Content-Disposition. The URL itself doesn't carry the filename, so we depend
+ *  on the probe response. Falls back to "Google Drive audio" if Drive served the
+ *  >100MB confirm page (no Content-Disposition then).
  *
  *  Supported URL shapes:
  *    - https://drive.google.com/file/d/{id}/view?usp=sharing
@@ -73,8 +102,8 @@ async function fetchGDriveInfo(url: string): Promise<{ duration: number | null; 
     || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (!idMatch) return null;
   const directUrl = `https://drive.google.com/uc?export=download&id=${idMatch[1]}`;
-  const duration = await probeDurationFromUrl(directUrl);
-  return { duration, title: "Google Drive audio" };
+  const probed = await probeAudio(directUrl);
+  return { duration: probed.duration, title: probed.filename || "Google Drive audio" };
 }
 
 // ── SoundCloud metadata via yt-dlp (local dev) or Modal CPU (prod) ─────
