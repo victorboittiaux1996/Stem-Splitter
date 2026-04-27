@@ -371,6 +371,8 @@ async function applyPlanTransitionToUsage(
   const newPlanMinutes = PLANS[newPlan].minutesIncluded;
   const oldNeverReset = PLANS[oldPlan].minutesNeverReset;
   const newNeverReset = PLANS[newPlan].minutesNeverReset;
+  const tierMap: Record<PlanId, number> = { free: 0, pro: 1, studio: 2 };
+  const isDowngrade = tierMap[newPlan] < tierMap[oldPlan];
 
   // Anchor for computePeriodKey
   let anchorDate: Date;
@@ -387,44 +389,50 @@ async function applyPlanTransitionToUsage(
   }
   const newPeriodKey = computePeriodKey(anchorDate);
 
-  // Read the most recent row so we can carry over leftover minutes.
-  const { data: latest } = await supabaseAdmin
-    .from("usage")
-    .select("month, tracks_used, rollover_minutes, plan_minutes")
-    .eq("user_id", userId)
-    .order("month", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const oldUsed = Number(latest?.tracks_used ?? 0);
-  const oldRollover = Number(latest?.rollover_minutes ?? 0);
-  const oldPlanMinutes = Number(latest?.plan_minutes ?? 0);
-  const remaining = Math.max(0, oldPlanMinutes + oldRollover - oldUsed);
-
-  // Tier change direction (used to detect downgrade for rollover purposes)
-  const tierMap: Record<PlanId, number> = { free: 0, pro: 1, studio: 2 };
-  const isDowngrade = tierMap[newPlan] < tierMap[oldPlan];
-
-  // Carry over only if both plans never reset AND it's not a downgrade.
-  // Same plan (renewal) carries over; upgrades between paid plans carry over.
-  // Downgrades and any transition involving Free forfeit leftover minutes.
-  const carryOver = !isDowngrade && oldNeverReset && newNeverReset;
-  const newRollover = carryOver ? remaining : 0;
-
-  // Race-safety: if a row at newPeriodKey already exists AND its plan_minutes
-  // matches the new plan, it was created legitimately (either by a prior
-  // webhook fire, or by ensure_period_with_rollover after a split landed in
-  // the new period before the webhook arrived). Preserve tracks_used in that
-  // case — only correct plan_minutes/rollover_minutes. If the row is stale
-  // (plan_minutes from the old plan) or missing, do a full reset.
+  // Race-safety: a row at newPeriodKey may already exist if either (a) an
+  // earlier webhook fire already processed this transition, or (b)
+  // ensure_period_with_rollover ran when a split landed in the new period
+  // before this webhook arrived. If its plan_minutes matches the new plan,
+  // trust the row's existing rollover_minutes (the SQL function computed it
+  // correctly for case b) and preserve tracks_used (don't clobber a Pro
+  // split that already incremented it). Otherwise the row is either stale
+  // (old plan_minutes) or absent and we do a full reset.
   const { data: rowAtNewKey } = await supabaseAdmin
     .from("usage")
-    .select("plan_minutes")
+    .select("plan_minutes, rollover_minutes")
     .eq("user_id", userId)
     .eq("month", newPeriodKey)
     .maybeSingle();
   const isFreshNewPeriodRow =
     rowAtNewKey != null && Number(rowAtNewKey.plan_minutes ?? 0) === newPlanMinutes;
+
+  let newRollover: number;
+  if (isFreshNewPeriodRow) {
+    // Don't recompute — the SQL safety net (or a previous webhook) already
+    // wrote the right rollover for this period. Recomputing here using the
+    // "latest row" would re-read this same fresh row and double-count.
+    newRollover = Number(rowAtNewKey?.rollover_minutes ?? 0);
+  } else {
+    // Read the PREVIOUS period explicitly (exclude newPeriodKey) so a stale
+    // row at the same key from the old plan doesn't poison the carry-over.
+    const { data: prev } = await supabaseAdmin
+      .from("usage")
+      .select("tracks_used, rollover_minutes, plan_minutes")
+      .eq("user_id", userId)
+      .neq("month", newPeriodKey)
+      .order("month", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const oldUsed = Number(prev?.tracks_used ?? 0);
+    const oldRollover = Number(prev?.rollover_minutes ?? 0);
+    const oldPlanMinutes = Number(prev?.plan_minutes ?? 0);
+    const remaining = Math.max(0, oldPlanMinutes + oldRollover - oldUsed);
+    // Carry over only if both plans never reset AND it's not a downgrade.
+    // Same plan (renewal) carries over; upgrades between paid plans carry
+    // over. Downgrades and any transition involving Free forfeit leftovers.
+    const carryOver = !isDowngrade && oldNeverReset && newNeverReset;
+    newRollover = carryOver ? remaining : 0;
+  }
 
   const { error } = isFreshNewPeriodRow
     ? await supabaseAdmin
