@@ -43,6 +43,10 @@ interface Preview {
   currency: string;
   notice: string;
   minutesLost?: number;
+  // Unix timestamp pinned by the preview endpoint. We send it back on
+  // confirm so Stripe calculates the proration at the same moment as the
+  // preview — guaranteeing the modal total = the invoice charge.
+  prorationDate?: number;
 }
 
 type C = {
@@ -185,6 +189,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           billing: targetBilling,
           action: "change",
           ...(appliedCode ? { discountCode: appliedCode } : {}),
+          ...(typeof preview.prorationDate === "number" ? { prorationDate: preview.prorationDate } : {}),
         }),
       });
       const data = await res.json();
@@ -255,10 +260,11 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
             <DialogTitle style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>
               {preview ? titleByKind[preview.kind] : `Change to ${targetCfg.label}`}
             </DialogTitle>
-            <DialogDescription style={{ fontSize: 13, color: C.textMuted, marginTop: 4 }}>
-              {preview
-                ? `${fmt(preview.perPeriodMajor)} ${preview.targetBilling === "annual" ? "per year" : "per month"}`
-                : "Loading…"}
+            {/* No subtitle — the recurring price is already shown in the
+                "Next billing" block below. Keeping a hidden description
+                satisfies the Radix Dialog a11y requirement. */}
+            <DialogDescription className="sr-only">
+              {preview ? titleByKind[preview.kind] : "Loading subscription change preview"}
             </DialogDescription>
           </DialogHeader>
 
@@ -271,20 +277,21 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
             {preview && !loading && (
               <>
-                {/* ── Today's charge breakdown — only for flows that charge today ── */}
+                {/* ── Today's charge breakdown — only for flows that charge today.
+                    Reads top-to-bottom like a receipt:
+                      1. New plan charge (positive)
+                      2. Unused-time credit (negative, if any)
+                      3. Promo discount (negative, if any)
+                      ─── divider ───
+                      4. Tax (always shown, even at 0 for transparency)
+                      5. Total today (bold)
+                ── */}
                 {paysToday && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
                       Today's charge
                     </div>
 
-                    {preview.creditMajor > 0 && (
-                      <Row
-                        label={`Credit for unused ${PLANS[preview.currentPlan].label} time`}
-                        value={`−${fmt(preview.creditMajor)}`}
-                        C={C}
-                      />
-                    )}
                     <Row
                       label={
                         preview.kind === "billing_switch"
@@ -295,24 +302,27 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       C={C}
                     />
 
+                    {preview.creditMajor > 0 && (
+                      <Row
+                        label={`Unused ${PLANS[preview.currentPlan].label} credit`}
+                        value={`−${fmt(preview.creditMajor)}`}
+                        C={C}
+                      />
+                    )}
+
                     {typeof preview.discountMajor === "number" && preview.discountMajor > 0 ? (
                       <Row
-                        label={`Promo code${preview.discountLabel ? ` (${preview.discountLabel})` : ""}${typeof preview.discountPercentOff === "number" ? ` — ${preview.discountPercentOff}% off` : ""}`}
+                        label={`Promo${preview.discountLabel ? ` ${preview.discountLabel}` : ""}${typeof preview.discountPercentOff === "number" ? ` (${preview.discountPercentOff}% off)` : ""}`}
                         value={`−${fmt(preview.discountMajor)}`}
                         C={C}
                         accent
                       />
                     ) : null}
 
-                    {preview.taxMajor > 0 && (
-                      <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
-                    )}
-
                     <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
+
+                    <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
                     <Row label="Total today" value={fmt(preview.totalMajor)} C={C} bold />
-                    <p style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.4, letterSpacing: "0.02em" }}>
-                      Calculated by Stripe — this is the exact amount that will be charged to your card.
-                    </p>
                   </div>
                 )}
 
@@ -343,10 +353,14 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 )}
 
-                {/* ── Notice — short context sentence ── */}
-                <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
-                  {preview.notice}
-                </p>
+                {/* ── Notice — kept only for kinds without a math block to imply
+                    context (downgrade, resume). Upgrade/billing_switch are
+                    already self-explanatory via the breakdown above. ── */}
+                {(preview.kind === "downgrade" || preview.kind === "resume") && (
+                  <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
+                    {preview.notice}
+                  </p>
+                )}
 
                 {/* ── Promo code input — collapsible, only for flows that pay today ── */}
                 {paysToday && (

@@ -28,6 +28,13 @@ type Body = {
   billing: BillingPeriod;
   action?: "change" | "cancel" | "resume";
   discountCode?: string;
+  // Unix timestamp from /api/subscription/preview. When provided, Stripe
+  // calculates the proration as of that exact moment — guaranteeing the
+  // invoice total matches what the modal displayed. Without this, the few
+  // seconds between preview and confirm produce a small drift (extra credit
+  // for elapsed unused time). See:
+  // https://docs.stripe.com/billing/subscriptions/prorations#preview-the-prorations
+  prorationDate?: number;
 };
 
 export async function POST(req: NextRequest) {
@@ -134,6 +141,9 @@ export async function POST(req: NextRequest) {
     // change thanks to Stripe's richer API — no rollback gymnastics).
     const needsUncancel = sub.cancel_at_period_end === true;
 
+    // Note: body.prorationDate is intentionally ignored on the downgrade
+    // branches below — they use proration_behavior 'none' (no charge today),
+    // so there's nothing to align with the preview.
     let updatedSub: Stripe.Subscription;
     if (isDowngrade && intervalChanged) {
       // Annual → monthly: use a schedule so the new phase cleanly starts at
@@ -206,11 +216,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Drop a stale prorationDate. Stripe rejects timestamps older than the
+      // current period (and gets cranky about anything > ~1h). If the user
+      // left the modal open for hours, fall back to "now" — accept the small
+      // drift over surfacing a 502.
+      const FRESH_PRORATION_WINDOW_SEC = 50 * 60;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const freshProrationDate =
+        typeof body.prorationDate === "number"
+        && nowSec - body.prorationDate < FRESH_PRORATION_WINDOW_SEC
+          ? body.prorationDate
+          : undefined;
+
       updatedSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
         items: [{ id: item.id, price: targetPriceId }],
         proration_behavior: "always_invoice",
         payment_behavior: "default_incomplete",
         expand: ["latest_invoice.confirmation_secret"],
+        ...(typeof freshProrationDate === "number" ? { proration_date: freshProrationDate } : {}),
         ...(resolvedCoupon ? { discounts: [{ coupon: resolvedCoupon }] } : {}),
         ...(needsUncancel ? { cancel_at_period_end: false } : {}),
       });

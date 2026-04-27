@@ -297,11 +297,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Subscription has no items" }, { status: 500 });
     }
 
+    // Pin the proration timestamp so that when the user confirms, we can
+    // pass the SAME value to subscriptions.update via `proration_date`.
+    // This guarantees displayed total = invoice charged, to the cent.
+    // Stripe docs: https://docs.stripe.com/billing/subscriptions/prorations#preview-the-prorations
+    const prorationDate = Math.floor(Date.now() / 1000);
+
     const previewParams: Stripe.InvoiceCreatePreviewParams = {
       subscription: sub.stripe_subscription_id,
       subscription_details: {
         items: [{ id: itemId, price: targetPriceId }],
         proration_behavior: "always_invoice",
+        proration_date: prorationDate,
       },
     };
     // Apply promo code to the preview (Stripe supports this on subscription
@@ -366,6 +373,7 @@ export async function POST(req: NextRequest) {
       nextBillingDate: formatDate(nextBillingEnd ?? currentPeriodEnd),
       nextBillingAmountMajor: targetAmountInSubCurrency / 100,
       currency: (currency || subCurrency).toUpperCase(),
+      prorationDate,
       notice: buildUpgradeNotice(kind, currentPlan, targetPlan, targetBilling),
     });
   } catch (err) {
