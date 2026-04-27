@@ -724,21 +724,27 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   }, [refillRow, baseHistory]);
   const visibleRows = showAll ? historyData : historyData.slice(0, 10);
 
-  // Walk back from current remaining to compute the running balance after each
-  // transaction (newest = current, older = current minus already-applied effects).
+  // Walk OLDEST → NEWEST from a 0 base, summing each effect (credit/usage)
+  // to compute the balance AFTER each event. This guarantees the credit row
+  // lands on the exact plan quota (no float drift from "current remaining"),
+  // and subsequent splits subtract their exact duration.
   // Display TIME and BALANCE in exact MM:SS — no rounding.
   const visibleRowsWithBalance = React.useMemo(() => {
-    let runningSec = Math.max(0, (effectiveMinutes - minutesUsed) * 60);
-    return visibleRows.map(row => {
-      const balanceSec = runningSec;
+    const balances = new Array<number>(visibleRows.length);
+    let runningSec = 0;
+    for (let i = visibleRows.length - 1; i >= 0; i--) {
+      const effectSec = parseTimeToSec(visibleRows[i].time);
+      runningSec = Math.max(0, runningSec + effectSec);
+      balances[i] = runningSec;
+    }
+    return visibleRows.map((row, i) => {
       const effectSec = parseTimeToSec(row.time);
       const sign = effectSec >= 0 ? "+" : "−";
       const displayTime = `${sign}${formatPaddedMMSS(effectSec)}`;
-      const displayBalance = formatPaddedMMSS(balanceSec);
-      runningSec = Math.max(0, runningSec - effectSec);
-      return { ...row, balanceSec, displayTime, displayBalance };
+      const displayBalance = formatPaddedMMSS(balances[i]);
+      return { ...row, balanceSec: balances[i], displayTime, displayBalance };
     });
-  }, [visibleRows, effectiveMinutes, minutesUsed]);
+  }, [visibleRows]);
 
   // Preferences persisted in localStorage
   const [notifSplitComplete, setNotifSplitComplete] = React.useState(true);
