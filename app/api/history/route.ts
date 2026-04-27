@@ -46,6 +46,23 @@ export async function GET(request: Request) {
     const wsId = userWorkspaceId(user.id);
     const prefix = `workspaces/${wsId}/jobs/`;
 
+    // Fetch this user's share links once — we attach { id, slug } to each job
+    // so the UI can show "this track already has a public link" without
+    // hitting the share API per row.
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: shareRows } = await (supabase as any)
+      .from("share_links")
+      .select("id, job_id, slug")
+      .eq("user_id", user.id);
+    const shareByJob = new Map<string, { id: string; slug: string | null }>();
+    for (const row of shareRows ?? []) {
+      if (row?.job_id && !shareByJob.has(row.job_id)) {
+        shareByJob.set(row.job_id, { id: row.id, slug: row.slug ?? null });
+      }
+    }
+
     // Paginate through R2 to collect all job keys (max 200 per page)
     let allKeys: string[] = [];
     let continuationToken: string | undefined;
@@ -87,24 +104,29 @@ export async function GET(request: Request) {
     )
       .filter(Boolean)
       .sort((a, b) => (b.completedAt ?? b.createdAt) - (a.completedAt ?? a.createdAt))
-      .map((job) => ({
-        id: job.id,
-        name: job.fileName ?? "Unknown",
-        date: relativeDate(job.completedAt ?? job.createdAt),
-        stems: (job.stems ?? []).length,
-        stemList: job.stems ?? [],
-        format: "wav / mp3",
-        bpm: job.bpm ?? null,
-        key: job.key ?? null,
-        key_raw: job.key_raw ?? null,
-        mode: job.mode ?? "4stem",
-        model: "MelBand RoFormer",
-        createdAt: job.createdAt,
-        completedAt: job.completedAt ?? job.createdAt,
-        duration: job.duration != null ? formatDuration(job.duration) : undefined,
-        durationSeconds: typeof job.duration === "number" ? job.duration : null,
-        batchId: job.batchId ?? null,
-      }));
+      .map((job) => {
+        const share = shareByJob.get(job.id) ?? null;
+        return {
+          id: job.id,
+          name: job.fileName ?? "Unknown",
+          date: relativeDate(job.completedAt ?? job.createdAt),
+          stems: (job.stems ?? []).length,
+          stemList: job.stems ?? [],
+          format: "wav / mp3",
+          bpm: job.bpm ?? null,
+          key: job.key ?? null,
+          key_raw: job.key_raw ?? null,
+          mode: job.mode ?? "4stem",
+          model: "MelBand RoFormer",
+          createdAt: job.createdAt,
+          completedAt: job.completedAt ?? job.createdAt,
+          duration: job.duration != null ? formatDuration(job.duration) : undefined,
+          durationSeconds: typeof job.duration === "number" ? job.duration : null,
+          batchId: job.batchId ?? null,
+          shareLinkId: share?.id ?? null,
+          shareLinkSlug: share?.slug ?? null,
+        };
+      });
 
     return NextResponse.json({ jobs });
   } catch (err) {

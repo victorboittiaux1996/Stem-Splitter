@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     const slug = existing.slug ? `/${existing.slug}` : "";
     return NextResponse.json({
       id: existing.id,
+      slug: existing.slug ?? null,
       url: `${appUrl}/share/${existing.id}${slug}`,
       reused: true,
     });
@@ -116,6 +117,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create share link" }, { status: 500 });
   }
 
-  const slug = data.slug ? `/${data.slug}` : "";
-  return NextResponse.json({ id: data.id, url: `${appUrl}/share/${data.id}${slug}`, reused: false });
+  const slugPath = data.slug ? `/${data.slug}` : "";
+  return NextResponse.json({
+    id: data.id,
+    slug: data.slug ?? null,
+    url: `${appUrl}/share/${data.id}${slugPath}`,
+    reused: false,
+  });
 }

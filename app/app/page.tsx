@@ -15,6 +15,12 @@ import { useQueue } from "@/contexts/queue-context";
 import { RiDownloadFill, RiDeleteBinFill, RiMicFill, RiStopFill, RiFileUploadFill, RiQuestionFill, RiNotificationFill, RiContrastFill, RiSunFill, RiMoonFill } from "@remixicon/react";
 import { AccountView, type SettingsSection } from "@/components/dashboard/account-view";
 import { FilesView } from "@/components/dashboard/files/files-view";
+import { KeyBadge, keyColumnWidth } from "@/components/dashboard/files/key-badge";
+import { DeleteConfirm } from "@/components/dashboard/files/delete-confirm";
+import { ShareConfirm } from "@/components/dashboard/files/share-confirm";
+import { downloadAllStemsZip } from "@/lib/download-stems";
+import { useKeyNotation } from "@/hooks/use-key-notation";
+import { cycleNotation } from "@/lib/camelot";
 import { useAudioRecorder, formatSeconds } from "@/hooks/use-audio-recorder";
 import { useAuth } from "@/hooks/use-auth";
 import { useSubscription } from "@/hooks/use-subscription";
@@ -83,6 +89,18 @@ const TrashIcon = ({ size = 14, color = "currentColor" }: { size?: number; color
     <line x1="2" y1="4" x2="14" y2="4" stroke={color} strokeWidth="0.7"/>
     <line x1="6" y1="2" x2="10" y2="2" stroke={color} strokeWidth="0.7"/>
     <path d="M4 4V14H12V4" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+  </svg>
+);
+const LinkIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M10 3h3v3" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+    <line x1="13" y1="3" x2="7.5" y2="8.5" stroke={color} strokeWidth="0.7"/>
+    <path d="M11 9v4H3V5h4" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter"/>
+  </svg>
+);
+const SpinnerIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg className="animate-spin" width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="8" r="5" stroke={color} strokeWidth="0.7" strokeDasharray="20 8" strokeLinecap="round" opacity="0.7" />
   </svg>
 );
 
@@ -155,6 +173,18 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 export default function AbletonDashboard() {
   const { user, displayName, initials, email, signOut, avatarUrl, createdAt } = useAuth();
   const { plan: userPlan, planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, rolloverMinutes, minutesAvailable, daysUntilReset, loading: subLoading, batchLimit, urlImport, stems, wavAllowed, minutesNeverReset, isCanceledButActive, periodEnd, currentBilling, refetch: refetchSubscription } = useSubscription(user?.id);
+  const [keyNotation, setKeyNotation] = useKeyNotation();
+  const keyColWidth = keyColumnWidth();
+  const cycleKeyNotationRecent = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setKeyNotation(cycleNotation(keyNotation));
+  };
+
+  // Recent splits — single-file download + delete (mirrors My Files behaviour)
+  const [recentDeleteId, setRecentDeleteId] = useState<string | null>(null);
+  const [recentShareConfirmId, setRecentShareConfirmId] = useState<string | null>(null);
+  const [recentSharingId, setRecentSharingId] = useState<string | null>(null);
+  const [recentDownloadingId, setRecentDownloadingId] = useState<string | null>(null);
 
   // Handle checkout success redirect from Polar
   // Also handle ?upgrade=pro&billing=annual from /pricing page
@@ -700,12 +730,80 @@ export default function AbletonDashboard() {
       }
       await navigator.clipboard.writeText(data.url);
       toast.success(data.reused ? "Link copied to clipboard" : "Share link copied to clipboard!");
+      // Mark this track as having a public link in local history state
+      if (data.id) {
+        setHistory((prev) =>
+          prev.map((h) =>
+            h.id === jId ? { ...h, shareLinkId: data.id, shareLinkSlug: data.slug ?? null } : h,
+          ),
+        );
+      }
       return { reused: !!data.reused };
     } catch {
       toast.error("Failed to create share link");
       return { reused: false };
     }
   }, []);
+
+  /**
+   * Row-level share. If the track already has a public link, copy it directly.
+   * If not, open a confirmation modal — generating from a row needs an explicit
+   * "yes" since it eats from the monthly share-link quota and the link is public.
+   */
+  const handleRowShare = useCallback(
+    async (id: string) => {
+      const item = history.find((h) => h.id === id);
+      if (!item) return;
+      if (item.shareLinkId) {
+        const slug = item.shareLinkSlug ? `/${item.shareLinkSlug}` : "";
+        const url = `${window.location.origin}/share/${item.shareLinkId}${slug}`;
+        try {
+          await navigator.clipboard.writeText(url);
+          toast.success("Share link copied to clipboard!");
+        } catch {
+          toast.error("Failed to copy");
+        }
+        return;
+      }
+      setRecentShareConfirmId(id);
+    },
+    [history],
+  );
+
+  // Called when the user confirms link creation in the modal
+  const confirmRecentShare = useCallback(async () => {
+    const id = recentShareConfirmId;
+    if (!id) return;
+    setRecentSharingId(id);
+    try {
+      await handleShare(id);
+    } finally {
+      setRecentSharingId(null);
+      setRecentShareConfirmId(null);
+    }
+  }, [recentShareConfirmId, handleShare]);
+
+  // Direct ZIP download for the row "↓" icon — all stems, current format, no modal.
+  const handleRecentRowDownload = useCallback(async (id: string) => {
+    const item = history.find((h) => h.id === id);
+    if (!item) return;
+    setRecentDownloadingId(id);
+    try {
+      const fmt: OutputFormat = wavAllowed ? outputFormat : "mp3";
+      const { failed } = await downloadAllStemsZip(item, fmt, WORKSPACE_ID);
+      if (failed > 0) {
+        toast.warning(`${item.stemList.length - failed}/${item.stemList.length} stems downloaded (${failed} failed)`);
+      } else {
+        toast.success("ZIP downloaded");
+      }
+    } catch (err) {
+      console.error("[row-download]", err);
+      toast.error("Download failed");
+    } finally {
+      setRecentDownloadingId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, wavAllowed, outputFormat]);
 
   // Sync progress from queue context
   useEffect(() => { setProgress(queueDisplayProgress); }, [queueDisplayProgress]);
@@ -1344,7 +1442,7 @@ export default function AbletonDashboard() {
 
                     {/* Recent splits */}
                     <div style={{ marginTop: 40 }}>
-                      <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 20, color: C.text }}>Recent splits</h2>
+                      <h2 style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 20, color: C.text }}>Recent splits</h2>
 
                       <div style={{ backgroundColor: C.bgCard }}>
                         <div className="flex items-center gap-[10px] px-[16px] py-[10px]" style={{ borderBottom: `1px solid ${C.text}08` }}>
@@ -1354,10 +1452,9 @@ export default function AbletonDashboard() {
                         <div className="flex items-center px-[16px] py-[8px]" style={{ color: C.textMuted, fontSize: 12, fontWeight: 500, letterSpacing: "0.05em", borderBottom: `1px solid ${C.text}08` }}>
                           <span className="flex-1">NAME</span>
                           <span className="w-[60px] text-right">BPM</span>
-                          <span className="w-[50px] text-right">KEY</span>
-                          <span className="w-[80px] text-right">DURATION</span>
-                          <span className="w-[80px] text-right">FORMAT</span>
-                          <span className="w-[72px]" />
+                          <span className="text-right shrink-0" style={{ width: keyColWidth }}>KEY</span>
+                          <span className="w-[80px] text-right">TIME</span>
+                          <span className="w-[100px]" />
                         </div>
                         {history.map((item, i) => (
                           <div key={item.id}
@@ -1371,17 +1468,56 @@ export default function AbletonDashboard() {
                                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="1.8" height="6" fill={C.textMuted} opacity="0.5"/><rect x="4.8" y="3" width="1.8" height="10" fill={C.textMuted} opacity="0.7"/><rect x="7.6" y="1" width="1.8" height="14" fill={C.textMuted}/><rect x="10.4" y="4" width="1.8" height="8" fill={C.textMuted} opacity="0.7"/><rect x="13.2" y="6" width="1.8" height="4" fill={C.textMuted} opacity="0.5"/></svg>
                               </div>
                               <div className="min-w-0">
-                                <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
+                                <p style={{ fontSize: 14, fontWeight: 500, color: C.text }} className="truncate">{item.name}</p>
                                 <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>{item.date} · {item.stems} stems</p>
                               </div>
                             </div>
                             <span className="w-[60px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.bpm != null ? Math.round(item.bpm) : "—"}</span>
-                            <span className="w-[50px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.key}</span>
+                            <div className="flex items-center justify-end shrink-0" style={{ width: keyColWidth }} onClick={(e) => e.stopPropagation()}>
+                              <KeyBadge camelot={item.key} keyRaw={item.key_raw} notation={keyNotation} onCycle={cycleKeyNotationRecent} C={C} />
+                            </div>
                             <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.duration ?? "—"}</span>
-                            <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>{item.format.toUpperCase()}</span>
-                            <div className="flex items-center justify-end gap-[2px] w-[72px]">
-                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><DownloadIcon size={14} color={C.textMuted}/></button>
-                              <button onClick={(e) => e.stopPropagation()} className="p-[5px]" style={{ color: C.textMuted }}><TrashIcon size={14} color={C.textMuted}/></button>
+                            <div className="flex items-center justify-end gap-[2px] w-[100px]">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRowShare(item.id); }}
+                                disabled={!isPro || recentSharingId === item.id}
+                                className="p-[5px] transition-colors hover:opacity-80 cursor-pointer"
+                                style={{
+                                  color: C.textMuted,
+                                  opacity: !isPro ? 0.3 : item.shareLinkId ? 1 : 0.45,
+                                  cursor: !isPro ? "not-allowed" : "pointer",
+                                }}
+                                title={
+                                  !isPro
+                                    ? "Public sharing requires a Pro plan"
+                                    : item.shareLinkId
+                                      ? "Copy public link"
+                                      : "Generate public link"
+                                }
+                              >
+                                {recentSharingId === item.id
+                                  ? <SpinnerIcon size={14} color={C.textMuted}/>
+                                  : <LinkIcon size={14} color={C.textMuted}/>}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRecentRowDownload(item.id); }}
+                                disabled={recentDownloadingId === item.id}
+                                className="p-[5px] transition-colors hover:opacity-80 cursor-pointer disabled:cursor-wait"
+                                style={{ color: C.textMuted }}
+                                title="Download all stems (ZIP)"
+                              >
+                                {recentDownloadingId === item.id
+                                  ? <SpinnerIcon size={14} color={C.textMuted}/>
+                                  : <DownloadIcon size={14} color={C.textMuted}/>}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setRecentDeleteId(item.id); }}
+                                className="p-[5px] transition-colors hover:opacity-80 cursor-pointer"
+                                style={{ color: C.textMuted }}
+                                title="Delete file"
+                              >
+                                <TrashIcon size={14} color={C.textMuted}/>
+                              </button>
                             </div>
                           </div>
                         ))}
@@ -1392,6 +1528,28 @@ export default function AbletonDashboard() {
                     <AnimatePresence>
                       {expandedFile && <StemModal expandedFile={expandedFile} items={history} onClose={() => setExpandedFile(null)} onNavigate={setExpandedFile} C={C} stemColors={stemColors} isDark={isDark} labels={LABELS} cachedStemUrls={stemUrlCacheRef.current[expandedFile]} cachedPeaks={stemPeaksCacheRef.current[expandedFile]} outputFormat={outputFormat} workspaceId={WORKSPACE_ID} onShare={isPro && expandedFile ? () => handleShare(expandedFile) : null} />}
                     </AnimatePresence>
+
+                    {/* Delete + Share modals (Recent splits row actions) — download is direct, no modal */}
+                    <DeleteConfirm
+                      open={recentDeleteId !== null}
+                      onClose={() => setRecentDeleteId(null)}
+                      C={C}
+                      fileId={recentDeleteId}
+                      fileName={recentDeleteId ? history.find((h) => h.id === recentDeleteId)?.name ?? null : null}
+                      onDeleted={(id) => {
+                        setHistory((prev) => prev.filter((h) => h.id !== id));
+                        setRecentDeleteId(null);
+                      }}
+                    />
+                    <ShareConfirm
+                      open={recentShareConfirmId !== null}
+                      onClose={() => recentSharingId === null && setRecentShareConfirmId(null)}
+                      C={C}
+                      fileId={recentShareConfirmId}
+                      fileName={recentShareConfirmId ? history.find((h) => h.id === recentShareConfirmId)?.name ?? null : null}
+                      generating={recentSharingId !== null}
+                      onConfirm={confirmRecentShare}
+                    />
                   </>
                 )}
 

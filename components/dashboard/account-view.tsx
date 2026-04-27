@@ -7,6 +7,7 @@ import { RiCheckLine } from "@remixicon/react";
 import { ChangePlanModal } from "./change-plan-modal";
 import { toast } from "sonner";
 import { useLocalPrices, formatCurrency } from "@/hooks/use-local-prices";
+import { type KeyNotation, KEY_NOTATION_VALUES, KEY_NOTATION_LABEL, camelotColor } from "@/lib/camelot";
 
 export type SettingsSection = "profile" | "subscription" | "usage" | "defaults";
 
@@ -740,6 +741,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
   const [notifMarketing, setNotifMarketing] = React.useState(false);
   const [defaultStems, setDefaultStems] = React.useState<2 | 4 | 6>(4);
   const [defaultFormat, setDefaultFormat] = React.useState<"wav" | "mp3">("wav");
+  const [keyNotation, setKeyNotation] = React.useState<KeyNotation>("camelot");
 
   // Load preferences from localStorage on mount
   React.useEffect(() => {
@@ -752,6 +754,7 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
         if (typeof p.notifSplit === "boolean") setNotifSplitComplete(p.notifSplit);
         if (typeof p.notifUpdates === "boolean") setNotifProductUpdates(p.notifUpdates);
         if (typeof p.notifMarketing === "boolean") setNotifMarketing(p.notifMarketing);
+        if (KEY_NOTATION_VALUES.includes(p.keyNotation)) setKeyNotation(p.keyNotation);
       }
     } catch {}
   }, []);
@@ -762,9 +765,19 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
       localStorage.setItem("44stems-preferences", JSON.stringify({
         stems: defaultStems, format: defaultFormat,
         notifSplit: notifSplitComplete, notifUpdates: notifProductUpdates, notifMarketing,
+        keyNotation,
       }));
     } catch {}
-  }, [defaultStems, defaultFormat, notifSplitComplete, notifProductUpdates, notifMarketing]);
+  }, [defaultStems, defaultFormat, notifSplitComplete, notifProductUpdates, notifMarketing, keyNotation]);
+
+  // Broadcast key notation changes so files-table / filters pick it up live.
+  React.useEffect(() => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("44stems-preferences-change", { detail: { keyNotation } })
+      );
+    } catch {}
+  }, [keyNotation]);
 
   return (
     <div className="px-[24px] pt-[24px] pb-[40px]">
@@ -1065,6 +1078,56 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                     {fmt.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Key notation card */}
+            <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
+              <SectionHeading C={C}>Key Notation</SectionHeading>
+              <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+                How the musical key is shown in Recent splits and My Files. Click any key in the list to cycle through these.
+              </div>
+              <div className="flex items-center gap-[8px] flex-wrap">
+                {KEY_NOTATION_VALUES.map((n) => {
+                  const active = keyNotation === n;
+                  const sample = n === "camelot" ? "8A" : n === "standard" ? "A minor" : "8A — A minor";
+                  const color = camelotColor("8A");
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => setKeyNotation(n)}
+                      style={{
+                        padding: "8px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: active ? "#fff" : C.textSec,
+                        backgroundColor: active ? C.accent : C.bgHover,
+                        cursor: "pointer",
+                        transition: "background-color 100ms",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          padding: "3px 6px",
+                          backgroundColor: active ? "rgba(255,255,255,0.18)" : color.bg,
+                          color: active ? "#fff" : color.fg,
+                          fontVariantNumeric: "tabular-nums",
+                          minWidth: n === "both" ? 110 : 42,
+                          textAlign: "center" as const,
+                        }}
+                      >
+                        {sample}
+                      </span>
+                      <span style={{ letterSpacing: "0.03em" }}>{KEY_NOTATION_LABEL[n].toUpperCase()}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
