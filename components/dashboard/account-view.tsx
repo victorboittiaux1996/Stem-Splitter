@@ -698,6 +698,10 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
       refillAt = lastReset;
     }
     if (!refillAt || isNaN(refillAt.getTime())) return null;
+    // Snap to start-of-day so the credit/refill event always sorts BEFORE
+    // any split that happens later that same day (splits have a real
+    // completedAt timestamp later in the day).
+    refillAt.setHours(0, 0, 0, 0);
     return {
       date: refillAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
       sortAt: refillAt.getTime(),
