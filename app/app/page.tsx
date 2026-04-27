@@ -169,7 +169,7 @@ const TomatoToss = dynamic(() => import("@/components/games/tomato-toss").then(m
 // ─── Component ──────────────────────────────────────────────
 export default function AbletonDashboard() {
   const { user, displayName, initials, email, signOut, avatarUrl, createdAt } = useAuth();
-  const { plan: userPlan, planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, rolloverMinutes, minutesAvailable, daysUntilReset, loading: subLoading, batchLimit, urlImport, stems, wavAllowed, minutesNeverReset, isCanceledButActive, periodEnd, currentBilling, refetch: refetchSubscription } = useSubscription(user?.id);
+  const { plan: userPlan, planLabel, isPro, usagePercent, remainingFormatted, minutesUsed, minutesIncluded, rolloverMinutes, minutesAvailable, daysUntilReset, loading: subLoading, batchLimit, urlImport, stems, wavAllowed, minutesNeverReset, isCanceledButActive, periodEnd, periodStart, currentBilling, refetch: refetchSubscription } = useSubscription(user?.id);
   const [keyNotation, setKeyNotation] = useKeyNotation();
   const keyColWidth = keyColumnWidth();
   const cycleKeyNotationRecent = (e: React.MouseEvent) => {
@@ -1740,7 +1740,7 @@ export default function AbletonDashboard() {
 
           {/* ═══ SETTINGS ═══ */}
           {view === "settings" && (
-            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} rolloverMinutes={rolloverMinutes} minutesAvailable={minutesAvailable} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} isCanceledButActive={isCanceledButActive} periodEnd={periodEnd} currentBilling={currentBilling} onUpgrade={handleUpgrade} onPlanChanged={() => { refetchSubscription(); setTimeout(() => refetchSubscription(), 1500); }} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={() => setPendingPlanChange(null)} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} createdAt={createdAt} usageHistory={history.map(h => ({
+            <AccountView C={C} section={settingsSection} onSectionChange={setSettingsSection} planLabel={planLabel} isPro={isPro} minutesUsed={minutesUsed} minutesIncluded={minutesIncluded} rolloverMinutes={rolloverMinutes} minutesAvailable={minutesAvailable} remainingFormatted={remainingFormatted} usagePercent={usagePercent} daysUntilReset={daysUntilReset} minutesNeverReset={minutesNeverReset} isCanceledButActive={isCanceledButActive} periodEnd={periodEnd} periodStart={periodStart} currentBilling={currentBilling} onUpgrade={handleUpgrade} onPlanChanged={() => { refetchSubscription(); setTimeout(() => refetchSubscription(), 1500); }} pendingPlanChange={pendingPlanChange} onConsumePendingPlanChange={() => setPendingPlanChange(null)} displayName={displayName} email={email} initials={initials} avatarUrl={avatarUrl} createdAt={createdAt} usageHistory={history.map(h => ({
               date: new Date(h.completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
               details: h.name,
               type: `${h.stems}-stem`,

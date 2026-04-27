@@ -12,6 +12,7 @@ interface SubscriptionState {
   daysUntilReset: number;
   cancelAtPeriodEnd: boolean;
   periodEnd: string | null;
+  periodStart: string | null;
   currentBilling: "monthly" | "annual";
   currency: string; // 'usd' | 'eur' | 'gbp' | … (lowercase ISO 4217)
   loading: boolean;
@@ -48,6 +49,7 @@ export function useSubscription(userId: string | undefined) {
       daysUntilReset: 30,
       cancelAtPeriodEnd: false,
       periodEnd: null,
+      periodStart: null,
       currentBilling: "monthly",
       currency: "usd",
       loading: true,
@@ -102,7 +104,7 @@ export function useSubscription(userId: string | undefined) {
           const minutesUsed = data?.tracks_used ?? 0;
           const rolloverMinutes = PLANS[plan].minutesNeverReset ? (data?.rollover_minutes ?? 0) : 0;
           localStorage.setItem(SUB_CACHE_KEY, JSON.stringify({ plan, minutesUsed, rolloverMinutes }));
-          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, currentBilling, currency, loading: false });
+          setState({ plan, minutesUsed, rolloverMinutes, daysUntilReset, cancelAtPeriodEnd, periodEnd, periodStart, currentBilling, currency, loading: false });
         });
     }).catch(() => setState(prev => ({ ...prev, loading: false })));
   }, [userId]);
@@ -142,5 +144,6 @@ export function useSubscription(userId: string | undefined) {
     cancelAtPeriodEnd: state.cancelAtPeriodEnd,
     isCanceledButActive: (state.plan === "pro" || state.plan === "studio") && state.cancelAtPeriodEnd,
     periodEnd: state.periodEnd,
+    periodStart: state.periodStart,
   };
 }

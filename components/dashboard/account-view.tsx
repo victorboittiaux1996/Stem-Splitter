@@ -1,15 +1,35 @@
 "use client";
 
 import React from "react";
-import { PLANS, type PlanId, ANNUAL_DISCOUNT_PERCENT, type BillingPeriod } from "@/lib/plans";
+import { PLANS, type PlanId, ANNUAL_DISCOUNT_PERCENT, type BillingPeriod, formatMinutes } from "@/lib/plans";
 import { stemColors } from "@/components/website/theme";
 import { RiCheckLine } from "@remixicon/react";
 import { ChangePlanModal } from "./change-plan-modal";
 import { toast } from "sonner";
 import { useLocalPrices, formatCurrency } from "@/hooks/use-local-prices";
-import { type KeyNotation, KEY_NOTATION_VALUES, KEY_NOTATION_LABEL, camelotColor } from "@/lib/camelot";
+import { type KeyNotation, KEY_NOTATION_VALUES, KEY_NOTATION_LABEL } from "@/lib/camelot";
 
 export type SettingsSection = "profile" | "subscription" | "usage" | "defaults";
+
+// Parse a signed time string ("+90:00", "−04:17", "−4m 4s") to signed seconds.
+function parseTimeToSec(s: string): number {
+  if (!s) return 0;
+  const sign = s[0] === "+" ? 1 : -1;
+  const rest = s.replace(/^[+−\-]/, "").trim();
+  const colon = rest.match(/^(\d+):(\d+)$/);
+  if (colon) return sign * (parseInt(colon[1], 10) * 60 + parseInt(colon[2], 10));
+  const ms = rest.match(/(\d+)m\s*(\d+)s/);
+  if (ms) return sign * (parseInt(ms[1], 10) * 60 + parseInt(ms[2], 10));
+  return 0;
+}
+
+// Format absolute seconds as zero-padded MM:SS ("04:17", "90:00").
+function formatPaddedMMSS(totalSec: number): string {
+  const abs = Math.max(0, Math.floor(Math.abs(totalSec)));
+  const mins = Math.floor(abs / 60);
+  const secs = abs % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
 
 type C = {
   bg: string; bgCard: string; bgSubtle: string; bgHover: string; bgElevated: string;
@@ -32,8 +52,10 @@ interface AccountViewProps {
   remainingFormatted?: string;
   usagePercent?: number;
   daysUntilReset?: number;
+  minutesNeverReset?: boolean;
   isCanceledButActive?: boolean;
   periodEnd?: string | null;
+  periodStart?: string | null;
   currentBilling?: "monthly" | "annual";
   onUpgrade?: (plan: "pro" | "studio", billing?: "monthly" | "annual") => void;
   displayName?: string;
@@ -124,10 +146,9 @@ function SubscriptionCard({
   periodEnd?: string | null;
   onPlanChanged?: () => void;
 }) {
-  const [cancelLoading, setCancelLoading] = React.useState(false);
   const [pending, setPending] = React.useState<{ plan: "free" | "pro" | "studio"; appliesAt: string } | null>(null);
 
-  // Fetch pending plan change (scheduled via Polar portal, e.g. a downgrade)
+  // Fetch pending plan change (scheduled via Stripe portal, e.g. a downgrade)
   React.useEffect(() => {
     let canceled = false;
     fetch("/api/subscription/pending")
@@ -141,53 +162,6 @@ function SubscriptionCard({
   const rolloverMsg = (rolloverMinutes ?? 0) > 0
     ? `You'll lose ${(rolloverMinutes ?? 0).toFixed(0)} rollover minutes and drop to Free (10 min/month) after ${endDateStr}.`
     : `You'll drop to Free (10 min/month) after ${endDateStr}.`;
-
-  const handleCancel = async () => {
-    if (!confirm(`Cancel your ${planLabel ?? "subscription"}?\n\nYou'll keep access until ${endDateStr}. ${rolloverMsg}`)) return;
-    setCancelLoading(true);
-    try {
-      const res = await fetch("/api/subscription/change", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel" }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        toast.success(`Canceled. Access continues until ${endDateStr}.`);
-        window.dispatchEvent(new CustomEvent("usage-updated"));
-        onPlanChanged?.();
-      } else {
-        toast.error(data.error || "Failed to cancel");
-      }
-    } catch {
-      toast.error("Something went wrong");
-    } finally {
-      setCancelLoading(false);
-    }
-  };
-
-  const handleResume = async () => {
-    setCancelLoading(true);
-    try {
-      const res = await fetch("/api/subscription/change", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resume" }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        toast.success("Subscription resumed.");
-        window.dispatchEvent(new CustomEvent("usage-updated"));
-        onPlanChanged?.();
-      } else {
-        toast.error(data.error || "Failed to resume");
-      }
-    } catch {
-      toast.error("Something went wrong");
-    } finally {
-      setCancelLoading(false);
-    }
-  };
 
   const openPortal = async () => {
     try {
@@ -212,7 +186,7 @@ function SubscriptionCard({
         </div>
       )}
 
-      {/* Pending plan change (e.g. user scheduled a downgrade via Polar portal) */}
+      {/* Pending plan change (e.g. user scheduled a downgrade via Stripe portal) */}
       {!isCanceledButActive && pending && (
         <div style={{ backgroundColor: `${C.accent}15`, padding: "10px 14px", marginTop: 6, marginBottom: 14, borderLeft: `3px solid ${C.accent}` }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" as const }}>
@@ -227,52 +201,20 @@ function SubscriptionCard({
         </div>
       )}
 
-      <div className="flex items-center justify-between" style={{ paddingTop: 8 }}>
-        <div style={{ fontSize: 13, color: C.textMuted }}>
-          {isCanceledButActive ? "Resume to continue your plan" : "Cancel at the end of your billing period"}
-        </div>
-        {isCanceledButActive ? (
-          <button
-            onClick={() => { void handleResume(); }}
-            disabled={cancelLoading}
-            style={{
-              fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent,
-              cursor: cancelLoading ? "not-allowed" : "pointer",
-              background: "none", border: "none", padding: 0,
-              opacity: cancelLoading ? 0.5 : 1,
-            }}
-          >
-            {cancelLoading ? "…" : "RESUME SUBSCRIPTION"}
-          </button>
-        ) : (
-          <button
-            onClick={() => { void handleCancel(); }}
-            disabled={cancelLoading}
-            style={{
-              fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.textMuted,
-              cursor: cancelLoading ? "not-allowed" : "pointer",
-              background: "none", border: "none", padding: 0,
-              opacity: cancelLoading ? 0.5 : 1,
-            }}
-          >
-            {cancelLoading ? "Canceling…" : "CANCEL SUBSCRIPTION"}
-          </button>
-        )}
-      </div>
-
-      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "14px 0" }} />
-
-      <div className="flex items-center justify-between">
-        <div style={{ fontSize: 13, color: C.textMuted }}>
-          Update payment method, switch billing cycle, or view invoices
-        </div>
-        <button
-          onClick={() => { void openPortal(); }}
-          style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: C.accent, cursor: "pointer", background: "none", border: "none", padding: 0 }}
-        >
-          MANAGE BILLING →
-        </button>
-      </div>
+      <button
+        onClick={() => { void openPortal(); }}
+        style={{
+          fontSize: 13,
+          color: C.accent,
+          cursor: "pointer",
+          background: "none",
+          border: "none",
+          padding: "8px 0 0",
+          textAlign: "left",
+        }}
+      >
+        Manage subscription
+      </button>
     </div>
   );
 }
@@ -335,28 +277,29 @@ function InvoicesCard({ C }: { C: AccountViewProps["C"] }) {
               style={{
                 gridTemplateColumns: "140px 1fr 120px 90px 80px",
                 gap: 0,
+                alignItems: "center",
                 backgroundColor: i % 2 === 1 ? `${C.text}03` : "transparent",
               }}
             >
-              <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted }}>
-                {new Date(inv.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted, display: "flex", alignItems: "center" }}>
+                {new Date(inv.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </div>
-              <div style={{ padding: "11px 0", fontSize: 12, color: C.text }}>
+              <div style={{ padding: "11px 0", fontSize: 12, color: C.text, display: "flex", alignItems: "center" }}>
                 {inv.invoiceNumber ?? inv.id.slice(0, 12)}
               </div>
-              <div style={{ padding: "11px 0", fontSize: 12, color: C.text, fontWeight: 600, textAlign: "right" }}>
+              <div style={{ padding: "11px 0", fontSize: 12, color: C.text, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
                 {fmt(inv.totalMajor, inv.currency)}
               </div>
-              <div style={{ padding: "11px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: inv.paid ? C.text : C.textMuted, textAlign: "right", textTransform: "uppercase" as const }}>
+              <div style={{ padding: "11px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: inv.paid ? C.text : C.textMuted, textTransform: "uppercase" as const, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
                 {inv.paid ? "Paid" : inv.status}
               </div>
-              <div style={{ padding: "11px 0", textAlign: "right" }}>
+              <div style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
                 {inv.paid && (
                   <a
                     href={`/api/subscription/invoices?download=${inv.id}`}
                     style={{ color: C.accent, textDecoration: "none", fontWeight: 700, letterSpacing: "0.08em", fontSize: 10, textTransform: "uppercase" as const }}
                   >
-                    PDF →
+                    PDF
                   </a>
                 )}
               </div>
@@ -726,14 +669,66 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, p
   );
 }
 
-export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, isCanceledButActive = false, periodEnd = null, currentBilling = "monthly", onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
+export function AccountView({ C, section, onSectionChange, planLabel = "Free Plan", isPro = false, minutesUsed = 0, minutesIncluded = 10, rolloverMinutes = 0, minutesAvailable, remainingFormatted = "10:00", usagePercent = 0, daysUntilReset = 30, minutesNeverReset = false, isCanceledButActive = false, periodEnd = null, periodStart = null, currentBilling = "monthly", onUpgrade, displayName = "User", email = "", initials = "U", avatarUrl, createdAt, usageHistory, onPlanChanged, pendingPlanChange, onConsumePendingPlanChange }: AccountViewProps) {
   const effectiveMinutes = minutesAvailable ?? minutesIncluded;
+  const refillDate = React.useMemo(() => {
+    const d = periodEnd ? new Date(periodEnd) : new Date(Date.now() + daysUntilReset * 86400000);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }, [periodEnd, daysUntilReset]);
   const memberSince = createdAt
     ? new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })
     : "—";
   const [showAll, setShowAll] = React.useState(false);
-  const historyData = usageHistory ?? USAGE_HISTORY;
+  const baseHistory = usageHistory ?? USAGE_HISTORY;
+
+  // Synthesize a "+ minutes added" row at the most recent refill date so the
+  // user can see when their balance was credited (subscription start or renewal).
+  // Pro/Studio use periodStart from Stripe. Free uses the anniversary anchor
+  // derived from periodEnd - daysUntilReset (today = periodEnd - daysUntilReset days).
+  const refillRow = React.useMemo(() => {
+    let refillAt: Date | null = null;
+    if (isPro && periodStart) {
+      refillAt = new Date(periodStart + (periodStart.length <= 10 ? "T00:00:00" : ""));
+    } else if (!isPro) {
+      // Free: most recent reset = today + (daysUntilReset - 30) days roughly,
+      // i.e. (today minus days-since-reset). Use periodEnd minus 1 month as a stable proxy.
+      const periodEndDate = periodEnd ? new Date(periodEnd) : new Date(Date.now() + daysUntilReset * 86400000);
+      const lastReset = new Date(periodEndDate);
+      lastReset.setMonth(lastReset.getMonth() - 1);
+      refillAt = lastReset;
+    }
+    if (!refillAt || isNaN(refillAt.getTime())) return null;
+    return {
+      date: refillAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      details: isPro ? `${planLabel} renewal` : "Free credits",
+      type: "Credit",
+      time: `+${formatPaddedMMSS(minutesIncluded * 60)}`,
+      positive: true,
+    };
+  }, [isPro, periodStart, periodEnd, daysUntilReset, planLabel, minutesIncluded]);
+
+  const historyData = React.useMemo(() => {
+    const merged = refillRow ? [refillRow, ...baseHistory] : baseHistory;
+    return merged.slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [refillRow, baseHistory]);
   const visibleRows = showAll ? historyData : historyData.slice(0, 10);
+
+  // Walk back from current remaining to compute the running balance after each
+  // transaction (newest = current, older = current minus already-applied effects).
+  // Display everything in whole minutes — no MM:SS in the usage table.
+  const visibleRowsWithBalance = React.useMemo(() => {
+    let runningSec = Math.max(0, (effectiveMinutes - minutesUsed) * 60);
+    return visibleRows.map(row => {
+      const balanceSec = runningSec;
+      const effectSec = parseTimeToSec(row.time);
+      const effectMin = Math.max(1, Math.round(Math.abs(effectSec) / 60));
+      const sign = effectSec >= 0 ? "+" : "−";
+      const displayTime = `${sign}${effectMin} min`;
+      const displayBalance = `${Math.round(balanceSec / 60)} min`;
+      runningSec = Math.max(0, runningSec - effectSec);
+      return { ...row, balanceSec, displayTime, displayBalance };
+    });
+  }, [visibleRows, effectiveMinutes, minutesUsed]);
 
   // Preferences persisted in localStorage
   const [notifSplitComplete, setNotifSplitComplete] = React.useState(true);
@@ -909,48 +904,35 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
           <div>
             {/* Quota summary card */}
             <div style={{ backgroundColor: C.bgCard, padding: 24, marginBottom: 24 }}>
-              <div className="flex items-start justify-between" style={{ marginBottom: 16 }}>
-                <div>
-                  <SectionHeading C={C}>Remaining this month</SectionHeading>
-                  <div className="flex items-baseline gap-[6px]">
-                    <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>{remainingFormatted}</span>
-                    <span style={{ fontSize: 14, color: C.textMuted }}>{"min left"}</span>
-                  </div>
-                </div>
-                {usagePercent > 80 && (
-                  <div style={{ backgroundColor: "#FF6B0015", padding: "4px 10px" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#FF6B00" }}>LOW BALANCE</span>
-                  </div>
-                )}
+              <SectionHeading C={C}>Minutes remaining</SectionHeading>
+              <div className="flex items-baseline gap-[6px]" style={{ marginBottom: 16 }}>
+                <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>{remainingFormatted}</span>
+                <span style={{ fontSize: 14, color: C.textMuted }}>left</span>
               </div>
-
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ height: 4, backgroundColor: C.bgHover }}>
-                  <div style={{ height: "100%", width: `${isPro ? 100 : usagePercent}%`, backgroundColor: C.accent }} />
-                </div>
+              <div style={{ height: 4, backgroundColor: C.bgHover, marginBottom: 16 }}>
+                <div style={{ height: "100%", width: `${usagePercent}%`, backgroundColor: C.accent }} />
               </div>
-
               <div className="flex items-center justify-between">
                 <span style={{ fontSize: 12, color: C.textMuted }}>
-                  {`${minutesUsed.toFixed(1)} of ${effectiveMinutes} min used`}
-                  {rolloverMinutes > 0 && (
-                    <span style={{ marginLeft: 6, color: C.accent }}>
-                      {`(${minutesIncluded} + ${rolloverMinutes.toFixed(1)} rollover)`}
-                    </span>
-                  )}
+                  {`Used ${formatMinutes(minutesUsed * 60)} of ${formatMinutes(effectiveMinutes * 60)}`}
                 </span>
-                <span style={{ fontSize: 12, color: C.textMuted }}>Resets in {daysUntilReset} days</span>
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  {minutesNeverReset
+                    ? `Never resets · ${minutesIncluded} min added on ${refillDate}`
+                    : `Resets on ${refillDate}`}
+                </span>
               </div>
 
-              <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "16px 0" }} />
-
               {!isPro && (
-                <button
-                  onClick={() => onUpgrade?.("pro")}
-                  style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
-                >
-                  UPGRADE FOR MORE MINUTES
-                </button>
+                <>
+                  <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "20px 0 16px" }} />
+                  <button
+                    onClick={() => onUpgrade?.("pro")}
+                    style={{ width: "100%", padding: "10px 0", backgroundColor: C.accent, color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}
+                  >
+                    UPGRADE FOR MORE MINUTES
+                  </button>
+                </>
               )}
             </div>
 
@@ -973,28 +955,30 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             <div style={{ marginBottom: 0 }}>
               <SectionHeading C={C}>Usage History</SectionHeading>
 
-              <div className="grid" style={{ gridTemplateColumns: "140px 1fr 80px 80px", gap: 0 }}>
-                {["DATE", "DETAILS", "TYPE", "TIME"].map((col, i) => (
+              <div className="grid" style={{ gridTemplateColumns: "140px 1fr 80px 90px 90px", gap: 0 }}>
+                {["DATE", "DETAILS", "TYPE", "TIME", "BALANCE"].map((col, i) => (
                   <div key={col} style={{ padding: "8px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, textAlign: i >= 2 ? "right" as const : "left" as const, borderBottom: `1px solid ${C.text}14` }}>
                     {col}
                   </div>
                 ))}
               </div>
 
-              {visibleRows.map((row, i) => (
+              {visibleRowsWithBalance.map((row, i) => (
                 <div
                   key={i}
                   className="grid"
                   style={{
-                    gridTemplateColumns: "140px 1fr 80px 80px",
+                    gridTemplateColumns: "140px 1fr 80px 90px 90px",
                     gap: 0,
+                    alignItems: "center",
                     backgroundColor: i % 2 === 1 ? `${C.text}03` : "transparent",
                   }}
                 >
                   <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted }}>{row.date}</div>
                   <div style={{ padding: "11px 0", fontSize: 13, color: C.text, overflow: "hidden", whiteSpace: "nowrap" as const, textOverflow: "ellipsis", paddingRight: 16 }}>{row.details}</div>
                   <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted, textAlign: "right" as const }}>{row.type}</div>
-                  <div style={{ padding: "11px 0", fontSize: 13, fontWeight: 600, color: row.positive ? C.accent : C.text, textAlign: "right" as const }}>{row.time}</div>
+                  <div style={{ padding: "11px 0", fontSize: 13, fontWeight: 600, color: row.positive ? C.accent : C.text, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{row.displayTime}</div>
+                  <div style={{ padding: "11px 0", fontSize: 13, color: C.textMuted, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{row.displayBalance}</div>
                 </div>
               ))}
 
@@ -1091,7 +1075,6 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                 {KEY_NOTATION_VALUES.map((n) => {
                   const active = keyNotation === n;
                   const sample = n === "camelot" ? "8A" : n === "standard" ? "A minor" : "8A — A minor";
-                  const color = camelotColor("8A");
                   return (
                     <button
                       key={n}
@@ -1115,8 +1098,8 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
                           fontWeight: 700,
                           letterSpacing: "0.04em",
                           padding: "3px 6px",
-                          backgroundColor: active ? "rgba(255,255,255,0.18)" : color.bg,
-                          color: active ? "#fff" : color.fg,
+                          backgroundColor: active ? "rgba(255,255,255,0.18)" : `${C.text}10`,
+                          color: active ? "#fff" : C.text,
                           fontVariantNumeric: "tabular-nums",
                           minWidth: n === "both" ? 110 : 42,
                           textAlign: "center" as const,
@@ -1134,8 +1117,22 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             {/* Privacy & Data card */}
             <div style={{ backgroundColor: C.bgCard, padding: 24 }}>
               <SectionHeading C={C}>Privacy & Data</SectionHeading>
-              <InfoRow label="File retention" value="Files are automatically deleted after 24 hours" C={C} />
-              <InfoRow label="Processing data" value="Audio is never used for training" C={C} last />
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "block", padding: "12px 0", fontSize: 13, color: C.accent, textDecoration: "none", borderBottom: `1px solid ${C.text}0A` }}
+              >
+                Privacy Policy
+              </a>
+              <a
+                href="/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "block", padding: "12px 0", fontSize: 13, color: C.accent, textDecoration: "none" }}
+              >
+                Terms of Service
+              </a>
             </div>
           </div>
         )}
