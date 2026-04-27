@@ -2,6 +2,9 @@
 
 import type { HistoryItem } from "@/lib/types";
 import type { Theme } from "./theme";
+import { useKeyNotation } from "@/hooks/use-key-notation";
+import { cycleNotation } from "@/lib/camelot";
+import { KeyBadge, keyColumnWidth } from "./key-badge";
 
 const DownloadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
@@ -33,11 +36,26 @@ const TrashIcon = ({ size = 14, color = "currentColor" }: { size?: number; color
   </svg>
 );
 
+const LinkIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M10 3h3v3" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter" />
+    <line x1="13" y1="3" x2="7.5" y2="8.5" stroke={color} strokeWidth="0.7" />
+    <path d="M11 9v4H3V5h4" stroke={color} strokeWidth="0.7" fill="none" strokeLinejoin="miter" />
+  </svg>
+);
+
+const SpinnerIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg className="animate-spin" width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="8" r="5" stroke={color} strokeWidth="0.7" strokeDasharray="20 8" strokeLinecap="round" opacity="0.7" />
+  </svg>
+);
+
 export type SortColumn = "name" | "date" | "duration" | "format" | "bpm" | "key";
 
 interface Props {
   C: Theme;
   isDark: boolean;
+  isPro: boolean;
   items: HistoryItem[];
   selectedTracks: Set<string>;
   toggleTrack: (id: string) => void;
@@ -49,17 +67,26 @@ interface Props {
   onOpenFile: (id: string) => void;
   onRowDownload: (id: string) => void;
   onRowDelete: (id: string) => void;
+  onRowShare: (id: string) => void;
+  sharingId: string | null;
+  downloadingId: string | null;
 }
 
 export function FilesTable(props: Props) {
   const {
-    C, isDark, items,
+    C, isDark, isPro, items,
     selectedTracks, toggleTrack, toggleAllTracks, allTracksSelected,
     sortBy, sortDir, toggleSort,
-    onOpenFile, onRowDownload, onRowDelete,
+    onOpenFile, onRowDownload, onRowDelete, onRowShare, sharingId, downloadingId,
   } = props;
 
   const anySelected = selectedTracks.size > 0;
+  const [keyNotation, setKeyNotation] = useKeyNotation();
+  const keyColWidth = keyColumnWidth();
+  const cycleKeyNotation = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setKeyNotation(cycleNotation(keyNotation));
+  };
 
   const SortIcon = ({ col }: { col: SortColumn }) => (
     <svg
@@ -120,7 +147,8 @@ export function FilesTable(props: Props) {
         </button>
         <button
           onClick={() => toggleSort("key")}
-          className="w-[50px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none"
+          className="text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none shrink-0"
+          style={{ width: keyColWidth }}
         >
           KEY <SortIcon col="key" />
         </button>
@@ -128,15 +156,9 @@ export function FilesTable(props: Props) {
           onClick={() => toggleSort("duration")}
           className="w-[80px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none"
         >
-          DURATION <SortIcon col="duration" />
+          TIME <SortIcon col="duration" />
         </button>
-        <button
-          onClick={() => toggleSort("format")}
-          className="w-[80px] text-right flex items-center justify-end cursor-pointer outline-none focus:outline-none"
-        >
-          FORMAT <SortIcon col="format" />
-        </button>
-        <span className="w-[72px]" />
+        <span className="w-[100px]" />
       </div>
 
       {/* Rows */}
@@ -195,7 +217,7 @@ export function FilesTable(props: Props) {
                   </svg>
                 </div>
                 <div className="min-w-0">
-                  <p style={{ fontSize: 15, fontWeight: 500, color: C.text }} className="truncate">
+                  <p style={{ fontSize: 14, fontWeight: 500, color: C.text }} className="truncate">
                     {item.name}
                   </p>
                   <p style={{ fontSize: 13, color: C.textMuted, marginTop: 1 }}>
@@ -206,26 +228,60 @@ export function FilesTable(props: Props) {
               <span className="w-[60px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>
                 {item.bpm != null ? Math.round(item.bpm) : "—"}
               </span>
-              <span className="w-[50px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>
-                {item.key}
-              </span>
+              <div
+                className="flex items-center justify-end shrink-0"
+                style={{ width: keyColWidth }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <KeyBadge
+                  camelot={item.key}
+                  keyRaw={item.key_raw}
+                  notation={keyNotation}
+                  onCycle={cycleKeyNotation}
+                  C={C}
+                />
+              </div>
               <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>
                 {item.duration ?? "—"}
               </span>
-              <span className="w-[80px] text-right shrink-0" style={{ fontSize: 13, color: C.textMuted }}>
-                {item.format.toUpperCase()}
-              </span>
-              <div className="flex items-center justify-end gap-[2px] w-[72px]">
+              <div className="flex items-center justify-end gap-[2px] w-[100px]">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRowShare(item.id);
+                  }}
+                  disabled={!isPro || sharingId === item.id}
+                  className="p-[5px] transition-colors hover:opacity-80 cursor-pointer"
+                  style={{
+                    color: C.textMuted,
+                    opacity: !isPro ? 0.3 : item.shareLinkId ? 1 : 0.45,
+                    cursor: !isPro ? "not-allowed" : "pointer",
+                  }}
+                  title={
+                    !isPro
+                      ? "Public sharing requires a Pro plan"
+                      : item.shareLinkId
+                        ? "Copy public link"
+                        : "Generate public link"
+                  }
+                >
+                  {sharingId === item.id
+                    ? <SpinnerIcon size={14} color={C.textMuted} />
+                    : <LinkIcon size={14} color={C.textMuted} />}
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onRowDownload(item.id);
                   }}
-                  className="p-[5px] transition-colors hover:opacity-80 cursor-pointer"
+                  disabled={downloadingId === item.id}
+                  className="p-[5px] transition-colors hover:opacity-80 cursor-pointer disabled:cursor-wait"
                   style={{ color: C.textMuted }}
-                  title="Download stems"
+                  title="Download all stems (ZIP)"
                 >
-                  <DownloadIcon size={14} color={C.textMuted} />
+                  {downloadingId === item.id
+                    ? <SpinnerIcon size={14} color={C.textMuted} />
+                    : <DownloadIcon size={14} color={C.textMuted} />}
                 </button>
                 <button
                   onClick={(e) => {

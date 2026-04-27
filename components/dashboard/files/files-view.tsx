@@ -9,7 +9,10 @@ import { FilesFilters } from "./files-filters";
 import { FilesTable, type SortColumn } from "./files-table";
 import { ExportModal } from "./export-modal";
 import { DeleteConfirm } from "./delete-confirm";
+import { ShareConfirm } from "./share-confirm";
 import { FilesEmptyState } from "./files-empty-state";
+import { downloadAllStemsZip } from "@/lib/download-stems";
+import { toast } from "sonner";
 
 interface Props {
   C: Theme;
@@ -144,6 +147,9 @@ export function FilesView(props: Props) {
 
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [shareConfirmId, setShareConfirmId] = useState<string | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const toggleSort = (col: SortColumn) => {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -261,13 +267,66 @@ export function FilesView(props: Props) {
     return sorted.filter((h) => selectedTracks.has(h.id));
   }, [singleExportId, history, sorted, selectedTracks]);
 
-  const handleRowDownload = (id: string) => {
-    setSingleExportId(id);
-    setExportModalOpen(true);
+  // Direct ZIP download for the row "↓" icon — all stems, current format, no modal.
+  // The bulk EXPORT button at the top still opens the full ExportModal for selection.
+  const handleRowDownload = async (id: string) => {
+    const item = history.find((h) => h.id === id);
+    if (!item) return;
+    setDownloadingId(id);
+    try {
+      const fmt: OutputFormat = wavAllowed ? outputFormat : "mp3";
+      const { failed } = await downloadAllStemsZip(item, fmt, workspaceId);
+      if (failed > 0) {
+        toast.warning(`${item.stemList.length - failed}/${item.stemList.length} stems downloaded (${failed} failed)`);
+      } else {
+        toast.success("ZIP downloaded");
+      }
+    } catch (err) {
+      console.error("[row-download]", err);
+      toast.error("Download failed");
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const handleRowDelete = (id: string) => {
     setDeleteId(id);
+  };
+
+  /**
+   * Row-level share. If a public link already exists, copy it directly.
+   * Otherwise open a confirmation modal — generating from a row needs an
+   * explicit "yes" since it's public + counts toward the monthly quota.
+   */
+  const handleRowShare = async (id: string) => {
+    const item = history.find((h) => h.id === id);
+    if (!item) return;
+    if (item.shareLinkId) {
+      const slug = item.shareLinkSlug ? `/${item.shareLinkSlug}` : "";
+      const url = `${window.location.origin}/share/${item.shareLinkId}${slug}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        const { toast } = await import("sonner");
+        toast.success("Share link copied to clipboard!");
+      } catch {
+        const { toast } = await import("sonner");
+        toast.error("Failed to copy");
+      }
+      return;
+    }
+    setShareConfirmId(id);
+  };
+
+  const confirmShare = async () => {
+    const id = shareConfirmId;
+    if (!id || !onShare) return;
+    setSharingId(id);
+    try {
+      await onShare(id);
+    } finally {
+      setSharingId(null);
+      setShareConfirmId(null);
+    }
   };
 
   const handleDeleted = (id: string) => {
@@ -291,7 +350,7 @@ export function FilesView(props: Props) {
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           {/* Header */}
           <div className="flex items-center justify-between mb-[24px]">
-            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>
+            <h2 style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", color: C.text }}>
               My Files
             </h2>
             {!isEmpty && (
@@ -365,6 +424,7 @@ export function FilesView(props: Props) {
               <FilesTable
                 C={C}
                 isDark={isDark}
+                isPro={isPro}
                 items={sorted}
                 selectedTracks={selectedTracks}
                 toggleTrack={toggleTrack}
@@ -376,6 +436,9 @@ export function FilesView(props: Props) {
                 onOpenFile={setExpandedFile}
                 onRowDownload={handleRowDownload}
                 onRowDelete={handleRowDelete}
+                onRowShare={handleRowShare}
+                sharingId={sharingId}
+                downloadingId={downloadingId}
               />
 
               {sorted.length === 0 && (
@@ -403,6 +466,16 @@ export function FilesView(props: Props) {
         wavAllowed={wavAllowed}
         defaultFormat={outputFormat}
         workspaceId={workspaceId}
+      />
+
+      <ShareConfirm
+        open={shareConfirmId !== null}
+        onClose={() => sharingId === null && setShareConfirmId(null)}
+        C={C}
+        fileId={shareConfirmId}
+        fileName={shareConfirmId ? history.find((h) => h.id === shareConfirmId)?.name ?? null : null}
+        generating={sharingId !== null}
+        onConfirm={confirmShare}
       />
 
       <DeleteConfirm

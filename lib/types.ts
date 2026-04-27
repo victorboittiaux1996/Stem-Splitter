@@ -95,4 +95,6 @@ export interface HistoryItem {
   quality?: number;
   stability?: number;
   workspaceId?: string;
+  shareLinkId?: string | null;
+  shareLinkSlug?: string | null;
 }

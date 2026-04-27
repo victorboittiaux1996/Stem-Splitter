@@ -5,6 +5,8 @@ import { Search } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { HistoryItem } from "@/lib/types";
 import type { Theme } from "./theme";
+import { useKeyNotation } from "@/hooks/use-key-notation";
+import { camelotColor, formatKey } from "@/lib/camelot";
 
 function pad2Num(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
@@ -387,17 +389,23 @@ export function FilesFilters(props: FilesFiltersProps) {
     clearFilters, hasActiveFilters,
   } = props;
 
-  const availableKeys = useMemo(
-    () =>
-      Array.from(new Set(history.map((h) => h.key).filter(Boolean) as string[])).sort((a, b) => {
-        const parse = (k: string) => {
-          const m = k.match(/(\d+)([AB])/);
-          return m ? parseInt(m[1]) * 2 + (m[2] === "B" ? 1 : 0) : 999;
-        };
-        return parse(a) - parse(b);
-      }),
-    [history]
-  );
+  const [keyNotation] = useKeyNotation();
+
+  // Build { camelot, keyRaw } pairs — one per unique Camelot slot, sorted around the wheel.
+  const availableKeys = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const h of history) {
+      if (!h.key) continue;
+      if (!map.has(h.key)) map.set(h.key, h.key_raw ?? null);
+    }
+    const parse = (k: string) => {
+      const m = k.match(/(\d+)([AB])/);
+      return m ? parseInt(m[1]) * 2 + (m[2] === "B" ? 1 : 0) : 999;
+    };
+    return Array.from(map.entries())
+      .map(([camelot, keyRaw]) => ({ camelot, keyRaw }))
+      .sort((a, b) => parse(a.camelot) - parse(b.camelot));
+  }, [history]);
 
   const batchGroups = useBatchGroups(history);
 
@@ -441,6 +449,20 @@ export function FilesFilters(props: FilesFiltersProps) {
               <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.05em", color: C.textMuted }}>
                 KEY
               </span>
+              {filterKey && (() => {
+                const c = camelotColor(filterKey);
+                return (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      backgroundColor: c.bg,
+                      display: "inline-block",
+                    }}
+                  />
+                );
+              })()}
               <select
                 value={filterKey ?? ""}
                 onChange={(e) => setFilterKey(e.target.value || null)}
@@ -458,9 +480,9 @@ export function FilesFilters(props: FilesFiltersProps) {
                 }}
               >
                 <option value="">ALL KEYS</option>
-                {availableKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
+                {availableKeys.map(({ camelot, keyRaw }) => (
+                  <option key={camelot} value={camelot}>
+                    {formatKey(camelot, keyRaw, keyNotation)}
                   </option>
                 ))}
               </select>
