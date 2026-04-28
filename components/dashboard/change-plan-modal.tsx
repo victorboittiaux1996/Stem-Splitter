@@ -97,7 +97,10 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
   const fetchPreview = React.useCallback((codeToApply: string) => {
     if (!targetPlan) return;
     setLoading(true);
-    fetch("/api/subscription/preview", {
+    // [PREVIEW DEBUG] — ?debug=1 makes the API include `_debug.raw.*` with
+    // the full Stripe createPreview output in the response. Visible in
+    // DevTools → Network → preview → Response. Removed at étape 7.
+    fetch("/api/subscription/preview?debug=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
