@@ -111,6 +111,17 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
     })
       .then((r) => r.json())
       .then((data) => {
+        // [PREVIEW DEBUG] — print full Stripe debug payload to console so
+        // Victor can copy/paste from DevTools without using Network tab.
+        // Removed at étape 7.
+        if (data?._debug) {
+          // eslint-disable-next-line no-console
+          console.log("===== PREVIEW DEBUG START =====");
+          // eslint-disable-next-line no-console
+          console.log(JSON.stringify(data._debug, null, 2));
+          // eslint-disable-next-line no-console
+          console.log("===== PREVIEW DEBUG END =====");
+        }
         if (data.error) {
           // Preview-level error on the code → clear it, keep the modal open.
           if (codeToApply) {
