@@ -228,6 +228,30 @@ export async function POST(req: NextRequest) {
           ? body.prorationDate
           : undefined;
 
+      // Discount preservation. Stripe treats `discounts` as a full
+      // replacement, NOT a merge — passing `discounts: [{coupon: X}]` drops
+      // any existing discount on the sub. To avoid silently losing an
+      // existing customer-level discount (e.g. "Victor Dev 75 off forever")
+      // when the user types a new promo code, stack them: pass the existing
+      // discount AND the new coupon. If no new code is typed, omit the
+      // `discounts` param entirely so Stripe preserves the existing one.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existingSubDiscount = (currentSub as any).discounts?.[0];
+      const existingDiscountId =
+        typeof existingSubDiscount === "string"
+          ? existingSubDiscount
+          : existingSubDiscount?.id;
+
+      let discountsParam: Stripe.SubscriptionUpdateParams["discounts"] | undefined;
+      if (resolvedCoupon && existingDiscountId) {
+        discountsParam = [{ discount: existingDiscountId }, { coupon: resolvedCoupon }];
+      } else if (resolvedCoupon) {
+        discountsParam = [{ coupon: resolvedCoupon }];
+      }
+      // else: omit so Stripe inherits sub's existing discount (verified
+      // behavior via curl: subscription_details.items override does NOT
+      // drop sub.discounts when discounts param is absent).
+
       updatedSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
         items: [{ id: item.id, price: targetPriceId }],
         proration_behavior: "always_invoice",
@@ -238,7 +262,7 @@ export async function POST(req: NextRequest) {
         automatic_tax: { enabled: true },
         expand: ["latest_invoice.confirmation_secret"],
         ...(typeof freshProrationDate === "number" ? { proration_date: freshProrationDate } : {}),
-        ...(resolvedCoupon ? { discounts: [{ coupon: resolvedCoupon }] } : {}),
+        ...(discountsParam ? { discounts: discountsParam } : {}),
         ...(needsUncancel ? { cancel_at_period_end: false } : {}),
       });
 

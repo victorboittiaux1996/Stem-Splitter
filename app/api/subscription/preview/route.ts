@@ -358,40 +358,62 @@ export async function POST(req: NextRequest) {
     }, null, 2));
     /* eslint-enable @typescript-eslint/no-explicit-any */
 
-    const currency = (preview.currency ?? "usd").toLowerCase();
-    const subtotalMajor = (preview.subtotal ?? 0) / 100;
-    const totalMajor = (preview.total ?? 0) / 100;
+    const currency = (preview.currency ?? subCurrency ?? "usd").toLowerCase();
+    const totalMinor = preview.total ?? 0;
     const taxMinor = (preview.total_taxes ?? []).reduce(
       (sum: number, t: { amount: number | null }) => sum + (t.amount ?? 0),
       0,
     );
-    const taxMajor = taxMinor / 100;
-    const discountTotalMinor = (preview.total_discount_amounts ?? []).reduce(
-      (sum: number, d: { amount: number | null }) => sum + (d.amount ?? 0),
-      0,
-    );
 
-    // Split proration lines into credit (negative) and charge (positive).
-    // Ignore lines that are purely discount adjustments.
-    let creditMinor = 0;
-    let chargeMinor = 0;
-    for (const line of preview.lines.data) {
-      const amount = line.amount ?? 0;
-      if (amount < 0) creditMinor += Math.abs(amount);
-      else chargeMinor += amount;
-    }
+    // Build the structured line list rendered by the modal verbatim. Labels
+    // are derived server-side from line.proration + amount sign + plan info,
+    // NOT regex on Stripe's localized description (which depends on the
+    // customer's preferred_locales and would break for non-FR users).
+    //
+    // Each line maps to one of:
+    //   - amount < 0 → "Unused {currentPlan} {currentBilling} credit (period)"
+    //   - amount > 0 → "{targetPlan} {targetBilling} (period)"
+    //
+    // The discount applied at sub-level (if any) is line-level on Stripe's
+    // side: descriptions include "(with X% off)" and amounts are pre-discounted.
+    // We surface it as a suffix per line + a small caption below the total.
+    const targetPlanLabel = PLANS[targetPlan].label;
+    const currentPlanLabel = PLANS[currentPlan]?.label ?? "previous plan";
+    const targetBillingLabel = targetBilling === "annual" ? "Annual" : "Monthly";
+    const currentBillingLabel = currentBilling === "annual" ? "Annual" : "Monthly";
 
-    // Next billing: when and how much. For billing_switch monthly→annual the
-    // new cycle starts today → next billing = today + 1 year at annual price.
-    // For tier upgrade same-interval → period_end unchanged, at target price.
+    const structuredLines = preview.lines.data.map((line) => {
+      const amountMinor = line.amount ?? 0;
+      const isCredit = amountMinor < 0;
+      const label = isCredit
+        ? `Unused ${currentPlanLabel} ${currentBillingLabel} credit`
+        : `${targetPlanLabel} ${targetBillingLabel}`;
+      return {
+        label,
+        amountMinor,
+        periodStart: line.period?.start ?? null,
+        periodEnd: line.period?.end ?? null,
+        isCredit,
+      };
+    });
+
+    // Surface the active discount on the sub so the modal can display
+    // "(X% off)" suffixes and a "Promo code Y active" caption. percent_off
+    // and amount_off are exclusive on a Stripe coupon.
+    const appliedDiscount = activeDiscount
+      ? {
+          label: activeDiscount.label ?? "Discount",
+          percentOff: activeDiscount.percentOff,
+          amountOffMinor: activeDiscount.amountOff?.amount ?? null,
+          amountOffCurrency: activeDiscount.amountOff?.currency?.toUpperCase() ?? null,
+        }
+      : null;
+
+    // Next billing: when the user will be charged again, and at what price.
+    // For billing_switch monthly→annual the cycle starts today, so next
+    // billing = today + 1 year at the target sticker price (full, undiscounted —
+    // user needs to know the future commitment regardless of current discount).
     const nextBillingEnd = preview.lines.data[preview.lines.data.length - 1]?.period?.end ?? currentPeriodEnd;
-
-    // If no code was typed this session but the sub already has a discount
-    // (e.g. from initial checkout or attached via API), surface its label so
-    // the modal can show "Promo code X (-Y%)" transparently.
-    const effectiveDiscountLabel = discountLabel ?? activeDiscount?.label;
-    const effectiveDiscountPercent = discountPercentOff ?? activeDiscount?.percentOff ?? null;
-    const effectiveDiscountAmount = discountAmountOff ?? activeDiscount?.amountOff ?? null;
 
     return NextResponse.json({
       kind,
@@ -399,24 +421,27 @@ export async function POST(req: NextRequest) {
       currentBilling,
       targetPlan,
       targetBilling,
-      creditMajor: creditMinor / 100,
-      chargeMajor: chargeMinor / 100,
-      netMajor: subtotalMajor,
-      taxMajor,
-      totalMajor,
-      discountMajor: discountTotalMinor / 100,
-      discountLabel: effectiveDiscountLabel,
-      discountPercentOff: effectiveDiscountPercent,
-      discountAmountOff: effectiveDiscountAmount,
-      perPeriodMajor: targetAmountInSubCurrency / 100,
+
+      // New structured shape — the modal renders this verbatim. No client-side
+      // bucketing, no derivation, no heuristics. If the sum of line amounts
+      // (minus discounts) plus tax doesn't equal totalMinor, the bug is HERE
+      // or in Stripe — never patch it in the modal with new heuristics.
+      lines: structuredLines,
+      taxMinor,
+      totalMinor,
+      currency: currency.toUpperCase(),
+      appliedDiscount,
+
+      // Next billing block (always shown except for "same" kind)
       nextBillingDate: formatDate(nextBillingEnd ?? currentPeriodEnd),
-      nextBillingAmountMajor: targetAmountInSubCurrency / 100,
-      currency: (currency || subCurrency).toUpperCase(),
+      nextBillingAmountMinor: targetAmountInSubCurrency,
+      perPeriodMinor: targetAmountInSubCurrency,
+
       prorationDate,
       notice: buildUpgradeNotice(kind, currentPlan, targetPlan, targetBilling),
+
       // [PREVIEW DEBUG] — diagnostic block, only when ?debug=1.
-      // Surfaces every raw field Stripe sent so we can fix the modal without
-      // guessing. Removed at étape 7 of the upgrade-modal fix plan.
+      // Removed once Victor confirms the new modal renders correctly on prod.
       ...(debugMode ? buildDebugPayload(currentSub, previewParams, preview) : {}),
     });
   } catch (err) {

@@ -23,23 +23,56 @@ function getStripe(): Promise<Stripe | null> {
 
 type PreviewKind = "new" | "upgrade" | "downgrade" | "billing_switch" | "same" | "resume";
 
+// One row in the "Today's charge" breakdown — built server-side from
+// stripe.invoices.createPreview output. The modal renders this verbatim:
+// no derivation, no aggregation, no special-casing.
+interface PreviewLine {
+  label: string;            // e.g. "Pro Annual" or "Unused Pro Monthly credit"
+  amountMinor: number;      // signed minor units (negative = credit, already discount-applied)
+  periodStart: number | null; // Unix seconds
+  periodEnd: number | null;
+  isCredit: boolean;
+}
+
+// Active discount on the customer's subscription, surfaced as a per-line
+// suffix and a small caption under Total (per Stripe Portal/Linear convention).
+interface AppliedDiscount {
+  label: string;            // coupon name, e.g. "Victor Dev 75 off"
+  percentOff: number | null;       // 0–100
+  amountOffMinor: number | null;   // for fixed-amount coupons
+  amountOffCurrency: string | null;
+}
+
 interface Preview {
   kind: PreviewKind;
   currentPlan: PlanId;
   currentBilling?: BillingPeriod;
   targetPlan: PlanId;
   targetBilling: BillingPeriod;
-  creditMajor: number;
-  chargeMajor: number;
-  netMajor: number;
-  taxMajor: number;
-  totalMajor: number;
+
+  // New shape (upgrade/billing_switch only — empty/null for other kinds).
+  lines?: PreviewLine[];
+  taxMinor?: number;
+  totalMinor?: number;
+  appliedDiscount?: AppliedDiscount | null;
+  perPeriodMinor?: number;
+  nextBillingAmountMinor?: number;
+
+  // Legacy shape — still used for `same`, `resume`, `downgrade`, `new` flows
+  // that don't render the line breakdown. Will be removed when those branches
+  // adopt the new shape.
+  creditMajor?: number;
+  chargeMajor?: number;
+  netMajor?: number;
+  taxMajor?: number;
+  totalMajor?: number;
   discountMajor?: number;
   discountLabel?: string;
   discountPercentOff?: number | null;
-  perPeriodMajor: number;
+  perPeriodMajor?: number;
+  nextBillingAmountMajor?: number;
+
   nextBillingDate: string | null;
-  nextBillingAmountMajor: number;
   currency: string;
   notice: string;
   minutesLost?: number;
@@ -78,6 +111,32 @@ function formatDate(iso: string | null): string {
   } catch {
     return iso;
   }
+}
+
+// Format a line as "<label> (<startDate> — <endDate>)<discountSuffix>".
+// Year is included in the date when the period spans different calendar
+// years (e.g. annual switch Apr 28, 2026 — Apr 27, 2027) — otherwise omitted
+// for compactness (Apr 28 — May 27 within the same year).
+// Suffix appended only if the sub has an active discount AND it's percent_off
+// (Stripe pre-applies it to the line amount, so we tell the user explicitly
+// why the amount is smaller than the sticker price). For amount_off coupons
+// the suffix is omitted on individual lines and surfaced via the caption only.
+function formatLineLabel(line: PreviewLine, discount: AppliedDiscount | null): string {
+  let period = "";
+  if (line.periodStart && line.periodEnd) {
+    const start = new Date(line.periodStart * 1000);
+    const end = new Date(line.periodEnd * 1000);
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const opts: Intl.DateTimeFormatOptions = sameYear
+      ? { month: "short", day: "numeric" }
+      : { month: "short", day: "numeric", year: "numeric" };
+    const fmt = (d: Date) => new Intl.DateTimeFormat(undefined, opts).format(d);
+    period = ` (${fmt(start)} — ${fmt(end)})`;
+  }
+  const suffix = discount && typeof discount.percentOff === "number"
+    ? ` (${discount.percentOff}% off)`
+    : "";
+  return `${line.label}${period}${suffix}`;
 }
 
 export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, onSuccess }: Props) {
@@ -291,71 +350,49 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
             {preview && !loading && (
               <>
-                {/* ── Today's charge breakdown — only for flows that charge today.
-                    Reads top-to-bottom like a receipt:
-                      1. New plan charge (positive)
-                      2. Unused-time credit (negative, if any)
-                      3. Promo discount (negative, if any)
-                      ─── divider ───
-                      4. Tax (always shown, even at 0 for transparency)
-                      5. Total today (bold)
-                ── */}
-                {paysToday && (() => {
-                  // Stripe sometimes returns one consolidated line (charge net of
-                  // credit) for billing_switch flows where the cycle resets to a
-                  // full new period. To keep the math visible to the user, we
-                  // force-display the new plan's full sticker price and derive
-                  // the credit as `sticker − subtotal_of_lines`.
-                  // For upgrade same-cycle (prorated until period end), Stripe
-                  // typically splits lines cleanly so we use the raw values.
-                  const isFullPeriodSwitch = preview.kind === "billing_switch";
-                  const subtotalOfLines = preview.chargeMajor - preview.creditMajor;
-                  const displayChargeMajor = isFullPeriodSwitch
-                    ? preview.perPeriodMajor
-                    : preview.chargeMajor;
-                  const derivedCredit = isFullPeriodSwitch
-                    ? Math.max(0, preview.perPeriodMajor - subtotalOfLines)
-                    : preview.creditMajor;
-                  return (
+                {/* ── Today's charge breakdown — DUMB RENDERER of preview.lines.
+                    The vertical sum of displayed line amounts plus tax MUST
+                    equal preview.totalMinor (= what Stripe will charge to the
+                    cent). NO client-side math, NO heuristics, NO special-casing
+                    of billing_switch vs upgrade. Each line is rendered with the
+                    label built server-side (locale-independent: derived from
+                    line sign + plan info, not from regex on Stripe's localized
+                    description). The active discount (if any) is shown as a
+                    suffix per line "(X% off)" and as a small caption under
+                    Total — matches Stripe Portal / Linear UX convention. ── */}
+                {paysToday && preview.lines && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
                       Today's charge
                     </div>
 
-                    <Row
-                      label={
-                        preview.kind === "billing_switch"
-                          ? `${targetCfg.label} ${preview.targetBilling === "annual" ? "annual — full year from today" : "monthly — full month from today"}`
-                          : `${targetCfg.label} prorated until period end`
-                      }
-                      value={fmt(displayChargeMajor)}
-                      C={C}
-                    />
-
-                    {derivedCredit > 0 && (
+                    {preview.lines.map((line, i) => (
                       <Row
-                        label={`Unused ${PLANS[preview.currentPlan].label} credit`}
-                        value={`−${fmt(derivedCredit)}`}
+                        key={i}
+                        label={formatLineLabel(line, preview.appliedDiscount ?? null)}
+                        value={`${line.isCredit ? "−" : ""}${fmt(Math.abs(line.amountMinor) / 100)}`}
                         C={C}
                       />
-                    )}
-
-                    {typeof preview.discountMajor === "number" && preview.discountMajor > 0 ? (
-                      <Row
-                        label={`Promo${preview.discountLabel ? ` ${preview.discountLabel}` : ""}${typeof preview.discountPercentOff === "number" ? ` (${preview.discountPercentOff}% off)` : ""}`}
-                        value={`−${fmt(preview.discountMajor)}`}
-                        C={C}
-                        accent
-                      />
-                    ) : null}
+                    ))}
 
                     <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
 
-                    <Row label="Tax" value={fmt(preview.taxMajor)} C={C} />
-                    <Row label="Total today" value={fmt(preview.totalMajor)} C={C} bold />
+                    <Row label="Tax" value={fmt((preview.taxMinor ?? 0) / 100)} C={C} />
+                    <Row label="Total today" value={fmt((preview.totalMinor ?? 0) / 100)} C={C} bold />
+
+                    {preview.appliedDiscount && (
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8, lineHeight: 1.4 }}>
+                        Promo code <span style={{ color: C.accent, fontWeight: 600 }}>{preview.appliedDiscount.label}</span>
+                        {typeof preview.appliedDiscount.percentOff === "number"
+                          ? ` (${preview.appliedDiscount.percentOff}% off)`
+                          : preview.appliedDiscount.amountOffMinor != null && preview.appliedDiscount.amountOffCurrency
+                          ? ` (−${formatMoney(preview.appliedDiscount.amountOffMinor / 100, preview.appliedDiscount.amountOffCurrency)} off)`
+                          : ""}
+                        {" applied to all amounts above."}
+                      </div>
+                    )}
                   </div>
-                  );
-                })()}
+                )}
 
                 {/* ── Minutes lost warning on downgrade ── */}
                 {preview.kind === "downgrade" && Math.round(preview.minutesLost ?? 0) >= 1 ? (
@@ -369,7 +406,10 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 ) : null}
 
-                {/* ── Next billing — always visible (except "same") ── */}
+                {/* ── Next billing — always visible (except "same"). Reads
+                    nextBillingAmountMinor (new shape) first, falls back to
+                    nextBillingAmountMajor for legacy branches (downgrade/
+                    resume) that haven't been migrated yet. ── */}
                 {preview.kind !== "same" && preview.nextBillingDate && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 14, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
@@ -378,7 +418,11 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                     <div style={{ fontSize: 13, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                       <span>{formatDate(preview.nextBillingDate)}</span>
                       <span style={{ fontWeight: 600 }}>
-                        {fmt(preview.nextBillingAmountMajor)} {preview.targetBilling === "annual" ? "/ year" : "/ month"}
+                        {fmt(
+                          typeof preview.nextBillingAmountMinor === "number"
+                            ? preview.nextBillingAmountMinor / 100
+                            : (preview.nextBillingAmountMajor ?? 0)
+                        )} {preview.targetBilling === "annual" ? "/ year" : "/ month"}
                       </span>
                     </div>
                   </div>
