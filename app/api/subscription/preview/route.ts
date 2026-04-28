@@ -338,6 +338,27 @@ export async function POST(req: NextRequest) {
 
     const preview = await stripe.invoices.createPreview(previewParams);
 
+    // Second createPreview call to get the NEXT regular invoice (post-upgrade,
+    // no proration) — Stripe applies forever / repeating discounts itself, so
+    // the returned `total` is exactly what the user will be charged at the
+    // next renewal. This avoids client-side math like "sticker × (1 − 75%)"
+    // which would be fragile for amount_off / repeating-with-expiry coupons.
+    let nextRegularInvoice: Stripe.Invoice | null = null;
+    try {
+      nextRegularInvoice = await stripe.invoices.createPreview({
+        subscription: sub.stripe_subscription_id,
+        subscription_details: {
+          items: [{ id: itemId, price: targetPriceId }],
+          proration_behavior: "none",
+          billing_cycle_anchor: "unchanged",
+        },
+        automatic_tax: { enabled: true },
+      });
+    } catch {
+      // Non-fatal — modal falls back to sticker price for "Next billing".
+      nextRegularInvoice = null;
+    }
+
     // [PREVIEW DEBUG] — temporary, removed after étape 7. Captures raw Stripe
     // response so we can see EXACTLY what lines/discounts/taxes/total Stripe
     // returns for each upgrade kind, instead of guessing. Past 5 days of
@@ -453,9 +474,18 @@ export async function POST(req: NextRequest) {
       currency: currency.toUpperCase(),
       appliedDiscount,
 
-      // Next billing block (always shown except for "same" kind)
+      // Next billing block (always shown except for "same" kind).
+      // - nextBillingStickerMinor = subtotal of the next regular invoice
+      //   = sticker price for the target plan/billing.
+      // - nextBillingChargeMinor = total of the next regular invoice
+      //   = what the customer will actually be charged with their active
+      //     discount applied (Stripe computes this — zero math on our side).
+      // For amount_off / repeating-with-expiry coupons, Stripe still returns
+      // the correct amount because it knows the duration of the discount.
       nextBillingDate: formatDate(nextBillingEnd ?? currentPeriodEnd),
       nextBillingAmountMinor: targetAmountInSubCurrency,
+      nextBillingStickerMinor: nextRegularInvoice?.subtotal ?? targetAmountInSubCurrency,
+      nextBillingChargeMinor: nextRegularInvoice?.total ?? null,
       perPeriodMinor: targetAmountInSubCurrency,
 
       prorationDate,

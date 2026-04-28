@@ -64,6 +64,12 @@ interface Preview {
   appliedDiscount?: AppliedDiscount | null;
   perPeriodMinor?: number;
   nextBillingAmountMinor?: number;
+  // Subtotal of the next regular invoice (sticker price), and total (what
+  // the customer will actually be charged with their active discount applied).
+  // Both come from a 2nd stripe.invoices.createPreview call with
+  // proration_behavior=none — Stripe is the source of truth.
+  nextBillingStickerMinor?: number;
+  nextBillingChargeMinor?: number | null;
 
   // Legacy shape — still used for `same`, `resume`, `downgrade`, `new` flows
   // that don't render the line breakdown. Will be removed when those branches
@@ -415,12 +421,13 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 ) : null}
 
-                {/* ── Next billing — always visible (except "same"). Shows
-                    the sticker plan price (what's listed on the pricing page).
-                    If the user has an active discount, a small subtitle notes
-                    that it'll be applied at renewal — this avoids the user
-                    thinking they'll be charged the full sticker amount when
-                    in reality their discount carries forward. ── */}
+                {/* ── Next billing — always visible (except "same"). When the
+                    customer has an active discount, we show TWO amounts:
+                    sticker price (subtotal from Stripe) AND the actual amount
+                    Stripe will charge at renewal (total from Stripe, with the
+                    discount automatically applied). Both numbers come from a
+                    2nd stripe.invoices.createPreview call (proration_behavior:
+                    none) — zero math on our side. ── */}
                 {preview.kind !== "same" && preview.nextBillingDate && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 14, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
@@ -430,15 +437,28 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                       <span>{formatDate(preview.nextBillingDate)}</span>
                       <span style={{ fontWeight: 600 }}>
                         {fmt(
-                          typeof preview.nextBillingAmountMinor === "number"
+                          typeof preview.nextBillingChargeMinor === "number"
+                            ? preview.nextBillingChargeMinor / 100
+                            : typeof preview.nextBillingAmountMinor === "number"
                             ? preview.nextBillingAmountMinor / 100
                             : (preview.nextBillingAmountMajor ?? 0)
                         )} {preview.targetBilling === "annual" ? "/ year" : "/ month"}
                       </span>
                     </div>
-                    {preview.appliedDiscount && typeof preview.appliedDiscount.percentOff === "number" && (
-                      <div style={{ fontSize: 11, color: C.textMuted, opacity: 0.75, marginTop: 4 }}>
-                        Sticker price — your {preview.appliedDiscount.percentOff}% off promo will be applied at renewal.
+                    {/* If discount applies, show sticker (what it would be without promo)
+                        + a clear note. The "charged" amount above already includes the
+                        discount. */}
+                    {preview.appliedDiscount && typeof preview.nextBillingChargeMinor === "number"
+                      && typeof preview.nextBillingStickerMinor === "number"
+                      && preview.nextBillingChargeMinor !== preview.nextBillingStickerMinor && (
+                      <div style={{ fontSize: 11, color: C.textMuted, opacity: 0.75, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                        <span>
+                          Sticker {fmt(preview.nextBillingStickerMinor / 100)}
+                          {preview.targetBilling === "annual" ? "/year" : "/month"}
+                          {typeof preview.appliedDiscount.percentOff === "number"
+                            ? ` — ${preview.appliedDiscount.percentOff}% off applied by Stripe`
+                            : " — promo applied by Stripe"}
+                        </span>
                       </div>
                     )}
                   </div>
