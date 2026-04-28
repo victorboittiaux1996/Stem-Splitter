@@ -32,6 +32,13 @@ interface PreviewLine {
   periodStart: number | null; // Unix seconds
   periodEnd: number | null;
   isCredit: boolean;
+  // Sticker (full-period) price for the plan referenced by this line, in
+  // minor units of the sub's currency. Pulled from Stripe Price.unit_amount
+  // (or currency_options[currency].unit_amount). Displayed as "(€14,99/mo)"
+  // next to the label so the user sees the gross. NOT used in any math —
+  // pure display.
+  fullPriceMinor?: number;
+  billingInterval?: BillingPeriod;
 }
 
 // Active discount on the customer's subscription, surfaced as a per-line
@@ -111,32 +118,6 @@ function formatDate(iso: string | null): string {
   } catch {
     return iso;
   }
-}
-
-// Format a line as "<label> (<startDate> — <endDate>)<discountSuffix>".
-// Year is included in the date when the period spans different calendar
-// years (e.g. annual switch Apr 28, 2026 — Apr 27, 2027) — otherwise omitted
-// for compactness (Apr 28 — May 27 within the same year).
-// Suffix appended only if the sub has an active discount AND it's percent_off
-// (Stripe pre-applies it to the line amount, so we tell the user explicitly
-// why the amount is smaller than the sticker price). For amount_off coupons
-// the suffix is omitted on individual lines and surfaced via the caption only.
-function formatLineLabel(line: PreviewLine, discount: AppliedDiscount | null): string {
-  let period = "";
-  if (line.periodStart && line.periodEnd) {
-    const start = new Date(line.periodStart * 1000);
-    const end = new Date(line.periodEnd * 1000);
-    const sameYear = start.getFullYear() === end.getFullYear();
-    const opts: Intl.DateTimeFormatOptions = sameYear
-      ? { month: "short", day: "numeric" }
-      : { month: "short", day: "numeric", year: "numeric" };
-    const fmt = (d: Date) => new Intl.DateTimeFormat(undefined, opts).format(d);
-    period = ` (${fmt(start)} — ${fmt(end)})`;
-  }
-  const suffix = discount && typeof discount.percentOff === "number"
-    ? ` (${discount.percentOff}% off)`
-    : "";
-  return `${line.label}${period}${suffix}`;
 }
 
 export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, onSuccess }: Props) {
@@ -361,36 +342,64 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                     suffix per line "(X% off)" and as a small caption under
                     Total — matches Stripe Portal / Linear UX convention. ── */}
                 {paysToday && preview.lines && (
-                  <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
-                      Today's charge
-                    </div>
-
-                    {preview.lines.map((line, i) => (
-                      <Row
-                        key={i}
-                        label={formatLineLabel(line, preview.appliedDiscount ?? null)}
-                        value={`${line.isCredit ? "−" : ""}${fmt(Math.abs(line.amountMinor) / 100)}`}
-                        C={C}
-                      />
-                    ))}
-
-                    <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
-
-                    <Row label="Tax" value={fmt((preview.taxMinor ?? 0) / 100)} C={C} />
-                    <Row label="Total today" value={fmt((preview.totalMinor ?? 0) / 100)} C={C} bold />
-
+                  <div style={{ marginBottom: 16 }}>
+                    {/* ── Prominent discount banner — shown above the breakdown
+                        when the sub has an active discount (instead of a small
+                        grey caption at the bottom). All values come straight
+                        from preview.appliedDiscount: label and percentOff are
+                        from Stripe sub.discounts. No client-side math. ── */}
                     {preview.appliedDiscount && (
-                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8, lineHeight: 1.4 }}>
-                        Promo code <span style={{ color: C.accent, fontWeight: 600 }}>{preview.appliedDiscount.label}</span>
-                        {typeof preview.appliedDiscount.percentOff === "number"
-                          ? ` (${preview.appliedDiscount.percentOff}% off)`
-                          : preview.appliedDiscount.amountOffMinor != null && preview.appliedDiscount.amountOffCurrency
-                          ? ` (−${formatMoney(preview.appliedDiscount.amountOffMinor / 100, preview.appliedDiscount.amountOffCurrency)} off)`
-                          : ""}
-                        {" applied to all amounts above."}
+                      <div style={{
+                        backgroundColor: `${C.accent}15`,
+                        borderLeft: `3px solid ${C.accent}`,
+                        padding: "10px 14px",
+                        marginBottom: 12,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                      }}>
+                        <div style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: C.accent,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase" as const,
+                          padding: "3px 7px",
+                          backgroundColor: `${C.accent}25`,
+                          flexShrink: 0,
+                        }}>
+                          {typeof preview.appliedDiscount.percentOff === "number"
+                            ? `${preview.appliedDiscount.percentOff}% OFF`
+                            : preview.appliedDiscount.amountOffMinor != null && preview.appliedDiscount.amountOffCurrency
+                            ? `${formatMoney(preview.appliedDiscount.amountOffMinor / 100, preview.appliedDiscount.amountOffCurrency)} OFF`
+                            : "PROMO"}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4 }}>
+                          Promo <span style={{ fontWeight: 600 }}>{preview.appliedDiscount.label}</span> applied to all amounts below.
+                        </div>
                       </div>
                     )}
+
+                    <div style={{ backgroundColor: C.bgSubtle, padding: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
+                        Today's charge
+                      </div>
+
+                      {preview.lines.map((line, i) => (
+                        <LineRow
+                          key={i}
+                          line={line}
+                          discount={preview.appliedDiscount ?? null}
+                          currency={preview.currency}
+                          C={C}
+                        />
+                      ))}
+
+                      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
+
+                      <Row label="Tax" value={fmt((preview.taxMinor ?? 0) / 100)} C={C} />
+                      <Row label="Total today" value={fmt((preview.totalMinor ?? 0) / 100)} C={C} bold />
+                    </div>
                   </div>
                 )}
 
@@ -406,10 +415,12 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 ) : null}
 
-                {/* ── Next billing — always visible (except "same"). Reads
-                    nextBillingAmountMinor (new shape) first, falls back to
-                    nextBillingAmountMajor for legacy branches (downgrade/
-                    resume) that haven't been migrated yet. ── */}
+                {/* ── Next billing — always visible (except "same"). Shows
+                    the sticker plan price (what's listed on the pricing page).
+                    If the user has an active discount, a small subtitle notes
+                    that it'll be applied at renewal — this avoids the user
+                    thinking they'll be charged the full sticker amount when
+                    in reality their discount carries forward. ── */}
                 {preview.kind !== "same" && preview.nextBillingDate && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 14, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
@@ -425,6 +436,11 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                         )} {preview.targetBilling === "annual" ? "/ year" : "/ month"}
                       </span>
                     </div>
+                    {preview.appliedDiscount && typeof preview.appliedDiscount.percentOff === "number" && (
+                      <div style={{ fontSize: 11, color: C.textMuted, opacity: 0.75, marginTop: 4 }}>
+                        Sticker price — your {preview.appliedDiscount.percentOff}% off promo will be applied at renewal.
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -556,8 +572,76 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 function Row({ label, value, C, bold, accent }: { label: string; value: string; C: C; bold?: boolean; accent?: boolean }) {
   return (
     <div className="flex items-center justify-between" style={{ paddingTop: 4, paddingBottom: 4 }}>
-      <span style={{ fontSize: 13, color: bold ? C.text : accent ? C.accent : C.textMuted, fontWeight: bold ? 700 : accent ? 600 : 400 }}>{label}</span>
+      <span style={{ fontSize: 13, color: bold ? C.text : accent ? C.accent : C.textMuted, fontWeight: bold ? 700 : accent ? 600 : 500 }}>{label}</span>
       <span style={{ fontSize: 13, color: accent ? C.accent : C.text, fontWeight: bold ? 700 : accent ? 600 : 500 }}>{value}</span>
     </div>
   );
+}
+
+// One row in the breakdown — shows the plan/credit name + period as the
+// primary label, the Stripe-charged amount on the right, and a subtitle
+// underneath with the sticker price + discount note. All values are pulled
+// from the preview API response (which itself is a passthrough of Stripe's
+// createPreview output). NO client-side math.
+function LineRow({
+  line,
+  discount,
+  currency,
+  C,
+}: {
+  line: PreviewLine;
+  discount: AppliedDiscount | null;
+  currency: string;
+  C: C;
+}) {
+  const fmt = (v: number) => formatMoney(v, currency);
+  const amountLabel = `${line.isCredit ? "−" : ""}${fmt(Math.abs(line.amountMinor) / 100)}`;
+  const periodLabel = formatLinePeriod(line);
+
+  // Sticker subtitle: "Sticker 14,99 €/mo · 75% off applied"
+  // - Sticker price comes from line.fullPriceMinor (Stripe Price.unit_amount)
+  // - Discount % comes from discount.percentOff (Stripe sub.discounts coupon)
+  // - Both are pure metadata, no math derivation.
+  const stickerParts: string[] = [];
+  if (typeof line.fullPriceMinor === "number" && line.fullPriceMinor > 0) {
+    const intervalSuffix = line.billingInterval === "annual" ? "/yr" : "/mo";
+    stickerParts.push(`Sticker ${fmt(line.fullPriceMinor / 100)}${intervalSuffix}`);
+  }
+  if (discount && typeof discount.percentOff === "number") {
+    stickerParts.push(`${discount.percentOff}% off applied`);
+  }
+  const stickerSubtitle = stickerParts.join(" · ");
+
+  return (
+    <div style={{ paddingTop: 6, paddingBottom: 6 }}>
+      <div className="flex items-center justify-between">
+        <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>
+          {line.label}
+          {periodLabel && (
+            <span style={{ color: C.textMuted, opacity: 0.7 }}>{` ${periodLabel}`}</span>
+          )}
+        </span>
+        <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{amountLabel}</span>
+      </div>
+      {stickerSubtitle && (
+        <div style={{ fontSize: 11, color: C.textMuted, opacity: 0.7, marginTop: 2 }}>
+          {stickerSubtitle}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Period label "(Apr 28 — May 27)" — year added when periods cross calendar
+// years (e.g. annual switch). Pure formatting from line.periodStart/End.
+function formatLinePeriod(line: PreviewLine): string {
+  if (!line.periodStart || !line.periodEnd) return "";
+  const start = new Date(line.periodStart * 1000);
+  const end = new Date(line.periodEnd * 1000);
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const opts: Intl.DateTimeFormatOptions = sameYear
+    ? { month: "short", day: "numeric" }
+    : { month: "short", day: "numeric", year: "numeric" };
+  const fmt = (d: Date) => new Intl.DateTimeFormat(undefined, opts).format(d);
+  return `(${fmt(start)} — ${fmt(end)})`;
 }

@@ -270,6 +270,16 @@ export async function POST(req: NextRequest) {
     });
     const targetAmountInSubCurrency = amountForCurrency(targetPrice, subCurrency);
 
+    // Current plan sticker price in the sub's currency — used so the modal
+    // can show "Pro Monthly (sticker 7,49 €/mo)" next to the credit line, so
+    // the user understands the gross prices behind the prorated amounts.
+    // Retrieved via Stripe (single source of truth for pricing) — no
+    // PLANS-derived math, no client-side reconstruction.
+    const currentPriceFull = await stripe.prices.retrieve(currentPriceId, {
+      expand: ["currency_options"],
+    });
+    const currentAmountInSubCurrency = amountForCurrency(currentPriceFull, subCurrency);
+
     // Downgrade: no charge today, change applied at period end. The next
     // invoice (at renewal) will be the target plan's full price.
     if (kind === "downgrade") {
@@ -388,12 +398,23 @@ export async function POST(req: NextRequest) {
       const label = isCredit
         ? `Unused ${currentPlanLabel} ${currentBillingLabel} credit`
         : `${targetPlanLabel} ${targetBillingLabel}`;
+      // Sticker (full-period) price for the plan referenced by this line —
+      // pulled from the Stripe Price object (Stripe is the source of truth
+      // for pricing). Allows the modal to show "(€14,99/mo)" next to the
+      // line label so the user sees the gross before the prorated/discounted
+      // amount Stripe charges.
+      const fullPriceMinor = isCredit
+        ? currentAmountInSubCurrency
+        : targetAmountInSubCurrency;
+      const billingInterval = isCredit ? currentBilling : targetBilling;
       return {
         label,
         amountMinor,
         periodStart: line.period?.start ?? null,
         periodEnd: line.period?.end ?? null,
         isCredit,
+        fullPriceMinor,
+        billingInterval,
       };
     });
 
