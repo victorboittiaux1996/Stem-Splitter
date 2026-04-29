@@ -206,7 +206,7 @@ export function ExportModal(props: Props) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="relative w-[480px] max-h-[85vh] overflow-hidden flex flex-col"
+            className="relative w-[calc(100vw-24px)] max-w-[480px] max-h-[90dvh] md:max-h-[85vh] overflow-hidden flex flex-col"
             style={{ backgroundColor: C.bgCard }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -226,9 +226,10 @@ export function ExportModal(props: Props) {
               </div>
               <button
                 onClick={handleClose}
-                className="p-[6px]"
+                className="min-h-11 min-w-11 md:min-h-0 md:min-w-0 md:p-[6px] flex items-center justify-center"
                 style={{ color: C.textMuted }}
                 aria-label="Close"
+                data-testid="modal-close"
               >
                 <X className="h-[16px] w-[16px]" strokeWidth={1.6} />
               </button>

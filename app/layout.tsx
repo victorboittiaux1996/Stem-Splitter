@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueueProvider } from "@/contexts/queue-context";
 import { AuthModalProvider } from "@/contexts/auth-modal-context";
@@ -16,6 +16,16 @@ export const metadata: Metadata = {
       "Split any song into vocals, drums, bass, and instruments. Studio-grade quality.",
     type: "website",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F7F6F6" },
+    { media: "(prefers-color-scheme: dark)", color: "#0F0F0F" },
+  ],
 };
 
 export default function RootLayout({

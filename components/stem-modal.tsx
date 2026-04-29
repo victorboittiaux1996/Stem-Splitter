@@ -321,7 +321,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
         </button>
       )}
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ duration: 0.15 }} className="relative w-[720px] max-h-[85vh] overflow-y-auto"
+        transition={{ duration: 0.15 }} className="relative w-[calc(100vw-24px)] md:w-[720px] max-w-[720px] max-h-[90dvh] md:max-h-[85vh] overflow-y-auto"
         style={{ backgroundColor: C.bgCard }} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-[24px] py-[18px]" style={{ backgroundColor: C.bgHover }}>
@@ -336,7 +336,7 @@ export function StemModal({ expandedFile, items, onClose, onNavigate, C, stemCol
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-[6px] transition-colors shrink-0 ml-[12px]" style={{ color: C.textMuted }}>
+          <button onClick={onClose} aria-label="Close" data-testid="modal-close" className="min-h-11 min-w-11 md:min-h-0 md:min-w-0 md:p-[6px] flex items-center justify-center transition-colors shrink-0 md:ml-[12px]" style={{ color: C.textMuted }}>
             <X className="h-[16px] w-[16px]" strokeWidth={1.6} />
           </button>
         </div>

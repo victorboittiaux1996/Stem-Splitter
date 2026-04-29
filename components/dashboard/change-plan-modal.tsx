@@ -264,7 +264,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && !submitting && onClose()}>
-      <DialogContent className="sm:max-w-[480px]" style={{ backgroundColor: C.bg, color: C.text, padding: 0, border: `1px solid ${C.text}1A` }}>
+      <DialogContent className="w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] md:max-w-[480px]" style={{ backgroundColor: C.bg, color: C.text, padding: 0, border: `1px solid ${C.text}1A` }}>
         <div style={{ padding: 24 }}>
           <DialogHeader>
             <DialogTitle style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>

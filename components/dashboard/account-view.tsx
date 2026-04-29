@@ -262,8 +262,8 @@ function InvoicesCard({ C }: { C: AccountViewProps["C"] }) {
         <div style={{ fontSize: 13, color: C.textMuted, padding: "8px 0" }}>No invoices yet.</div>
       )}
       {invoices && invoices.length > 0 && (
-        <div>
-          <div className="grid" style={{ gridTemplateColumns: "140px 1fr 120px 90px 80px", gap: 0 }}>
+        <div className="overflow-x-auto">
+          <div className="grid" style={{ gridTemplateColumns: "140px 1fr 120px 90px 80px", gap: 0, minWidth: 540 }}>
             {["DATE", "INVOICE", "AMOUNT", "STATUS", ""].map((col, i) => (
               <div key={col + i} style={{ padding: "8px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, textAlign: i >= 2 ? "right" as const : "left" as const, borderBottom: `1px solid ${C.text}14`, textTransform: "uppercase" as const }}>
                 {col}
@@ -279,6 +279,7 @@ function InvoicesCard({ C }: { C: AccountViewProps["C"] }) {
                 gap: 0,
                 alignItems: "center",
                 backgroundColor: i % 2 === 1 ? `${C.text}03` : "transparent",
+                minWidth: 540,
               }}
             >
               <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted, display: "flex", alignItems: "center" }}>
@@ -448,8 +449,8 @@ function PlansAndPricing({ C, planLabel, minutesIncluded, isCanceledButActive, p
         </span>
       </div>
 
-      {/* Plan cards grid — matching website /pricing style */}
-      <div className="grid grid-cols-3 gap-[2px]" style={{ marginBottom: 20 }}>
+      {/* Plan cards grid — 1 col below lg (iPad portrait + phones), 3 cols ≥1024px */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-[2px]" style={{ marginBottom: 20 }}>
         {PLAN_ORDER.map((id) => {
           const plan = PLANS[id];
           const accent = planAccents[id];
@@ -972,32 +973,35 @@ export function AccountView({ C, section, onSectionChange, planLabel = "Free Pla
             <div style={{ marginBottom: 0 }}>
               <SectionHeading C={C}>Usage History</SectionHeading>
 
-              <div className="grid" style={{ gridTemplateColumns: "140px 1fr 80px 90px 90px", gap: 0 }}>
-                {["DATE", "DETAILS", "TYPE", "TIME", "BALANCE"].map((col, i) => (
-                  <div key={col} style={{ padding: "8px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, textAlign: i >= 2 ? "right" as const : "left" as const, borderBottom: `1px solid ${C.text}14` }}>
-                    {col}
+              <div className="overflow-x-auto">
+                <div className="grid" style={{ gridTemplateColumns: "140px 1fr 80px 90px 90px", gap: 0, minWidth: 500 }}>
+                  {["DATE", "DETAILS", "TYPE", "TIME", "BALANCE"].map((col, i) => (
+                    <div key={col} style={{ padding: "8px 0", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.textMuted, textAlign: i >= 2 ? "right" as const : "left" as const, borderBottom: `1px solid ${C.text}14` }}>
+                      {col}
+                    </div>
+                  ))}
+                </div>
+
+                {visibleRowsWithBalance.map((row, i) => (
+                  <div
+                    key={i}
+                    className="grid"
+                    style={{
+                      gridTemplateColumns: "140px 1fr 80px 90px 90px",
+                      gap: 0,
+                      alignItems: "center",
+                      backgroundColor: i % 2 === 1 ? `${C.text}03` : "transparent",
+                      minWidth: 500,
+                    }}
+                  >
+                    <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted }}>{row.date}</div>
+                    <div style={{ padding: "11px 0", fontSize: 13, color: C.text, overflow: "hidden", whiteSpace: "nowrap" as const, textOverflow: "ellipsis", paddingRight: 16 }}>{row.details}</div>
+                    <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted, textAlign: "right" as const }}>{row.type}</div>
+                    <div style={{ padding: "11px 0", fontSize: 13, fontWeight: 600, color: row.positive ? C.accent : C.text, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{row.displayTime}</div>
+                    <div style={{ padding: "11px 0", fontSize: 13, color: C.textMuted, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{row.displayBalance}</div>
                   </div>
                 ))}
               </div>
-
-              {visibleRowsWithBalance.map((row, i) => (
-                <div
-                  key={i}
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: "140px 1fr 80px 90px 90px",
-                    gap: 0,
-                    alignItems: "center",
-                    backgroundColor: i % 2 === 1 ? `${C.text}03` : "transparent",
-                  }}
-                >
-                  <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted }}>{row.date}</div>
-                  <div style={{ padding: "11px 0", fontSize: 13, color: C.text, overflow: "hidden", whiteSpace: "nowrap" as const, textOverflow: "ellipsis", paddingRight: 16 }}>{row.details}</div>
-                  <div style={{ padding: "11px 0", fontSize: 12, color: C.textMuted, textAlign: "right" as const }}>{row.type}</div>
-                  <div style={{ padding: "11px 0", fontSize: 13, fontWeight: 600, color: row.positive ? C.accent : C.text, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{row.displayTime}</div>
-                  <div style={{ padding: "11px 0", fontSize: 13, color: C.textMuted, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{row.displayBalance}</div>
-                </div>
-              ))}
 
               {!showAll && historyData.length > 10 && (
                 <div className="text-center" style={{ paddingTop: 16 }}>

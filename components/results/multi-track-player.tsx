@@ -208,11 +208,11 @@ export function MultiTrackPlayer({ stems, jobId, fileName }: MultiTrackPlayerPro
               initial={{ opacity: 0, x: -16 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.05 }}
-              className={`flex items-center gap-3 rounded-lg border p-3 transition-all ${
+              className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 transition-all ${
                 isActive ? config.bgColor : "bg-muted/5 border-border/10 opacity-40"
               }`}
             >
-              <div className="flex w-24 items-center gap-2">
+              <div className="flex w-full lg:w-24 items-center gap-2">
                 <Icon className={`h-4 w-4 ${config.color}`} />
                 <span className="text-sm font-medium">{config.label}</span>
               </div>
@@ -235,7 +235,7 @@ export function MultiTrackPlayer({ stems, jobId, fileName }: MultiTrackPlayerPro
                 M
               </button>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[120px]">
                 <Slider
                   value={[volumes[stem.name] ?? 1]}
                   min={0}
@@ -248,7 +248,7 @@ export function MultiTrackPlayer({ stems, jobId, fileName }: MultiTrackPlayerPro
                 />
               </div>
 
-              <div className="w-20 h-1 rounded-full bg-muted/20 overflow-hidden">
+              <div className="w-full lg:w-20 h-1 rounded-full bg-muted/20 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${isActive ? "bg-primary/60" : "bg-muted/20"}`}
                   style={{ width: `${progressPercent}%` }}

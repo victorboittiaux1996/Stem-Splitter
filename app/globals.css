@@ -134,3 +134,40 @@ button:not(:disabled) {
     @apply font-sans;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Mobile responsive overrides for landing + marketing pages.
+   The .site-container class is applied to the <Container> component
+   in app/page.tsx and to long-form public pages. Inline styles on
+   the landing use hardcoded fontSize and padding values that are
+   sized for desktop; these @media rules clamp them on mobile.
+   The !important is required because inline `style={{}}` always wins
+   over external CSS without it.
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .site-container {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    max-width: 100% !important;
+  }
+  /* Hero h1 + section h2 only — h3/p blanket overrides removed to avoid
+     bloating eyebrow uppercase labels (16px) and shrinking pricing card
+     titles (24px). Subsequent batches add per-component class hooks if
+     a specific h3/p needs mobile sizing. */
+  .site-container h1 {
+    font-size: 36px !important;
+    line-height: 1.1 !important;
+    max-width: 100% !important;
+  }
+  .site-container h2 {
+    font-size: 26px !important;
+    line-height: 1.15 !important;
+  }
+  /* Long-form prose pages: /about, /terms, /privacy, /cookies, /contact, /docs/* */
+  .long-form-prose {
+    font-size: 16px !important;
+    line-height: 1.7 !important;
+  }
+  .long-form-prose h1 { font-size: 32px !important; }
+  .long-form-prose h2 { font-size: 22px !important; }
+}

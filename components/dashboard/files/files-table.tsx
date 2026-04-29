@@ -105,8 +105,10 @@ export function FilesTable(props: Props) {
   );
 
   return (
-    <>
-      {/* Column headers */}
+    <div className="overflow-x-auto">
+      {/* Column headers — minimum width below preserves the table layout
+          when the viewport shrinks (mobile gets horizontal scroll instead
+          of squashed columns). */}
       <div
         className="flex items-center px-[16px] py-[8px] select-none"
         style={{
@@ -115,6 +117,7 @@ export function FilesTable(props: Props) {
           fontWeight: 500,
           letterSpacing: "0.05em",
           borderBottom: `1px solid ${C.text}08`,
+          minWidth: 540,
         }}
       >
         <button
@@ -178,6 +181,7 @@ export function FilesTable(props: Props) {
                   ? C.bgCard
                   : C.bgSubtle
                 : C.bgCard,
+              minWidth: 540,
             }}
           >
             {/* Left zone — click anywhere here toggles selection. Covers the
@@ -295,6 +299,6 @@ export function FilesTable(props: Props) {
           </div>
         );
       })}
-    </>
+    </div>
   );
 }

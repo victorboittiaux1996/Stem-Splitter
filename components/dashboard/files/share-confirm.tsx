@@ -36,7 +36,7 @@ export function ShareConfirm({ open, onClose, C, fileId, fileName, generating, o
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="relative w-[420px] overflow-hidden"
+            className="relative w-[calc(100vw-24px)] max-w-[420px] overflow-hidden"
             style={{ backgroundColor: C.bgCard }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -49,10 +49,11 @@ export function ShareConfirm({ open, onClose, C, fileId, fileName, generating, o
               </p>
               <button
                 onClick={onClose}
-                className="p-[4px]"
+                className="min-h-11 min-w-11 md:min-h-0 md:min-w-0 md:p-[4px] flex items-center justify-center"
                 style={{ color: C.textMuted }}
                 disabled={generating}
                 aria-label="Close"
+                data-testid="modal-close"
               >
                 <X className="h-[14px] w-[14px]" strokeWidth={1.6} />
               </button>

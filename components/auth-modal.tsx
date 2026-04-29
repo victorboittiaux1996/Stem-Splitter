@@ -65,11 +65,9 @@ export function AuthModal({ isOpen, onClose, redirectTo = "/app", standalone = f
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97, y: 8 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className="w-[calc(100vw-24px)] max-w-[580px] p-6 md:p-[52px] md:pb-[44px]"
       style={{
-        width: 580,
-        maxWidth: "calc(100vw - 32px)",
         backgroundColor: C.bg,
-        padding: "52px 52px 44px",
         position: "relative",
         zIndex: 1001,
       }}
@@ -79,18 +77,14 @@ export function AuthModal({ isOpen, onClose, redirectTo = "/app", standalone = f
       {!standalone && (
         <button
           onClick={onClose}
+          aria-label="Close"
+          data-testid="modal-close"
+          className="min-h-11 min-w-11 md:min-h-0 md:min-w-0 absolute top-2 right-2 md:top-5 md:right-5 flex items-center justify-center"
           style={{
-            position: "absolute",
-            top: 20,
-            right: 20,
             background: "transparent",
             border: "none",
             cursor: "pointer",
             color: C.textMuted,
-            padding: 4,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
           }}
         >
           <X size={20} />
@@ -99,15 +93,17 @@ export function AuthModal({ isOpen, onClose, redirectTo = "/app", standalone = f
 
       {/* Welcome to 44Stems — large title, left-aligned, lots of whitespace below */}
       {!emailMode && (
-        <h2 style={{
-          fontSize: 38,
-          fontWeight: 700,
-          color: C.text,
-          margin: "0 0 100px 0",
-          fontFamily: fonts.heading,
-          letterSpacing: "-0.02em",
-          lineHeight: 1.1,
-        }}>
+        <h2
+          className="text-[28px] md:text-[38px]"
+          style={{
+            fontWeight: 700,
+            color: C.text,
+            margin: "0 0 100px 0",
+            fontFamily: fonts.heading,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.1,
+          }}
+        >
           Welcome to 44Stems
         </h2>
       )}
@@ -258,12 +254,7 @@ export function AuthModal({ isOpen, onClose, redirectTo = "/app", standalone = f
 
           <NewsletterToggle />
 
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 8,
-            marginBottom: 24,
-          }}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
             <OAuthCard label="Google" color={stemColors.vocals} onClick={() => handleOAuth("google")}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="white" fillOpacity="0.95">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>

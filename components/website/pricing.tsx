@@ -407,14 +407,8 @@ export function Pricing({ variant, onUpgrade }: PricingProps) {
           </div>
         </div>
 
-        {/* Cards grid */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "12px",
-          }}
-        >
+        {/* Cards grid — 1 col mobile, 3 cols desktop */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {tiers.map((tier) => (
             <PricingCard key={tier.id} tier={tier} variant={variant} onUpgrade={onUpgrade} annual={annual} />
           ))}

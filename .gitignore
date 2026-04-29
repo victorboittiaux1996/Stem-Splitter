@@ -59,6 +59,15 @@ __pycache__/
 !app/icon.png
 !app/opengraph-image.png
 !app/twitter-image.png
+!tests/e2e/**/*-snapshots/**/*.png
+
+# playwright e2e tests
+tests/.report/
+tests/.results/
+tests/fixtures/auth.json
+playwright/.cache/
+playwright-report/
+test-results/
 
 # handoff files (may contain tokens)
 HANDOFF.md

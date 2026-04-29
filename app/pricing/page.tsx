@@ -81,7 +81,7 @@ const C = {
 // ─── Shared layout ──────────────────────────────────────────
 function Container({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px", ...style }}>
+    <div className="site-container" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px", ...style }}>
       {children}
     </div>
   );
@@ -419,7 +419,7 @@ export default function PricingPage() {
         {/* Plan cards */}
         <section style={{ padding: "0 0 80px" }}>
           <Container>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px]">
               {(["free", "pro", "studio"] as PlanId[]).map((id, i) => (
                 <FadeIn key={id} delay={i * 0.08}>
                   <PlanCard planId={id} annual={annual} localPrices={localPrices} />
@@ -466,11 +466,7 @@ export default function PricingPage() {
               }}>
                 Why 44Stems
               </h2>
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 48,
-              }}>
+              <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 48 }}>
                 {VALUE_PROPS.map((prop, i) => (
                   <FadeIn key={prop.title} delay={i * 0.06}>
                     <div>

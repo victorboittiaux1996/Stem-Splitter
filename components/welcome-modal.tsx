@@ -40,26 +40,21 @@ export function WelcomeModal() {
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent
         showCloseButton={false}
-        className="!border-none !ring-0 !shadow-none !bg-white !p-0 !max-w-[580px] !w-[calc(100vw-32px)] !gap-0"
+        className="!border-none !ring-0 !shadow-none !bg-white !p-0 !max-w-[580px] !w-[calc(100vw-24px)] !gap-0"
       >
-        <div style={{ padding: "52px 52px 44px", position: "relative" }}>
+        <div className="p-6 md:p-[52px] md:pb-[44px]" style={{ position: "relative" }}>
           {/* Close button — matches auth modal */}
           <button
             type="button"
             aria-label="Close"
+            data-testid="modal-close"
             onClick={handleClose}
+            className="min-h-11 min-w-11 md:min-h-0 md:min-w-0 absolute top-2 right-2 md:top-5 md:right-5 flex items-center justify-center"
             style={{
-              position: "absolute",
-              top: 20,
-              right: 20,
               background: "transparent",
               border: "none",
               cursor: "pointer",
               color: C.textIcon,
-              padding: 4,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
             }}
           >
             <X size={20} />
@@ -73,15 +68,12 @@ export function WelcomeModal() {
           >
             <DialogTitle
               style={{
-                fontSize: 38,
-                fontWeight: 700,
                 color: C.text,
                 margin: 0,
                 fontFamily: fonts.heading,
                 letterSpacing: "-0.02em",
-                lineHeight: 1.1,
               }}
-              className="!text-[38px] !font-bold !leading-[1.1]"
+              className="!text-[28px] md:!text-[38px] !font-bold !leading-[1.1]"
             >
               Welcome to 44Stems
             </DialogTitle>

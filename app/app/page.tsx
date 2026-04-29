@@ -376,6 +376,9 @@ export default function AbletonDashboard() {
 
   const profileRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
 
   // Auto-collapse sidebar on mobile
   useEffect(() => {
@@ -385,6 +388,28 @@ export default function AbletonDashboard() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  // Mobile drawer: ESC closes, body scroll lock when open, close on resize ≥lg,
+  // focus close button on open, restore focus to hamburger on close (a11y).
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileNavOpen(false); };
+    const onResize = () => { if (window.innerWidth >= 1024) setMobileNavOpen(false); };
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    // Focus close button on open
+    const focusTimeout = setTimeout(() => drawerCloseRef.current?.focus(), 220);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+      document.body.style.overflow = prevOverflow;
+      clearTimeout(focusTimeout);
+      // Return focus to hamburger after exit animation
+      setTimeout(() => hamburgerRef.current?.focus(), 220);
+    };
+  }, [mobileNavOpen]);
   const WORKSPACE_ID = user ? `ws-${user.id}` : "";
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -864,8 +889,8 @@ export default function AbletonDashboard() {
         .sidebar-btn:hover { background-color: ${C.bgHover} !important; }
       `}</style>
 
-      {/* ─── Sidebar ─── */}
-      <aside className="flex h-full shrink-0 flex-col"
+      {/* ─── Sidebar (desktop only — hidden on mobile/tablet portrait, drawer below) ─── */}
+      <aside className="hidden lg:flex h-full shrink-0 flex-col"
         style={{ width: sidebarCollapsed ? 52 : 220, transition: "width 220ms cubic-bezier(0.4,0,0.2,1)", backgroundColor: C.sidebarBg, overflow: "visible", position: "relative", zIndex: 20 }}>
 
         {/* Logo + toggle */}
@@ -1129,6 +1154,26 @@ export default function AbletonDashboard() {
       {/* ─── Main ─── */}
       <div className="flex flex-1 flex-col overflow-hidden">
 
+        {/* Mobile topbar — lg:hidden, 52px sticky */}
+        <div className="lg:hidden flex h-[52px] items-center justify-between px-[12px] shrink-0" style={{ backgroundColor: C.sidebarBg, position: "relative", zIndex: 10 }}>
+          <button
+            ref={hamburgerRef}
+            onClick={() => setMobileNavOpen(true)}
+            data-testid="header-hamburger"
+            aria-label="Open navigation menu"
+            className="min-h-11 min-w-11 flex items-center justify-center"
+            style={{ color: C.text, cursor: "pointer" }}
+          >
+            <svg width="20" height="14" viewBox="0 0 20 14" fill="none">
+              <line x1="0" y1="1" x2="20" y2="1" stroke="currentColor" strokeWidth="1.4"/>
+              <line x1="0" y1="7" x2="20" y2="7" stroke="currentColor" strokeWidth="1.4"/>
+              <line x1="0" y1="13" x2="20" y2="13" stroke="currentColor" strokeWidth="1.4"/>
+            </svg>
+          </button>
+          <span style={{ fontFamily: F, fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em", color: C.text }}>44Stems</span>
+          <div className="min-w-11" aria-hidden="true" />
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
 
@@ -1323,7 +1368,7 @@ export default function AbletonDashboard() {
                     )}
 
                     {/* Action bar */}
-                    <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
+                    <div className="flex flex-col gap-y-2 md:flex-row md:items-center md:justify-between" style={{ marginTop: 12 }}>
                       <div className="flex items-center gap-[4px]">
                         <button onClick={() => { setInputMode("file"); inputRef.current?.click(); }} className="p-[8px] transition-colors" style={{ color: C.textMuted }}>
                           <RiFileUploadFill size={16}/>
@@ -1630,7 +1675,7 @@ export default function AbletonDashboard() {
                 <div style={{ maxWidth: 900, margin: "0 auto" }}>
                   <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text, marginBottom: 24 }}>Statistics</h2>
                   {/* Stat cards grid */}
-                  <div className="grid grid-cols-4 gap-[8px] mb-[24px]">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-[8px] mb-[24px]">
                     {stats.map((stat) => (
                       <div key={stat.label}
                         className="px-[16px] py-[14px]" style={{ backgroundColor: C.bgCard }}>
@@ -1699,7 +1744,7 @@ export default function AbletonDashboard() {
                   <>
                     <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: C.text, marginBottom: 6 }}>Games</h2>
                     <p style={{ fontSize: 15, color: C.textMuted, marginBottom: 24, letterSpacing: "0.02em" }}>TAKE A BREAK BETWEEN SPLITS</p>
-                    <div className="grid grid-cols-3 gap-[8px]">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-[8px]">
                       {[
                         { id: "bpm", name: "BPM TAP", desc: "Tap the tempo of famous tracks", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v14M5 6v6M13 4v10M1 8v2M17 8v2" stroke={C.accent} strokeWidth="1.5" strokeLinecap="square"/></svg> },
                         { id: "tomato", name: "TOMATO TOSS", desc: "Throw tomatoes at a bad DJ", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="10" r="6" stroke={C.accent} strokeWidth="1.5"/><path d="M7 4c1-2 3-2 4 0" stroke={C.accent} strokeWidth="1.5" strokeLinecap="round"/></svg> },
@@ -1753,6 +1798,168 @@ export default function AbletonDashboard() {
       </div>
 
       <WelcomeModal />
+
+      {/* ─── Mobile drawer + backdrop (lg:hidden) ─── */}
+      <AnimatePresence>
+        {mobileNavOpen && (
+          <>
+            <motion.div
+              key="mobile-nav-backdrop"
+              className="lg:hidden fixed inset-0 z-40"
+              style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <motion.aside
+              key="mobile-nav-drawer"
+              role="dialog"
+              aria-label="Navigation menu"
+              aria-modal="true"
+              className="lg:hidden fixed top-0 left-0 z-50 flex flex-col"
+              style={{ width: 280, height: "100dvh", backgroundColor: C.sidebarBg }}
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: "tween", duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            >
+              {/* Drawer header */}
+              <div className="flex items-center justify-between shrink-0 px-[16px]" style={{ height: 52 }}>
+                <div className="flex items-center gap-[8px]">
+                  <svg height="14" viewBox="0 0 24 21" fill="none" overflow="visible">
+                    <rect x="0" y="0"  width="24" height="3" fill={C.text}/>
+                    <rect x="0" y="6"  width="24" height="3" fill={C.text}/>
+                    <rect x="0" y="12" width="24" height="3" fill={C.text}/>
+                    <rect x="0" y="18" width="24" height="3" fill={C.text}/>
+                  </svg>
+                  <span style={{ fontFamily: F, fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em", color: C.text }}>44Stems</span>
+                </div>
+                <button
+                  ref={drawerCloseRef}
+                  onClick={() => setMobileNavOpen(false)}
+                  aria-label="Close navigation menu"
+                  className="min-h-11 min-w-11 flex items-center justify-center"
+                  style={{ color: C.text, cursor: "pointer" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" strokeWidth="1.2"/>
+                    <line x1="12" y1="2" x2="2" y2="12" stroke="currentColor" strokeWidth="1.2"/>
+                  </svg>
+                </button>
+              </div>
+
+              {/* Profile mini */}
+              <div className="px-[16px] py-[12px] shrink-0">
+                <div className="flex items-center gap-[10px]">
+                  <div className="shrink-0 flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, #1B10FD 0%, #7C3AED 100%)" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{initials}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div style={{ fontSize: 14, fontWeight: 600, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</div>
+                    <div style={{ fontSize: 12, color: isPro ? C.accent : C.textMuted, fontWeight: isPro ? 600 : 400 }}>{planLabel}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-[10px]" style={{ marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: C.textSec }}>{remainingFormatted} left</span>
+                  <span style={{ fontSize: 12, color: C.textMuted }}>{minutesNeverReset ? "Never resets" : `Resets in ${daysUntilReset}d`}</span>
+                </div>
+                <div style={{ height: 2, backgroundColor: C.bgHover }}>
+                  <div style={{ height: "100%", width: `${usagePercent}%`, backgroundColor: C.accent }} />
+                </div>
+                <button
+                  className="w-full mt-[12px] py-[10px] min-h-11"
+                  onClick={() => { setView("settings"); setSettingsSection("subscription"); setMobileNavOpen(false); }}
+                  style={{ backgroundColor: C.accent, color: "#fff", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer" }}
+                >
+                  UPGRADE
+                </button>
+              </div>
+
+              {/* Nav items */}
+              <nav className="flex-1 overflow-y-auto px-[10px] py-[8px] space-y-[2px]">
+                {([
+                  { id: "split" as View, label: "Split Audio", svg: (c: string) => (
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                      <rect x="1" y="2" width="6" height="12" stroke={c} strokeWidth="0.7"/>
+                      <line x1="7" y1="4" x2="7" y2="12" stroke={c} strokeWidth="0.7"/>
+                      <line x1="9" y1="3.5" x2="14" y2="3.5" stroke={c} strokeWidth="0.7"/>
+                      <line x1="9" y1="6.5" x2="14" y2="6.5" stroke={c} strokeWidth="0.7"/>
+                      <line x1="9" y1="9.5" x2="14" y2="9.5" stroke={c} strokeWidth="0.7"/>
+                      <line x1="9" y1="12.5" x2="14" y2="12.5" stroke={c} strokeWidth="0.7"/>
+                    </svg>
+                  )},
+                  { id: "files" as View, label: "My Files", svg: (c: string) => (
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                      <path d="M2 4V13H14V6H8L6 4H2Z" stroke={c} strokeWidth="0.7" strokeLinejoin="miter" fill="none"/>
+                    </svg>
+                  )},
+                  { id: "stats" as View, label: "Statistics", svg: (c: string) => (
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                      <line x1="3.5" y1="7" x2="3.5" y2="13" stroke={c} strokeWidth="0.7"/>
+                      <line x1="6.5" y1="4" x2="6.5" y2="13" stroke={c} strokeWidth="0.7"/>
+                      <line x1="9.5" y1="9" x2="9.5" y2="13" stroke={c} strokeWidth="0.7"/>
+                      <line x1="12.5" y1="2" x2="12.5" y2="13" stroke={c} strokeWidth="0.7"/>
+                      <line x1="2" y1="13" x2="14" y2="13" stroke={c} strokeWidth="0.7"/>
+                    </svg>
+                  )},
+                  { id: "games" as View, label: "Games", svg: (c: string) => (
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                      <rect x="2" y="2" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                      <rect x="9" y="2" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                      <rect x="2" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                      <rect x="9" y="9" width="5" height="5" stroke={c} strokeWidth="0.7"/>
+                    </svg>
+                  )},
+                ]).map(item => {
+                  const isActive = view === item.id;
+                  const iconColor = isActive ? C.text : C.textSec;
+                  return (
+                    <button
+                      key={item.id}
+                      data-testid="drawer-nav-item"
+                      onClick={() => { setView(item.id); setActiveGame(""); setMobileNavOpen(false); }}
+                      className="flex w-full items-center gap-[12px] min-h-11 px-[12px]"
+                      style={{
+                        backgroundColor: isActive ? C.navActive : "transparent",
+                        fontSize: 15,
+                        fontWeight: 500,
+                        letterSpacing: "0.01em",
+                        color: isActive ? C.text : C.textSec,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div className="w-[18px] h-[18px] shrink-0">{item.svg(iconColor)}</div>
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              {/* Bottom: settings + sign out */}
+              <div className="shrink-0 px-[10px] py-[8px] space-y-[2px]" style={{ backgroundColor: C.bgSubtle }}>
+                <button
+                  onClick={() => { setView("settings"); setSettingsSection("profile"); setMobileNavOpen(false); }}
+                  className="flex w-full items-center gap-[12px] min-h-11 px-[12px]"
+                  style={{ fontSize: 15, fontWeight: 500, color: C.textSec, cursor: "pointer" }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="0.7"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="0.7"/></svg>
+                  <span>Settings</span>
+                </button>
+                <button
+                  onClick={() => { signOut(); setMobileNavOpen(false); }}
+                  className="flex w-full items-center gap-[12px] min-h-11 px-[12px]"
+                  style={{ fontSize: 15, fontWeight: 500, color: "#FF3B30", cursor: "pointer" }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M6 2H3v12h3M9 5l3 3-3 3M12 8H6" stroke="currentColor" strokeWidth="0.7" fill="none"/></svg>
+                  <span>Sign out</span>
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

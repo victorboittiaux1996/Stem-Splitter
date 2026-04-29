@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocalPrices as useLocalPricesHome, formatCurrency as formatCurrencyHome } from "@/hooks/use-local-prices";
 import { motion, useInView } from "framer-motion";
-import { Logo } from "@/components/website/logo";
+import { Header } from "@/components/website/header";
 import { Footer } from "@/components/website/footer";
 import { FAQ } from "@/components/website/faq";
 import { fonts, stemColors } from "@/components/website/theme";
@@ -12,6 +12,7 @@ import { PLANS, ANNUAL_DISCOUNT_PERCENT, type PlanId } from "@/lib/plans";
 import { useAuth } from "@/hooks/use-auth";
 import { useSubscription } from "@/hooks/use-subscription";
 import { HeroDemo } from "@/components/website/hero-demo";
+import { HeroDemoMobile } from "@/components/website/hero-demo-mobile";
 import {
   RiEqualizerFill,
   RiCpuFill,
@@ -37,7 +38,7 @@ const C = {
 // ─── Shared ─────────────────────────────────────────────────
 function Container({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px", ...style }}>
+    <div className="site-container" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px", ...style }}>
       {children}
     </div>
   );
@@ -78,236 +79,7 @@ function SectionLabel({ children }: { children: string }) {
 
 // (AppPreview removed — now using HeroDemo from components/website/hero-demo.tsx)
 
-// ─── Header ─────────────────────────────────────────────────
-function Header() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const h = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", h, { passive: true });
-    return () => window.removeEventListener("scroll", h);
-  }, []);
-
-  return (
-    <header
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 100,
-        height: 56,
-        display: "flex",
-        alignItems: "center",
-        backgroundColor: scrolled ? "rgba(255,255,255,0.92)" : C.bg,
-        backdropFilter: scrolled ? "blur(20px)" : "none",
-        WebkitBackdropFilter: scrolled ? "blur(20px)" : "none",
-        borderBottom: scrolled ? "1px solid #E0E0E0" : "1px solid transparent",
-        transition: "all 0.25s ease",
-      }}
-    >
-      <Container style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", width: "100%" }}>
-        {/* Logo — left */}
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
-            <Logo size="md" color={C.text} monochrome />
-          </a>
-        </div>
-        {/* Nav — center */}
-        <nav style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <NavLink label="Product" href="#features" />
-          <NavLink label="Pricing" href="/pricing" />
-          <NavLink label="API" href="#" />
-          <NavDropdown
-            label="Resources"
-            items={[
-              { label: "Docs", href: "#" },
-              { label: "Blog", href: "#" },
-              { label: "Changelog", href: "#" },
-              { label: "Community", href: "#" },
-              { label: "Help", href: "#" },
-              { label: "Tutorials", href: "#" },
-            ]}
-          />
-        </nav>
-        {/* CTAs — right */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
-          <HeaderAuthActions />
-        </div>
-      </Container>
-    </header>
-  );
-}
-
-function NavLink({ label, href }: { label: string; href: string }) {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <a
-      href={href}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
-        color: C.text,
-        opacity: hovered ? 0.6 : 1,
-        textDecoration: "none", padding: "6px 15px",
-        transition: "opacity 0.15s",
-      }}
-    >
-      {label}
-    </a>
-  );
-}
-
-function NavDropdown({ label, items }: { label: string; items: { label: string; href: string }[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div
-      style={{ position: "relative" }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <button
-        style={{
-          fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
-          color: C.text, opacity: open ? 0.6 : 1, background: "transparent",
-          border: "none", cursor: "pointer",
-          padding: "6px 15px", display: "inline-flex", alignItems: "center",
-          transition: "opacity 0.15s",
-        }}
-      >
-        {label}
-      </button>
-      {/* Invisible bridge so mouse doesn't lose hover */}
-      <div style={{
-        position: "absolute", top: "100%", left: 0, right: 0, height: 8,
-        pointerEvents: open ? "auto" : "none",
-      }} />
-      <motion.div
-        initial={{ opacity: 0, y: -4 }}
-        animate={{ opacity: open ? 1 : 0, y: open ? 0 : -4 }}
-        transition={{ duration: 0.15, ease: "easeOut" }}
-        style={{
-          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
-          padding: "12px 8px",
-          backgroundColor: C.bg, border: `1px solid ${C.bgCard}`,
-          boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
-          minWidth: 300,
-          display: "grid", gridTemplateColumns: "1fr 1fr",
-          pointerEvents: open ? "auto" : "none",
-        }}
-      >
-        {items.map(({ label: l, href }) => (
-          <DropdownLink key={l} label={l} href={href} />
-        ))}
-      </motion.div>
-    </div>
-  );
-}
-
-function DropdownLink({ label, href }: { label: string; href: string }) {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <a
-      href={href}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        fontFamily: fonts.body, fontSize: 14, fontWeight: 400,
-        color: C.text,
-        textDecoration: "none",
-        padding: "8px 12px",
-        backgroundColor: hovered ? "rgba(0,0,0,0.04)" : "transparent",
-        transition: "background-color 0.15s",
-      }}
-    >
-      {label}
-    </a>
-  );
-}
-
-function HeaderAuthActions() {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return <div style={{ height: 36, width: 180 }} aria-hidden />;
-  }
-
-  if (user) {
-    return <GoToAppButton />;
-  }
-
-  return (
-    <>
-      <LoginButton />
-      <HeaderCTA />
-    </>
-  );
-}
-
-function LoginButton() {
-  const [hovered, setHovered] = useState(false);
-  const { openAuthModal } = useAuthModal();
-  return (
-    <button
-      onClick={() => openAuthModal()}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
-        color: C.text, opacity: hovered ? 0.6 : 1,
-        background: "transparent", border: "none", cursor: "pointer",
-        padding: "6px 15px",
-        display: "inline-flex", alignItems: "center",
-        transition: "opacity 0.15s",
-      }}
-    >
-      Log in
-    </button>
-  );
-}
-
-function HeaderCTA() {
-  const [hovered, setHovered] = useState(false);
-  const { openAuthModal } = useAuthModal();
-  return (
-    <button
-      onClick={() => openAuthModal("/app")}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: "#FFFFFF",
-        backgroundColor: hovered ? C.accentHover : C.accent,
-        border: "none", cursor: "pointer",
-        padding: "0 20px", height: 36,
-        display: "inline-flex", alignItems: "center",
-        transition: "background-color 0.15s",
-      }}
-    >
-      Get Started
-    </button>
-  );
-}
-
-function GoToAppButton() {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <a
-      href="/app"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        fontFamily: fonts.body, fontSize: 14, fontWeight: 500, color: "#FFFFFF",
-        backgroundColor: hovered ? C.accentHover : C.accent,
-        border: "none", cursor: "pointer",
-        padding: "0 20px", height: 36,
-        display: "inline-flex", alignItems: "center",
-        textDecoration: "none",
-        transition: "background-color 0.15s",
-      }}
-    >
-      Go to app
-    </a>
-  );
-}
+// Header + nav helpers are imported from components/website/header (shared, mobile-responsive)
 
 // ─── Hero ───────────────────────────────────────────────────
 function Hero() {
@@ -345,37 +117,44 @@ function Hero() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          style={{ marginTop: 40, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}
+          className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 md:gap-0"
+          style={{ marginTop: 40 }}
         >
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
             <HeroTryFree />
             <HeroCTA label="See pricing" variant="secondary" href="/pricing" />
           </div>
           <span
+            className="text-center md:text-left"
             style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
               fontFamily: fonts.body, fontSize: 14, fontWeight: 500,
             }}
           >
-            <span><span style={{ color: C.textMuted }}>Built by producers, </span><span style={{ color: C.text }}>for producers.</span></span>
+            <span style={{ color: C.textMuted }}>Built by producers, </span><span style={{ color: C.text }}>for producers.</span>
           </span>
         </motion.div>
 
-        {/* Product preview */}
+        {/* Product preview — interactive HeroDemo on desktop, static PNG on mobile
+            (HeroDemo's interior layout is fixed at 880px and doesn't scale to <md). */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
           style={{ marginTop: 64 }}
         >
-          <HeroDemo />
+          <div className="hidden md:block">
+            <HeroDemo />
+          </div>
+          <div className="md:hidden">
+            <HeroDemoMobile />
+          </div>
         </motion.div>
       </Container>
     </section>
   );
 }
 
-function HeroCTA({ label, variant, href, onClick }: { label: string; variant: "primary" | "secondary"; href?: string; onClick?: () => void }) {
+function HeroCTA({ label, variant, href, onClick, className }: { label: string; variant: "primary" | "secondary"; href?: string; onClick?: () => void; className?: string }) {
   const [hovered, setHovered] = useState(false);
   const isPrimary = variant === "primary";
   const Tag = onClick ? "button" : "a";
@@ -384,12 +163,12 @@ function HeroCTA({ label, variant, href, onClick }: { label: string; variant: "p
       {...(onClick ? { onClick } : { href })}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      className={`w-full md:w-auto inline-flex items-center justify-center md:justify-start ${className ?? ""}`}
       style={{
         fontFamily: fonts.body, fontSize: 15, fontWeight: 500,
         color: isPrimary ? "#FFFFFF" : C.text,
         backgroundColor: isPrimary ? (hovered ? C.accentHover : C.accent) : (hovered ? "#E8E8E8" : "#F0F0F0"),
         textDecoration: "none", padding: "0 28px", height: 48,
-        display: "inline-flex", alignItems: "center",
         transition: "background-color 0.15s",
         border: "none", cursor: "pointer",
       }}
@@ -538,7 +317,7 @@ function Features() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2, backgroundColor: C.bg }}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px]" style={{ backgroundColor: C.bg }}>
           {FEATURES.map((f, i) => (
             <FeatureCard key={f.title} feature={f} index={i} />
           ))}
@@ -574,7 +353,7 @@ function HowItWorks() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px]">
           {STEPS.map((step, i) => (
             <StepCard key={step.num} step={step} index={i} />
           ))}
@@ -654,7 +433,7 @@ function Processing() {
         </FadeIn>
 
         <FadeIn delay={0.1}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-[2px]">
             {/* Left: pipeline */}
             <div style={{ backgroundColor: C.bgAlt, padding: "32px 32px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 18 }}>
               {steps.map((s, i) => (
@@ -714,7 +493,7 @@ function _SpeedA() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Top row: 3 big colored blocks */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px]">
         {stats.map((s, i) => {
           const [hovered, setHovered] = useState(false);
           return (
@@ -741,7 +520,7 @@ function _SpeedA() {
         })}
       </div>
       {/* Bottom row: 3 white spec blocks */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px]">
         {specs.map((s, i) => {
           const [hovered, setHovered] = useState(false);
           return (
@@ -828,7 +607,7 @@ function SpeedB() {
       </FadeIn>
 
       {/* Horizontal spec strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 2 }}>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-[2px]">
         {specs.map((s, i) => (
           <FadeIn key={s.label} delay={0.4 + i * 0.05}>
             <div style={{ backgroundColor: "#FFFFFF", padding: "24px 20px" }}>
@@ -885,7 +664,7 @@ function SpeedC() {
       </FadeIn>
 
       {/* Spec grid below */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 2 }}>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-[2px]">
         {specs.map((s, i) => {
           const [hovered, setHovered] = useState(false);
           return (
@@ -1200,7 +979,7 @@ function PricingSection() {
           </div>
         </FadeIn>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px]">
           {(["free", "pro", "studio"] as HomePlanId[]).map((id, i) => (
             <FadeIn key={id} delay={i * 0.08}>
               <HomePlanCard planId={id} annual={annual} localPrices={localPrices} />
