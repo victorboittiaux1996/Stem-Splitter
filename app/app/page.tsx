@@ -1454,8 +1454,8 @@ export default function AbletonDashboard() {
                           </AnimatePresence>
                         </div>
                       </div>
-                      <div className="flex items-center gap-[10px]">
-                        <span style={{ fontSize: 13, color: C.textMuted }}>
+                      <div className="flex w-full items-center gap-[10px] md:w-auto">
+                        <span className="hidden md:inline" style={{ fontSize: 13, color: C.textMuted }}>
                           {urlDurationLoading
                             ? "..."
                             : playlistTracks.length > 0
@@ -1465,7 +1465,7 @@ export default function AbletonDashboard() {
                                 : isValidUrl ? "Credits deducted after processing" : ""}
                         </span>
                         <button onClick={handleSplit} disabled={!canSplit}
-                          className="flex items-center gap-[6px] px-[16px] py-[8px] transition-all disabled:cursor-not-allowed"
+                          className="flex w-full items-center justify-center gap-[6px] py-[12px] md:w-auto md:py-[8px] md:px-[16px] transition-all disabled:cursor-not-allowed"
                           style={{ backgroundColor: canSplit ? C.accent : (isDark ? "#242424" : "#E0E0E0"), color: canSplit ? C.accentText : C.textMuted, fontSize: 15, fontWeight: 600, letterSpacing: "0.03em" }}>
                           SPLIT
                         </button>

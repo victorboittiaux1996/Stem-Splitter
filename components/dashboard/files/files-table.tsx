@@ -105,19 +105,16 @@ export function FilesTable(props: Props) {
   );
 
   return (
-    <div className="overflow-x-auto">
-      {/* Column headers — minimum width below preserves the table layout
-          when the viewport shrinks (mobile gets horizontal scroll instead
-          of squashed columns). */}
+    <div>
+      {/* Column headers — desktop only. On mobile the data is rendered as cards. */}
       <div
-        className="flex items-center px-[16px] py-[8px] select-none"
+        className="hidden lg:flex items-center px-[16px] py-[8px] select-none"
         style={{
           color: C.textMuted,
           fontSize: 12,
           fontWeight: 500,
           letterSpacing: "0.05em",
           borderBottom: `1px solid ${C.text}08`,
-          minWidth: 540,
         }}
       >
         <button
@@ -167,21 +164,90 @@ export function FilesTable(props: Props) {
       {/* Rows */}
       {items.map((item, i) => {
         const isTrackSelected = selectedTracks.has(item.id);
+        const rowBg = anySelected ? (isTrackSelected ? C.bgCard : C.bgSubtle) : C.bgCard;
+        const rowBorder = i < items.length - 1 ? { borderBottom: `1px solid ${C.text}08` } : {};
         return (
+          <div key={item.id}>
+          {/* Mobile card layout (<lg) */}
           <div
-            key={item.id}
-            className="flex items-center transition-colors"
+            className="lg:hidden flex items-start gap-3 px-4 py-3 transition-colors cursor-pointer"
+            style={{ ...rowBorder, backgroundColor: rowBg }}
+            onClick={() => onOpenFile(item.id)}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleTrack(item.id); }}
+              className="shrink-0 flex items-center justify-center min-h-11 min-w-11 -ml-2"
+              aria-label={isTrackSelected ? "Deselect" : "Select"}
+            >
+              <Checkbox checked={isTrackSelected} C={C} />
+            </button>
+            <div
+              className="flex items-center justify-center shrink-0"
+              style={{ height: 36, width: 36, backgroundColor: C.bgHover }}
+            >
+              <svg width="20" height="2" viewBox="0 0 20 2" fill="none">
+                <line x1="0" y1="1" x2="20" y2="1" stroke={C.textMuted} strokeWidth="0.7" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="truncate" style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
+                {item.name}
+              </p>
+              <p style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>
+                {item.date} · {item.stems} stems
+              </p>
+              <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 6, fontSize: 12, color: C.textMuted }}>
+                <span>{item.bpm != null ? `${Math.round(item.bpm)} BPM` : "— BPM"}</span>
+                <span style={{ opacity: 0.4 }}>·</span>
+                <span onClick={(e) => e.stopPropagation()}>
+                  <KeyBadge
+                    camelot={item.key}
+                    keyRaw={item.key_raw}
+                    notation={keyNotation}
+                    onCycle={cycleKeyNotation}
+                    C={C}
+                  />
+                </span>
+                <span style={{ opacity: 0.4 }}>·</span>
+                <span>{item.duration ?? "—"}</span>
+              </div>
+              <div className="flex items-center gap-1 mt-2 -ml-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRowShare(item.id); }}
+                  disabled={!isPro || sharingId === item.id}
+                  className="min-h-11 min-w-11 flex items-center justify-center transition-colors"
+                  style={{ color: C.textMuted, opacity: !isPro ? 0.3 : item.shareLinkId ? 1 : 0.45, cursor: !isPro ? "not-allowed" : "pointer" }}
+                  title={!isPro ? "Public sharing requires a Pro plan" : item.shareLinkId ? "Copy public link" : "Generate public link"}
+                >
+                  {sharingId === item.id ? <SpinnerIcon size={16} color={C.textMuted} /> : <LinkIcon size={16} color={C.textMuted} />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRowDownload(item.id); }}
+                  disabled={downloadingId === item.id}
+                  className="min-h-11 min-w-11 flex items-center justify-center transition-colors disabled:cursor-wait"
+                  style={{ color: C.textMuted }}
+                  title="Download all stems (ZIP)"
+                >
+                  {downloadingId === item.id ? <SpinnerIcon size={16} color={C.textMuted} /> : <DownloadIcon size={16} color={C.textMuted} />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRowDelete(item.id); }}
+                  className="min-h-11 min-w-11 flex items-center justify-center transition-colors"
+                  style={{ color: C.textMuted }}
+                  title="Delete file"
+                >
+                  <TrashIcon size={16} color={C.textMuted} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop table row (≥lg) */}
+          <div
+            className="hidden lg:flex items-center transition-colors"
             style={{
-              ...(i < items.length - 1 ? { borderBottom: `1px solid ${C.text}08` } : {}),
-              // Default (nothing selected): all rows bright (bgCard).
-              // As soon as ≥1 track is selected: selected rows stay bright, others dim to bgSubtle.
-              // Same logic in light + dark — tokens carry the palette.
-              backgroundColor: anySelected
-                ? isTrackSelected
-                  ? C.bgCard
-                  : C.bgSubtle
-                : C.bgCard,
-              minWidth: 540,
+              ...rowBorder,
+              backgroundColor: rowBg,
             }}
           >
             {/* Left zone — click anywhere here toggles selection. Covers the
@@ -296,6 +362,7 @@ export function FilesTable(props: Props) {
                 </button>
               </div>
             </div>
+          </div>
           </div>
         );
       })}
