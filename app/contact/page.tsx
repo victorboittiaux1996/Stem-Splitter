@@ -98,10 +98,8 @@ export default function ContactPage() {
                   ].map((row, i) => (
                     <div
                       key={row.topic}
+                      className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-1 md:gap-6"
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "160px 1fr",
-                        gap: 24,
                         padding: "14px 0",
                         borderTop: i === 0 ? `1px solid ${C.border}` : undefined,
                         borderBottom: `1px solid ${C.border}`,

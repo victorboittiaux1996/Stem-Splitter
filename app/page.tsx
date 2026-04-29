@@ -209,7 +209,7 @@ function TrustBar() {
               Built for producers using
             </p>
             {/* Marquee container */}
-            <div style={{ overflow: "hidden", flex: 1, maskImage: "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)" }}>
+            <div style={{ overflow: "hidden", flex: 1, minWidth: 0, maskImage: "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)" }}>
               <motion.div
                 animate={{ x: ["0%", "-50%"] }}
                 transition={{ duration: 25, ease: "linear", repeat: Infinity }}

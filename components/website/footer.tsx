@@ -57,25 +57,17 @@ export function Footer() {
     >
       {/* Main content */}
       <div
+        className="px-4 md:px-10 pt-12 md:pt-20"
         style={{
           maxWidth: "1200px",
           marginLeft: "auto",
           marginRight: "auto",
-          paddingTop: "80px",
-          paddingLeft: "40px",
-          paddingRight: "40px",
           paddingBottom: "40px",
         }}
       >
         {/* Grid columns */}
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: "40px",
-            marginBottom: "40px",
-            textAlign: "center",
-          }}
+          className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10 mb-10 text-center"
         >
           {sections.map((section) => (
             <div key={section.title}>
@@ -133,20 +125,14 @@ export function Footer() {
 
         {/* Bottom bar */}
         <div
+          className="flex flex-wrap items-center justify-center gap-y-2"
           style={{
             borderTop: `1px solid ${T.border}`,
             paddingTop: "24px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
           }}
         >
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "16px",
-            }}
+            className="flex flex-wrap items-center justify-center gap-2 md:gap-4 text-center"
           >
             <Logo size="sm" color={T.textMuted} monochrome />
             <span

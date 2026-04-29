@@ -200,10 +200,8 @@ export default function PrivacyPage() {
                   ].map((p, i) => (
                     <div
                       key={p.name}
+                      className="grid grid-cols-1 md:grid-cols-[160px_1fr_120px] gap-1 md:gap-4"
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "160px 1fr 120px",
-                        gap: 16,
                         padding: "12px 0",
                         borderTop: i === 0 ? `1px solid ${C.border}` : undefined,
                         borderBottom: `1px solid ${C.border}`,

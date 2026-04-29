@@ -137,7 +137,7 @@ export default function AboutPage() {
                       body: "Drag a file. Get stems. No configuration panels, no obscure presets, no unnecessary decisions. The complexity lives in the model, not in the interface.",
                     },
                   ].map((v) => (
-                    <div key={v.title} style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 24 }}>
+                    <div key={v.title} className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-6">
                       <span style={{ fontFamily: fonts.heading, fontWeight: 700, color: C.text, fontSize: 15 }}>{v.title}</span>
                       <p style={{ margin: 0 }}>{v.body}</p>
                     </div>

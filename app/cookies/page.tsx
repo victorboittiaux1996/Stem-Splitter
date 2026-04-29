@@ -137,7 +137,8 @@ export default function CookiesPage() {
                 <p>We use a minimal set of cookies and browser storage. Here is a complete list:</p>
 
                 {/* Table */}
-                <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 0 }}>
+                <div className="overflow-x-auto" style={{ marginTop: 16 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 0, minWidth: 540 }}>
                   {/* Header */}
                   <div style={{
                     display: "grid",
@@ -187,6 +188,7 @@ export default function CookiesPage() {
                       <span style={{ color: row.type === "Essential" ? C.accent : C.textMuted }}>{row.type}</span>
                     </div>
                   ))}
+                  </div>
                 </div>
 
                 <p style={{ marginTop: 16 }}>
