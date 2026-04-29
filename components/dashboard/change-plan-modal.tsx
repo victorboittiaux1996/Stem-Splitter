@@ -131,53 +131,22 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
 
-  // Promo code state — collapsible input, only appears when the user opens it.
-  const [promoOpen, setPromoOpen] = React.useState(false);
-  const [promoInput, setPromoInput] = React.useState("");
-  // `appliedCode` is the code actually applied to the preview. Empty until
-  // the user hits Apply and the backend validates. We re-fetch preview each
-  // time it changes so the modal totals always reflect the exact invoice.
-  const [appliedCode, setAppliedCode] = React.useState<string>("");
-  const [validatingPromo, setValidatingPromo] = React.useState(false);
-
-  const fetchPreview = React.useCallback((codeToApply: string) => {
+  const fetchPreview = React.useCallback(() => {
     if (!targetPlan) return;
     setLoading(true);
-    // [PREVIEW DEBUG] — ?debug=1 makes the API include `_debug.raw.*` with
-    // the full Stripe createPreview output in the response. Visible in
-    // DevTools → Network → preview → Response. Removed at étape 7.
-    fetch("/api/subscription/preview?debug=1", {
+    fetch("/api/subscription/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         plan: targetPlan,
         billing: targetBilling,
-        ...(codeToApply ? { discountCode: codeToApply } : {}),
       }),
     })
       .then((r) => r.json())
       .then((data) => {
-        // [PREVIEW DEBUG] — print full Stripe debug payload to console so
-        // Victor can copy/paste from DevTools without using Network tab.
-        // Removed at étape 7.
-        if (data?._debug) {
-          // eslint-disable-next-line no-console
-          console.log("===== PREVIEW DEBUG START =====");
-          // eslint-disable-next-line no-console
-          console.log(JSON.stringify(data._debug, null, 2));
-          // eslint-disable-next-line no-console
-          console.log("===== PREVIEW DEBUG END =====");
-        }
         if (data.error) {
-          // Preview-level error on the code → clear it, keep the modal open.
-          if (codeToApply) {
-            toast.error(data.error);
-            setAppliedCode("");
-            setPromoInput("");
-          } else {
-            toast.error(data.error);
-            onClose();
-          }
+          toast.error(data.error);
+          onClose();
           return;
         }
         setPreview(data);
@@ -188,36 +157,18 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
       })
       .finally(() => {
         setLoading(false);
-        setValidatingPromo(false);
       });
   }, [targetPlan, targetBilling, onClose]);
 
   React.useEffect(() => {
     if (!open || !targetPlan) {
       setPreview(null);
-      setPromoOpen(false);
-      setPromoInput("");
-      setAppliedCode("");
       return;
     }
-    fetchPreview("");
+    fetchPreview();
   }, [open, targetPlan, targetBilling, fetchPreview]);
 
   if (!targetPlan) return null;
-
-  const handleApplyPromo = () => {
-    const code = promoInput.trim();
-    if (!code) return;
-    setValidatingPromo(true);
-    setAppliedCode(code);
-    fetchPreview(code);
-  };
-
-  const handleRemovePromo = () => {
-    setAppliedCode("");
-    setPromoInput("");
-    fetchPreview("");
-  };
 
   const handleConfirm = async () => {
     if (!preview) return;
@@ -248,7 +199,6 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
           plan: targetPlan,
           billing: targetBilling,
           action: "change",
-          ...(appliedCode ? { discountCode: appliedCode } : {}),
           ...(typeof preview.prorationDate === "number" ? { prorationDate: preview.prorationDate } : {}),
         }),
       });
@@ -348,64 +298,25 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                     suffix per line "(X% off)" and as a small caption under
                     Total — matches Stripe Portal / Linear UX convention. ── */}
                 {paysToday && preview.lines && (
-                  <div style={{ marginBottom: 16 }}>
-                    {/* ── Prominent discount banner — shown above the breakdown
-                        when the sub has an active discount (instead of a small
-                        grey caption at the bottom). All values come straight
-                        from preview.appliedDiscount: label and percentOff are
-                        from Stripe sub.discounts. No client-side math. ── */}
-                    {preview.appliedDiscount && (
-                      <div style={{
-                        backgroundColor: `${C.accent}15`,
-                        borderLeft: `3px solid ${C.accent}`,
-                        padding: "10px 14px",
-                        marginBottom: 12,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                      }}>
-                        <div style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: C.accent,
-                          letterSpacing: "0.04em",
-                          textTransform: "uppercase" as const,
-                          padding: "3px 7px",
-                          backgroundColor: `${C.accent}25`,
-                          flexShrink: 0,
-                        }}>
-                          {typeof preview.appliedDiscount.percentOff === "number"
-                            ? `${preview.appliedDiscount.percentOff}% OFF`
-                            : preview.appliedDiscount.amountOffMinor != null && preview.appliedDiscount.amountOffCurrency
-                            ? `${formatMoney(preview.appliedDiscount.amountOffMinor / 100, preview.appliedDiscount.amountOffCurrency)} OFF`
-                            : "PROMO"}
-                        </div>
-                        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4 }}>
-                          Promo <span style={{ fontWeight: 600 }}>{preview.appliedDiscount.label}</span> applied to all amounts below.
-                        </div>
-                      </div>
-                    )}
-
-                    <div style={{ backgroundColor: C.bgSubtle, padding: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
-                        Today's charge
-                      </div>
-
-                      {preview.lines.map((line, i) => (
-                        <LineRow
-                          key={i}
-                          line={line}
-                          discount={preview.appliedDiscount ?? null}
-                          currency={preview.currency}
-                          C={C}
-                        />
-                      ))}
-
-                      <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
-
-                      <Row label="Tax" value={fmt((preview.taxMinor ?? 0) / 100)} C={C} />
-                      <Row label="Total today" value={fmt((preview.totalMinor ?? 0) / 100)} C={C} bold />
+                  <div style={{ backgroundColor: C.bgSubtle, padding: 16, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
+                      Today's charge
                     </div>
+
+                    {preview.lines.map((line, i) => (
+                      <LineRow
+                        key={i}
+                        line={line}
+                        discount={preview.appliedDiscount ?? null}
+                        currency={preview.currency}
+                        C={C}
+                      />
+                    ))}
+
+                    <div style={{ height: 1, backgroundColor: C.text, opacity: 0.08, margin: "12px 0" }} />
+
+                    <Row label="Tax" value={fmt((preview.taxMinor ?? 0) / 100)} C={C} />
+                    <Row label="Total today" value={fmt((preview.totalMinor ?? 0) / 100)} C={C} bold />
                   </div>
                 )}
 
@@ -421,13 +332,11 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   </div>
                 ) : null}
 
-                {/* ── Next billing — always visible (except "same"). When the
-                    customer has an active discount, we show TWO amounts:
-                    sticker price (subtotal from Stripe) AND the actual amount
-                    Stripe will charge at renewal (total from Stripe, with the
-                    discount automatically applied). Both numbers come from a
-                    2nd stripe.invoices.createPreview call (proration_behavior:
-                    none) — zero math on our side. ── */}
+                {/* ── Next billing — always visible (except "same"). The amount
+                    is the actual charge Stripe will apply at renewal (total
+                    from a 2nd createPreview call with proration_behavior=none).
+                    If a discount is active, an inline "X% OFF" badge appears
+                    next to the amount, sourced from Stripe sub.discounts. ── */}
                 {preview.kind !== "same" && preview.nextBillingDate && (
                   <div style={{ backgroundColor: C.bgSubtle, padding: 14, marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase" as const }}>
@@ -435,7 +344,7 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                     </div>
                     <div style={{ fontSize: 13, color: C.text, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                       <span>{formatDate(preview.nextBillingDate)}</span>
-                      <span style={{ fontWeight: 600 }}>
+                      <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
                         {fmt(
                           typeof preview.nextBillingChargeMinor === "number"
                             ? preview.nextBillingChargeMinor / 100
@@ -443,24 +352,11 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                             ? preview.nextBillingAmountMinor / 100
                             : (preview.nextBillingAmountMajor ?? 0)
                         )} {preview.targetBilling === "annual" ? "/ year" : "/ month"}
+                        {preview.appliedDiscount && typeof preview.appliedDiscount.percentOff === "number" && (
+                          <PromoBadge percentOff={preview.appliedDiscount.percentOff} C={C} />
+                        )}
                       </span>
                     </div>
-                    {/* If discount applies, show sticker (what it would be without promo)
-                        + a clear note. The "charged" amount above already includes the
-                        discount. */}
-                    {preview.appliedDiscount && typeof preview.nextBillingChargeMinor === "number"
-                      && typeof preview.nextBillingStickerMinor === "number"
-                      && preview.nextBillingChargeMinor !== preview.nextBillingStickerMinor && (
-                      <div style={{ fontSize: 11, color: C.textMuted, opacity: 0.75, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
-                        <span>
-                          Sticker {fmt(preview.nextBillingStickerMinor / 100)}
-                          {preview.targetBilling === "annual" ? "/year" : "/month"}
-                          {typeof preview.appliedDiscount.percentOff === "number"
-                            ? ` — ${preview.appliedDiscount.percentOff}% off applied by Stripe`
-                            : " — promo applied by Stripe"}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -471,79 +367,6 @@ export function ChangePlanModal({ open, onClose, targetPlan, targetBilling, C, o
                   <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
                     {preview.notice}
                   </p>
-                )}
-
-                {/* ── Promo code input — collapsible, only for flows that pay today ── */}
-                {paysToday && (
-                  <div style={{ marginBottom: 16 }}>
-                    {!promoOpen && !appliedCode && (
-                      <button
-                        onClick={() => setPromoOpen(true)}
-                        style={{
-                          background: "none", border: "none", padding: 0,
-                          fontSize: 12, color: C.textMuted, cursor: "pointer",
-                          textDecoration: "underline", letterSpacing: "0.02em",
-                        }}
-                      >
-                        I have a promo code
-                      </button>
-                    )}
-                    {appliedCode && !promoOpen && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                        <span style={{ color: C.accent, fontWeight: 600 }}>✓ {appliedCode} applied</span>
-                        <button
-                          onClick={handleRemovePromo}
-                          style={{
-                            background: "none", border: "none", padding: 0,
-                            fontSize: 12, color: C.textMuted, cursor: "pointer",
-                            textDecoration: "underline",
-                          }}
-                        >
-                          remove
-                        </button>
-                      </div>
-                    )}
-                    {promoOpen && (
-                      <div className="flex items-center gap-[6px]">
-                        <input
-                          type="text"
-                          value={promoInput}
-                          onChange={(e) => setPromoInput(e.target.value)}
-                          placeholder="Promo code"
-                          disabled={validatingPromo || submitting}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleApplyPromo(); }}
-                          style={{
-                            flex: 1, padding: "10px 12px", fontSize: 13,
-                            backgroundColor: C.bgSubtle, color: C.text,
-                            border: `1px solid ${C.text}14`,
-                            letterSpacing: "0.04em", textTransform: "uppercase",
-                          }}
-                        />
-                        <button
-                          onClick={handleApplyPromo}
-                          disabled={!promoInput.trim() || validatingPromo || submitting}
-                          style={{
-                            padding: "10px 14px", fontSize: 12, fontWeight: 600,
-                            backgroundColor: C.bgHover, color: C.text, border: "none",
-                            cursor: (!promoInput.trim() || validatingPromo) ? "not-allowed" : "pointer",
-                            opacity: (!promoInput.trim() || validatingPromo) ? 0.5 : 1,
-                          }}
-                        >
-                          {validatingPromo ? "…" : "Apply"}
-                        </button>
-                        <button
-                          onClick={() => { setPromoOpen(false); if (!appliedCode) setPromoInput(""); }}
-                          style={{
-                            padding: "10px 12px", fontSize: 12, fontWeight: 600,
-                            backgroundColor: "transparent", color: C.textMuted, border: "none",
-                            cursor: "pointer",
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    )}
-                  </div>
                 )}
 
                 {/* ── CTAs ── */}
@@ -598,11 +421,11 @@ function Row({ label, value, C, bold, accent }: { label: string; value: string; 
   );
 }
 
-// One row in the breakdown — shows the plan/credit name + period as the
-// primary label, the Stripe-charged amount on the right, and a subtitle
-// underneath with the sticker price + discount note. All values are pulled
-// from the preview API response (which itself is a passthrough of Stripe's
-// createPreview output). NO client-side math.
+// One row in the breakdown — plan/credit label + period + optional inline
+// "X% OFF" badge (when sub has a percent_off discount). The badge text and %
+// come directly from preview.appliedDiscount.percentOff (= Stripe coupon
+// percent_off). The amount on the right is preview.lines[i].amount divided
+// by 100 for display. ZERO client-side math.
 function LineRow({
   line,
   discount,
@@ -617,38 +440,44 @@ function LineRow({
   const fmt = (v: number) => formatMoney(v, currency);
   const amountLabel = `${line.isCredit ? "−" : ""}${fmt(Math.abs(line.amountMinor) / 100)}`;
   const periodLabel = formatLinePeriod(line);
-
-  // Sticker subtitle: "Sticker 14,99 €/mo · 75% off applied"
-  // - Sticker price comes from line.fullPriceMinor (Stripe Price.unit_amount)
-  // - Discount % comes from discount.percentOff (Stripe sub.discounts coupon)
-  // - Both are pure metadata, no math derivation.
-  const stickerParts: string[] = [];
-  if (typeof line.fullPriceMinor === "number" && line.fullPriceMinor > 0) {
-    const intervalSuffix = line.billingInterval === "annual" ? "/yr" : "/mo";
-    stickerParts.push(`Sticker ${fmt(line.fullPriceMinor / 100)}${intervalSuffix}`);
-  }
-  if (discount && typeof discount.percentOff === "number") {
-    stickerParts.push(`${discount.percentOff}% off applied`);
-  }
-  const stickerSubtitle = stickerParts.join(" · ");
+  const showBadge = discount && typeof discount.percentOff === "number";
 
   return (
-    <div style={{ paddingTop: 6, paddingBottom: 6 }}>
-      <div className="flex items-center justify-between">
-        <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>
-          {line.label}
-          {periodLabel && (
-            <span style={{ color: C.textMuted, opacity: 0.7 }}>{` ${periodLabel}`}</span>
-          )}
-        </span>
-        <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{amountLabel}</span>
-      </div>
-      {stickerSubtitle && (
-        <div style={{ fontSize: 11, color: C.textMuted, opacity: 0.7, marginTop: 2 }}>
-          {stickerSubtitle}
-        </div>
-      )}
+    <div className="flex items-center justify-between" style={{ paddingTop: 6, paddingBottom: 6 }}>
+      <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500, paddingRight: 12 }}>
+        {line.label}
+        {periodLabel && (
+          <span style={{ color: C.textMuted, opacity: 0.7, fontWeight: 400 }}>{` ${periodLabel}`}</span>
+        )}
+        {showBadge && discount && (
+          <PromoBadge percentOff={discount.percentOff!} C={C} />
+        )}
+      </span>
+      <span style={{ fontSize: 13, color: C.text, fontWeight: 600, whiteSpace: "nowrap" }}>{amountLabel}</span>
     </div>
+  );
+}
+
+// Small accent-colored "X% OFF" pill, inline next to the line label.
+// percentOff comes straight from Stripe sub.discounts[0].coupon.percent_off
+// (surfaced via preview.appliedDiscount). No coupon name shown.
+function PromoBadge({ percentOff, C }: { percentOff: number; C: C }) {
+  return (
+    <span style={{
+      display: "inline-block",
+      fontSize: 10,
+      fontWeight: 700,
+      color: C.accent,
+      backgroundColor: `${C.accent}25`,
+      padding: "2px 7px",
+      marginLeft: 8,
+      letterSpacing: "0.04em",
+      textTransform: "uppercase" as const,
+      verticalAlign: 2,
+      whiteSpace: "nowrap",
+    }}>
+      {percentOff}% OFF
+    </span>
   );
 }
 

@@ -97,11 +97,6 @@ async function extractActiveSubDiscount(
 }
 
 export async function POST(req: NextRequest) {
-  // [PREVIEW DEBUG] — temp diagnostic. Pass ?debug=1 in the URL to include
-  // the raw Stripe createPreview response in the JSON returned to the client.
-  // Removed at étape 7 of the modal-upgrade fix plan.
-  const debugMode = req.nextUrl.searchParams.get("debug") === "1";
-
   try {
     const user = await getAuthUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -359,36 +354,6 @@ export async function POST(req: NextRequest) {
       nextRegularInvoice = null;
     }
 
-    // [PREVIEW DEBUG] — temporary, removed after étape 7. Captures raw Stripe
-    // response so we can see EXACTLY what lines/discounts/taxes/total Stripe
-    // returns for each upgrade kind, instead of guessing. Past 5 days of
-    // failed fixes happened because nobody read this output.
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    console.log("[PREVIEW DEBUG]", JSON.stringify({
-      kind,
-      currentPriceId,
-      targetPriceId,
-      subscription: {
-        id: currentSub.id,
-        discounts: (currentSub as any).discounts,
-      },
-      raw: {
-        lines: preview.lines.data.map((l: any) => ({
-          description: l.description,
-          amount: l.amount,
-          proration: l.proration,
-          period: l.period,
-          discount_amounts: l.discount_amounts,
-        })),
-        subtotal: preview.subtotal,
-        total_discount_amounts: preview.total_discount_amounts,
-        total_taxes: preview.total_taxes,
-        total: preview.total,
-        currency: preview.currency,
-      },
-    }, null, 2));
-    /* eslint-enable @typescript-eslint/no-explicit-any */
-
     const currency = (preview.currency ?? subCurrency ?? "usd").toLowerCase();
     const totalMinor = preview.total ?? 0;
     const taxMinor = (preview.total_taxes ?? []).reduce(
@@ -490,10 +455,6 @@ export async function POST(req: NextRequest) {
 
       prorationDate,
       notice: buildUpgradeNotice(kind, currentPlan, targetPlan, targetBilling),
-
-      // [PREVIEW DEBUG] — diagnostic block, only when ?debug=1.
-      // Removed once Victor confirms the new modal renders correctly on prod.
-      ...(debugMode ? buildDebugPayload(currentSub, previewParams, preview) : {}),
     });
   } catch (err) {
     console.error("Preview error:", err);
@@ -503,79 +464,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to compute preview" }, { status: 500 });
   }
 }
-
-// [PREVIEW DEBUG] — temp helper, removed at étape 7. Returns _debug payload
-// containing every raw Stripe field we need to fix the modal correctly.
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function buildDebugPayload(
-  currentSub: Stripe.Subscription,
-  previewParams: Stripe.InvoiceCreatePreviewParams,
-  preview: Stripe.Invoice,
-): { _debug: unknown } {
-  return {
-    _debug: {
-      currentSub: {
-        id: currentSub.id,
-        currency: currentSub.currency,
-        cancel_at_period_end: currentSub.cancel_at_period_end,
-        billing_cycle_anchor: currentSub.billing_cycle_anchor,
-        items: currentSub.items.data.map((it: any) => ({
-          id: it.id,
-          price_id: it.price.id,
-          price_unit_amount: it.price.unit_amount,
-          price_currency: it.price.currency,
-          price_recurring: it.price.recurring,
-          current_period_start: it.current_period_start,
-          current_period_end: it.current_period_end,
-        })),
-        discounts: (currentSub as any).discounts,
-      },
-      previewParams: {
-        subscription: previewParams.subscription,
-        subscription_details: previewParams.subscription_details,
-        automatic_tax: previewParams.automatic_tax,
-        discounts: previewParams.discounts,
-      },
-      raw: {
-        subtotal: preview.subtotal,
-        subtotal_excluding_tax: preview.subtotal_excluding_tax,
-        total: preview.total,
-        total_excluding_tax: preview.total_excluding_tax,
-        amount_due: preview.amount_due,
-        amount_paid: preview.amount_paid,
-        amount_remaining: preview.amount_remaining,
-        currency: preview.currency,
-        total_discount_amounts: preview.total_discount_amounts,
-        total_taxes: preview.total_taxes,
-        discount: (preview as any).discount,
-        discounts: (preview as any).discounts,
-        lines: preview.lines.data.map((l: any) => ({
-          id: l.id,
-          description: l.description,
-          amount: l.amount,
-          amount_excluding_tax: l.amount_excluding_tax,
-          currency: l.currency,
-          proration: l.proration,
-          proration_details: l.proration_details,
-          period: l.period,
-          quantity: l.quantity,
-          price: l.price
-            ? {
-                id: l.price.id,
-                unit_amount: l.price.unit_amount,
-                currency: l.price.currency,
-              }
-            : null,
-          discount_amounts: l.discount_amounts,
-          discounts: l.discounts,
-          tax_amounts: l.tax_amounts,
-          taxes: l.taxes,
-        })),
-      },
-    },
-  };
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 async function computeMinutesLost(
   userId: string,
