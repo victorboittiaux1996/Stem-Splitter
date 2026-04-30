@@ -152,7 +152,7 @@ function PlanCard({ planId, annual, localPrices }: { planId: PlanId; annual: boo
 
   let price: string;
   if (planId === "free") {
-    price = "$0";
+    price = formatCurrency(0, localPrices?.currency ?? "usd");
   } else if (local) {
     price = local.display;
   } else {

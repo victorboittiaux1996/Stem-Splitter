@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { stemColors } from "./theme";
 import { PLANS } from "@/lib/plans";
-import { useLocalPrices } from "@/hooks/use-local-prices";
+import { useLocalPrices, formatCurrency } from "@/hooks/use-local-prices";
 
 const F = "var(--font-futura), sans-serif";
 
@@ -37,13 +37,14 @@ function buildTiers(local: LocalPricesShape) {
     const p = local?.prices[key];
     return p ? p.display : `$${fallbackUSD}`;
   };
+  const zero = formatCurrency(0, local?.currency ?? "usd");
   return [
     {
       id: "free" as const,
       name: PLANS.free.label,
       tagline: PLANS.free.tagline,
-      monthlyPrice: "$0",
-      yearlyPrice: "$0",
+      monthlyPrice: zero,
+      yearlyPrice: zero,
       period: "forever",
       highlighted: false,
       badge: null,
